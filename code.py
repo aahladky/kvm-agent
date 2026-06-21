@@ -15,6 +15,9 @@ Changes vs v2:
   - WiFi resilience: toggle the radio off/on before connecting (clears the
     CircuitPython CYW43 "Unknown failure 1" state left by a soft reload), and
     hard-reset after MAX_FAILS consecutive failures for a clean boot.
+  - Caps-Lock self-correct: type_text reads the target's Caps Lock LED (the OS reports it
+    back over HID) and taps it off before typing, so text matches the REQUESTED case instead
+    of inverting when the target's Caps Lock is on. "capslock" also added to the named keys.
 
 Protocol (newline-terminated): M x,y / C / R / D / U / K name / T text /
   X k1+k2 / S ticks / H
@@ -105,6 +108,7 @@ _NAMED = {
     "enter": Keycode.ENTER, "return": Keycode.ENTER, "esc": Keycode.ESCAPE,
     "escape": Keycode.ESCAPE, "tab": Keycode.TAB, "space": Keycode.SPACE,
     "backspace": Keycode.BACKSPACE, "delete": Keycode.DELETE,
+    "capslock": Keycode.CAPS_LOCK, "caps_lock": Keycode.CAPS_LOCK,
     "up": Keycode.UP_ARROW, "down": Keycode.DOWN_ARROW,
     "left": Keycode.LEFT_ARROW, "right": Keycode.RIGHT_ARROW,
     "home": Keycode.HOME, "end": Keycode.END,
@@ -127,8 +131,24 @@ def _keycode_for(token):
         return getattr(Keycode, t.upper(), None)
     return None
 
+def _clear_caps_lock():
+    """Tap Caps Lock OFF if the target reports its LED on, so typed text matches the
+    REQUESTED case. KeyboardLayoutUS.write() presses Shift for capitals and nothing for
+    lowercase; if the target's Caps Lock is on, that inverts every letter (e.g. lowercase
+    'milk' -> 'MILK'). The target OS reports its keyboard LED state back over HID, so the
+    Pico reads it and self-corrects — no guessing. Wrapped in try/except: if a host never
+    reports LED status we simply skip (typing still works; only the inversion case is left)."""
+    try:
+        if kbd.led_on(Keyboard.LED_CAPS_LOCK):
+            print("  caps-lock ON at target -> clearing")
+            kbd.press(Keycode.CAPS_LOCK); time.sleep(0.02); kbd.release_all()
+            time.sleep(0.05)
+    except Exception as e:
+        print("  caps-lock check skipped:", e)
+
 def type_text(s):
     from adafruit_hid.keyboard_layout_us import KeyboardLayoutUS
+    _clear_caps_lock()
     KeyboardLayoutUS(kbd).write(s)
 
 def combo(spec):

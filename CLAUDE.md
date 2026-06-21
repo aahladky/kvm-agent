@@ -5,6 +5,65 @@ What this project is
 A KVM-over-IP-style computer-use agent where nothing is installed on the target machine. A vision model sees the target's screen via HDMI capture, decides actions, and a physical USB-HID device injects mouse/keyboard. Target sees only a monitor + a USB mouse/keyboard — undetectable, OS-agnostic. Pure curiosity project, no practical application.
 
 ═══════════════════════════════════════════════════════════════
+★★★ READ FIRST — 2026-06-21 (late): CONSOLIDATED INTO kvm_agent/ PACKAGE ★★★
+═══════════════════════════════════════════════════════════════
+The flat root modules are now ONE package: `kvm_agent/`. The loose .py files this doc
+references below (executive.py, planner.py, pico_env.py, r4_client.py, uitars_agent.py,
+evocua_agent.py, cua_agent.py) STILL EXIST at root but are now 3-line back-compat SHIMS
+that re-export from the package — the REAL code moved. Verified end-to-end: `python
+measure.py --k 10` = **10/10 = 100%** on the packaged code (runs/measure_20260621_075842).
+
+LAYOUT — canonical code now lives here:
+  kvm_agent/
+    config.py                  ← ALL ips/ports/endpoints/model-names/paths, env-overridable.
+                                  Defaults == the old hardcoded literals, so behavior is identical.
+    hardware/pico_client.py     ← was r4_client.py   (class R4 kept; PicoClient alias added)
+    hardware/env.py             ← was pico_env.py    (Camera + PicoEnv)
+    models/uitars.py            ← was uitars_agent.py
+    models/evocua.py            ← was evocua_agent.py (imports the VENDORED osworld, not a clone)
+    models/factory.py           ← was cua_agent.py   (make_agent)
+    orchestration/planner.py    ← was planner.py
+    orchestration/executive.py  ← was executive.py   (Executive + Verifier)
+    server/app.py               ← was agent_server.py's FastAPI app (the Open WebUI server)
+    llm/ollama.py               shared Ollama/OpenAI client helper (STAGED; wire at the P2 perf step)
+    _vendor/osworld/mm_agents/  the 3 upstream files we actually import (utils, prompts, qwen_vl_utils)
+  Root still holds: the 7 shims, ENTRY POINTS you run (agent_server.py, measure.py, live_ctl.py),
+  FIRMWARE (boot.py, code.py — run on the Pico), pyproject.toml, .gitignore, CLAUDE.md, PROJECT_STATE.md.
+  docs/ = all session/findings/plan notes (moved off root). tools/ = diagnostics. runs/ scratch/ models/
+  = data (gitignored). The 55 MB upstream evocua/ clone was DELETED (vendored down to 3 files).
+
+★ WHERE TO SAVE NEW FILES GOING FORWARD — do NOT recreate the flat-root pattern:
+  - New LIBRARY code → kvm_agent/<area>/: hardware I/O → hardware/, model adapters → models/,
+    planner/executive/verifier → orchestration/, the server → server/, model-endpoint plumbing → llm/.
+  - Any IP / port / model name / path → add a field to kvm_agent/config.py (CFG). NEVER hardcode it
+    in a module again — that sprawl (same endpoint in 8 files, IPs in 10) was the whole reason for this.
+  - Import via the PACKAGE path, e.g. `from kvm_agent.orchestration.executive import Executive`.
+    The root shims are temporary back-compat — do NOT write new imports against them.
+  - Runnable ENTRY POINTS → repo root (or a cli/ folder). FIRMWARE stays boot.py/code.py at root
+    (deployed to the Pico's CIRCUITPY drive). DIAGNOSTICS/harnesses → tools/. TESTS → tests/.
+    NOTES/findings/plans → docs/. Throwaway / run logs → scratch/ or runs/ (both gitignored).
+  - It is a GIT REPO now (was not before): baseline → cutover → cleanup commits on branch
+    `refactor/packaging`. .gitignore excludes models/ (35 GB), runs/, scratch/, evocua/, __pycache__ —
+    keep it that way; never `git add` the model blobs.
+
+ALSO CHANGED THIS SESSION (all in kvm_agent/, verified on the rig):
+  - VERIFY hardened (orchestration/executive.py Verifier): tesseract is AUTO-DISCOVERED
+    (TESSERACT_CMD config → PATH → C:\Program Files\Tesseract-OCR\tesseract.exe), so a
+    winget/UB-Mannheim install works without PATH fiddling; has_text now TRANSCRIBES + substring-
+    matches (both backends) instead of a brittle literal yes/no; read_number uses the VISION model
+    aimed at the display. DO NOT revert read_number to whole-screen OCR (max-by-length grabbed the
+    taskbar date "2026"; max-by-glyph-height grabbed tiny stray digits — both failed, vision is right).
+  - FIRMWARE (code.py — FLASHED + live): type_text reads the target's Caps-Lock LED and taps it OFF
+    before typing, so text matches the requested case (was inverting, e.g. milk → MILK).
+    "capslock"/"caps_lock" added to the named-key table. boot.py untouched.
+  - The shims are removable later (repoint the ~8 importers — agent_server, measure, live_ctl,
+    tools/{operate,run_probe,calibrate_uitars,eval_harness,demo_parser_fix} — to kvm_agent.* and
+    delete the 7 root files); deliberately KEPT for now (zero runtime cost, fully reversible).
+  - Full design + rationale: docs/PLAN_2026-06-21_consolidation_and_optimization.md and
+    docs/PACKAGING_STATUS_2026-06-21.md.
+═══════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════
 ★★★ READ FIRST — 2026-06-20: ARCHITECTURE CHANGE, GOAL ACHIEVED ★★★
 ═══════════════════════════════════════════════════════════════
 Reliable multi-step desktop use is SOLVED for the benchmark task: the multi-app

@@ -51,8 +51,21 @@ class Verifier:
         self.vision_model = vision_model
         self._tess = None
         try:
+            import os, shutil
             import pytesseract  # noqa
             from PIL import Image  # noqa
+            # auto-discover tesseract.exe so a `winget`/UB-Mannheim install works WITHOUT
+            # PATH fiddling: explicit TESSERACT_CMD (config) -> PATH -> standard Windows dirs.
+            from kvm_agent.config import CFG
+            cmd = CFG.tesseract_cmd or shutil.which("tesseract")
+            if not cmd:
+                for p in (r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                          r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"):
+                    if os.path.exists(p):
+                        cmd = p
+                        break
+            if cmd:
+                pytesseract.pytesseract.tesseract_cmd = cmd
             # actually exercise it so a missing tesseract.exe is caught now, not later
             pytesseract.get_tesseract_version()
             self._tess = pytesseract
@@ -71,23 +84,22 @@ class Verifier:
         return out or ""
 
     def has_text(self, png: bytes, expect: str) -> "bool|None":
-        """True/False if we could check; None if no verifier is available."""
-        if self._tess is not None:
-            txt = self.read_text(png)
-            return expect.lower() in txt.lower()
-        ans = self._vision(
-            png, f"Does this screen show the text '{expect}'? Answer ONLY 'yes' or 'no'.")
-        if ans is None:
+        """Substring-match `expect` against the screen's transcribed text. Works for BOTH
+        backends: tesseract OCR when present, else the vision model TRANSCRIBES and we match
+        host-side. (The old vision path asked a strict yes/no about the literal string, which
+        failed on truncated/partial expects like 'hello from the packag' even though
+        'package' was on screen.) None only if nothing could read the screen."""
+        txt = self.read_text(png)
+        if not txt:
             return None
-        return "yes" in ans.lower()
+        return expect.lower() in txt.lower()
 
     def read_number(self, png: bytes) -> "str|None":
-        """Best-effort: the most prominent number on screen (e.g. a calculator display)."""
-        if self._tess is not None:
-            txt = self.read_text(png)
-            nums = re.findall(r"-?\d[\d,]*\.?\d*", txt)
-            nums = [n.replace(",", "") for n in nums]
-            return max(nums, key=len) if nums else None
+        """The number on the calculator DISPLAY — read by the VISION model, which localizes
+        to the display semantically. Whole-screen tesseract can't separate the result from
+        the taskbar clock/date and other clutter (by length it grabbed '2026.'; by glyph
+        height it grabbed tiny stray digits), so for this one we ask the model directly.
+        (Text-presence verify still uses the fast tesseract path.)"""
         ans = self._vision(
             png, "What number is shown on the calculator display? Reply with ONLY the number.")
         if not ans:

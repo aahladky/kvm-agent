@@ -195,8 +195,11 @@ class RulePlanner(Planner):
             steps += [{"op": "launch", "app": "notepad"}]
             if m:
                 text = m.group(1).strip().strip('"').strip()
+                # verify on a WHOLE-WORD prefix (not a mid-word chop like 'packag') so the
+                # OCR substring match and the vision transcription line up cleanly.
+                expect = text if len(text) <= 30 else text[:30].rsplit(" ", 1)[0]
                 steps += [{"op": "type", "text": text},
-                          {"op": "verify", "expect": text[:20]}]
+                          {"op": "verify", "expect": expect}]
         # Calculator: "compute <expr>" / "<a> + <b>"
         cm = re.search(r"compute\s+(.+)$", goal, re.I) or re.search(
             r"([\d\.\s\+\-\*x×/]+=?)\s*$", goal)

@@ -32,6 +32,9 @@ class Config:
     verifier_model: str = _env("VERIFIER_MODEL", "qwen2.5vl:7b")
     planner_model: str = _env("AGENT_PLANNER_MODEL", "Qwen/Qwen3-VL-8B-Instruct")
 
+    # --- verify ---
+    tesseract_cmd: str = _env("TESSERACT_CMD", "")  # explicit tesseract.exe path; "" -> auto-discover
+
     @property
     def screen_size(self):
         return (self.screen_w, self.screen_h)
