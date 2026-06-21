@@ -1,0 +1,268 @@
+--- a/evocua_agent.py
++++ b/evocua_agent.py
+@@ -50,6 +50,7 @@
+         coordinate_type: str = "relative",
+         password: str = "osworld-public-evaluation",
+         resize_factor: int = 32,
++        answer_in_schema: bool = False,  # PATCH(answer-channel): see __init__ body note
+         **kwargs
+     ):
+         self.model = model
+@@ -82,6 +83,19 @@
+         self.screenshots = [] # Stores encoded string
+         self.cots = [] # For S1 style history
+ 
++        # PATCH(answer-channel): wire the model's agent->user text channel. Two parts,
++        # deliberately split so re-baselining stays clean:
++        #  - answer_in_schema=False (default): the advertised tool schema stays BYTE-IDENTICAL
++        #    to upstream, so nothing the model sees changes. The only effect is that IF the
++        #    model emits an answer (on terminate, or via a standalone `answer` action) we now
++        #    CAPTURE it instead of dropping it. Safe to leave on during the frozen-contract
++        #    re-baseline; it instruments whether the 8B emits answers at all, for free.
++        #  - answer_in_schema=True: also adds `answer` to the action enum + declares an `answer`
++        #    arg, i.e. actively permits the channel. This DOES change the prompt -> treat it as
++        #    a deliberate SECOND intervention, measured against the frozen baseline.
++        self.answer_in_schema = answer_in_schema
++        self.last_answer = None   # most recent model-surfaced answer/question (reset per predict)
++
+     def reset(self, _logger=None, vm_ip=None):
+         global logger
+         if _logger:
+@@ -93,6 +107,7 @@
+         self.responses = []
+         self.screenshots = []
+         self.cots = []
++        self.last_answer = None   # PATCH(answer-channel)
+ 
+     def predict(self, instruction: str, obs: Dict) -> List:
+         """
+@@ -102,6 +117,7 @@
+         logger.info(f"========================== {self.model} ===================================")
+         logger.info(f"Instruction: \n{instruction}")
+         
++        self.last_answer = None   # PATCH(answer-channel): reflects only THIS step's output
+         screenshot_bytes = obs["screenshot"]
+  
+         try:
+@@ -144,6 +160,23 @@
+ 
+         tools_def = build_s2_tools_def(description_prompt)
+ 
++        # PATCH(answer-channel): only when explicitly enabled, extend the advertised schema so
++        # the model is *permitted* to emit `answer`. Done here (not in pristine prompts.py) to
++        # keep upstream untouched. With the flag OFF this block is skipped and json.dumps() below
++        # serializes the exact upstream schema -> the frozen-contract baseline is preserved.
++        if self.answer_in_schema:
++            try:
++                props = tools_def["function"]["parameters"]["properties"]
++                if "answer" not in props["action"]["enum"]:
++                    props["action"]["enum"] = props["action"]["enum"] + ["answer"]
++                props.setdefault("answer", {
++                    "description": "Required by action=answer; may also accompany action=terminate "
++                                   "to report the task's final answer.",
++                    "type": "string",
++                })
++            except (KeyError, TypeError) as e:
++                logger.warning(f"answer_in_schema: could not extend tool schema ({e}); using upstream as-is")
++
+         system_prompt = S2_SYSTEM_PROMPT.format(tools_xml=json.dumps(tools_def))
+ 
+         # Retry loop for context length
+@@ -305,6 +338,12 @@
+             original_width, original_height = self.screen_size
+         low_level_instruction = ""
+         pyautogui_code: List[str] = []
++        answer_box = {"text": None}   # PATCH(answer-channel): captured from terminate / answer
++
++        # INVARIANT: a parsed answer ALWAYS appends a token to pyautogui_code (DONE/FAIL for a
++        # terminate that carries one; "ANSWER" for a standalone answer). So a communicative step
++        # is never empty, and the run-loop empty-action guard can't mistake it for a dropped
++        # action. (The loops also check agent.last_answer as a belt-and-suspenders safety net.)
+ 
+         if response is None or not response.strip():
+             return low_level_instruction, pyautogui_code
+@@ -461,6 +500,23 @@
+                             pyautogui_code.append("FAIL")
+                         else:
+                             pyautogui_code.append("DONE")
++                        # PATCH(answer-channel): upstream discards this. The model is told it may
++                        # report the task's result here (S1 prompt + S2 prose both mention an
++                        # `answer`). Capture it so the caller can read self.last_answer and, e.g.,
++                        # compare the model's claim against the OCR'd ground truth.
++                        ans = args.get("answer")
++                        if ans is not None:
++                            answer_box["text"] = str(ans)
++
++                    elif action == "answer":
++                        # PATCH(answer-channel): standalone agent->user turn (advertised in the S2
++                        # prose as "answer: Answer a question"). NON-terminal: surfaces text without
++                        # ending the run -- the seed of the 2-way street. Emit an "ANSWER" sentinel
++                        # (handled by pico_env.step / the run loops, never exec'd) so the step is
++                        # non-empty. Whether the 8B actually emits this is exactly what to measure.
++                        ans = args.get("answer", args.get("text", ""))
++                        answer_box["text"] = str(ans)
++                        pyautogui_code.append("ANSWER")
+ 
+                     elif action == "mouse_move":
+                         if "coordinate" in args:
+@@ -506,6 +562,11 @@
+         for blk in blocks:
+             process_tool_call(blk)
+ 
++        # PATCH(answer-channel): publish the captured answer/question for the caller to read
++        # after predict() returns. The return signature stays (response, pyautogui_code), so
++        # run_probe.py / operate.py keep working unchanged; they just gain agent.last_answer.
++        self.last_answer = answer_box["text"]
++
+         if not low_level_instruction and len(pyautogui_code) > 0:
+             first_action = pyautogui_code[0]
+             if "." in first_action:
+--- a/pico_env.py
++++ b/pico_env.py
+@@ -236,13 +236,19 @@
+     def step(self, action, pause=5.0):
+         self.action_history.append(action)
+         reward, done, info = 0, False, {}
+-        if action in ("WAIT", "FAIL", "DONE"):
++        if action in ("WAIT", "FAIL", "DONE", "ANSWER"):
+             if action == "WAIT":
+                 time.sleep(pause)
+             elif action == "FAIL":
+                 done, info = True, {"fail": True}
+             elif action == "DONE":
+                 done, info = True, {"done": True}
++            elif action == "ANSWER":
++                # PATCH(answer-channel): communicative step. The text rides on the agent
++                # (agent.last_answer); the run loop surfaces it. Nothing to execute and no
++                # screen change to wait for, so skip the settle and return immediately.
++                info = {"answer": True}
++                return self._get_obs(), reward, done, info
+         else:
+             try:
+                 self.controller.execute_python_command(action)
+--- a/operate.py
++++ b/operate.py
+@@ -72,8 +72,11 @@
+             print(f"  [{it}] predict error: {e}")
+             return None
+ 
+-        # dropped-action guard (same failure class the tool_call fix targets)
+-        if not actions:
++        # dropped-action guard (same failure class the tool_call fix targets).
++        # PATCH(answer-channel): a parsed answer is a real step, not a dropped action -- don't
++        # count it toward the empty streak (it also always carries a token, so this rarely
++        # matters, but it keeps the guard honest about communicative turns).
++        if not actions and not getattr(agent, "last_answer", None):
+             empty_streak += 1
+             print(f"  [{it}] (no action parsed; streak {empty_streak}) :: {(response or '')[:80]!r}")
+             if empty_streak >= MAX_EMPTY_STREAK:
+@@ -84,8 +87,22 @@
+ 
+         for action in actions:
+             if action in ("DONE", "FAIL"):
++                rep = getattr(agent, "last_answer", None)
++                if rep:
++                    print(f"        model's reported answer: {rep!r}")
+                 print(f"  [{it}] TERMINATE -> {action}   ({time.time()-t0:.1f}s)")
+                 return action
++            if action == "ANSWER":  # PATCH(answer-channel): the 2-way street
++                q = getattr(agent, "last_answer", None) or ""
++                print(f"  [{it}] MODEL ASKS / REPORTS -> {q!r}")
++                obs, _, _, _ = env.step(action, settle)   # no-op step; refreshes obs
++                try:
++                    reply = input("        your reply (Enter to skip): ").strip()
++                except EOFError:
++                    reply = ""
++                if reply:
++                    goal = f"{goal}\n\n[user reply] {reply}"   # folded into the next predict
++                continue
+             if action == "WAIT":
+                 print(f"  [{it}] WAIT")
+                 obs, _, _, _ = env.step(action, settle)
+--- a/run_probe.py
++++ b/run_probe.py
+@@ -119,6 +119,8 @@
+     recovered = 0                        # how many corrective turns were injected
+     abort_at = ABORT_STEPS               # grows when we grant recovery budget
+     verified, display_read, term_status = None, None, None
++    self_report = None                   # PATCH(answer-channel): model's claimed answer at terminate
++    answers = []                         # PATCH(answer-channel): standalone answers/questions, if any
+     aborted = None
+ 
+     for it in range(MAX_STEPS):
+@@ -135,7 +137,9 @@
+         # HOOK 1: dropped-action assertion. A non-empty model response that parses to
+         # ZERO pyautogui actions means a format/parse problem ate the step (the exact
+         # failure the tool_call-normalization fix targets). Never silently no-op it.
+-        is_empty = not actions
++        # PATCH(answer-channel): a step that produced a model answer is communicative, not a
++        # dropped action -- don't count it as empty (it also always carries a token).
++        is_empty = not actions and not getattr(agent, "last_answer", None)
+         if is_empty:
+             dropped_actions += 1
+             empty_streak += 1
+@@ -152,9 +156,15 @@
+             continue
+         empty_streak = 0
+ 
+-        last_xy, done = None, False
++        last_xy, done, step_answer = None, False, None
+         for action in actions:
+             obs, _, d, info = env.step(action, SETTLE)
++            if action == "ANSWER" or info.get("answer"):
++                # PATCH(answer-channel): standalone agent->user turn. Record, stay non-terminal.
++                step_answer = getattr(agent, "last_answer", None)
++                if step_answer is not None:
++                    answers.append({"i": it, "text": step_answer})
++                continue
+             xy = extract_click_xy(action)
+             if xy:
+                 last_xy = xy
+@@ -165,6 +175,8 @@
+ 
+         rec = {"i": it, "op": op, "actions": actions, "coord": last_xy,
+                "action_text": action_text[:120]}
++        if step_answer is not None:
++            rec["answer"] = step_answer
+         if op and last_xy:
+             rec["op_in_operator_col"] = bool(last_xy[0] >= OP_COL_X)
+         steps.append(rec)
+@@ -174,6 +186,10 @@
+         print(f"  [{it}] {actions}{tag}")
+ 
+         if done:
++            # PATCH(answer-channel): the model's own claimed answer at terminate (if any),
++            # captured alongside the OCR'd display so a self-report-vs-truth metric is free.
++            if getattr(agent, "last_answer", None) is not None:
++                self_report = agent.last_answer
+             if term == "DONE":
+                 # HOOK 3: verify-before-terminate -> RECOVER. Check the display at the
+                 # moment of terminate; if it's a false positive and we still have
+@@ -235,9 +251,17 @@
+     else:
+         term_status = term  # FAIL / None
+ 
++    # PATCH(answer-channel): does the model's claimed answer match the OCR'd truth?
++    # None when we have no claim or no OCR; otherwise a clean self-report-accuracy signal.
++    self_report_matches = None
++    if self_report is not None and display_read is not None:
++        self_report_matches = (str(self_report).strip() == str(display_read).strip())
++
+     record = {"label": cfg["label"], "prompt_style": cfg["prompt_style"],
+               "task": task["name"], "finished": finished, "term": term,
+               "term_status": term_status, "verified": verified, "display_read": display_read,
++              "self_report": self_report, "self_report_matches": self_report_matches,
++              "answers": answers,
+               "dropped_actions": dropped_actions, "recovered": recovered, "aborted": aborted,
+               "iters": len(steps), "steps": steps}
+     with open(os.path.join(outdir, "run.json"), "w", encoding="utf-8") as f:
+@@ -273,6 +297,9 @@
+                         "expected": task["expected"], "rep": rep, "finished": rec["finished"],
+                         "term": rec["term"], "term_status": rec.get("term_status"),
+                         "verified": rec.get("verified"), "display_read": rec.get("display_read"),
++                        "self_report": rec.get("self_report"),                 # PATCH(answer-channel)
++                        "self_report_matches": rec.get("self_report_matches"), # PATCH(answer-channel)
++                        "n_answers": len(rec.get("answers") or []),            # PATCH(answer-channel)
+                         "dropped_actions": rec.get("dropped_actions"),
+                         "recovered": rec.get("recovered"), "aborted": rec.get("aborted"),
+                         "iters": rec["iters"],

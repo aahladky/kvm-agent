@@ -1,0 +1,27 @@
+# UI-TARS-1.5-7B (Qwen2.5-VL) for the rig — Ollama Modelfile.
+# Same two-FROM pattern as EvoCUA: language GGUF + vision projector (mmproj).
+#
+# IMPORTANT: you need a VISION-capable GGUF set — i.e. a repo that ships BOTH the
+# LM gguf AND an mmproj-*.gguf. Text-only GGUFs (many mradermacher repos) will load
+# but CANNOT see the screen. Known multimodal repos:
+#   - Mungert/UI-TARS-1.5-7B-GGUF        (image-text-to-text; has mmproj)
+#   - adriabama06/UI-TARS-1.5-7B-GGUF    (llama-cpp/multimodal; has mmproj)
+# Pick a quant (Q5_K_M or Q8_0 both fit the 12 GB mobile 4080) and the f16 mmproj.
+#
+# Fill these two paths to the files you downloaded, then:
+#   ollama create uitars-1.5-7b -f Modelfile.uitars
+FROM ./UI-TARS-1.5-7B-Q5_K_M.gguf
+FROM ./mmproj-UI-TARS-1.5-7B-f16.gguf
+
+# 7B-Q5 + 16k ctx fits 12 GB with room (it's smaller than EvoCUA-8B-Q5, which already
+# fit at num_ctx 16384). 16k holds history=4 of ~2k-vision-token frames with margin.
+PARAMETER num_ctx 16384
+
+# Sampling is also sent per-request by the adapter; these are load-time defaults.
+PARAMETER temperature 0
+PARAMETER top_p 0.9
+
+# NOTE: do NOT override TEMPLATE. UI-TARS-1.5-7B is Qwen2.5-VL and ships a chat template
+# in the GGUF; Ollama's /v1/chat/completions must apply it so multi-image user turns +
+# system/assistant roles render correctly. The adapter supplies the full COMPUTER_USE
+# prompt as the system message.

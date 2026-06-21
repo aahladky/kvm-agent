@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kvm-agent"
+version = "0.1.0"
+description = "KVM-over-IP computer-use agent (HDMI capture + Pico 2 W USB-HID injector)."
+requires-python = ">=3.10"
+dependencies = [
+  "opencv-python",
+  "numpy",
+  "pillow",
+  "openai",
+  "anthropic",
+  "backoff",
+  "fastapi",
+  "uvicorn",
+  "pytesseract",
+  "huggingface_hub",
+  # ui-tars: DSL parser, install per upstream instructions
+]
+
+[tool.setuptools.packages.find]
+include = ["kvm_agent*"]
+
+# console_scripts are wired at cutover (agent_server's __main__ -> a main() fn):
+# [project.scripts]
+# kvm-serve = "kvm_agent.server.app:main"
