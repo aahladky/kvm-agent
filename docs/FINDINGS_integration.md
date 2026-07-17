@@ -208,28 +208,77 @@ captures. Findings:
 
 ---
 
+## Hygiene + instrumentation + battery pass (session, later on 2026-07-17)
+
+Per PROJECT_GUIDANCE_holo.md's suggested sequence: hygiene, then instrumentation, then a
+custom task battery (§3.1-3.2's "start small" option, not a WindowsAgentArena/OSWorld
+import). All landed on `refactor/packaging` as separate reviewable commits.
+
+- **Hygiene done**: Anthropic key moved out of `kvm_agent/config.py` into a gitignored
+  `.env.local` (env-var override still wins); Aaron confirmed the exposed key was already
+  deactivated vendor-side. `CFG.pico_ip` default updated to `.224`. Working tree (17
+  modified + ~26 untracked files accumulated across the whole arc) committed into 9
+  logical commits. DHCP reservation for the Pico is still Aaron's to do.
+- **Instrumentation**: `kvm_agent.instrumentation.RunRecorder`, wired into
+  `agent_loop_holo.run()` (default on), writes every step's pre-action frame, raw
+  message, parsed action, token usage, and wall time to
+  `CFG.runs_dir/<tag>_<timestamp>/`, plus a `summary.json`. Along the way found and fixed
+  `CFG.runs_dir` defaulting to a stale Windows path (`C:\Dev\vllm\runs`) left over from
+  the pre-Holo topology — silently pointed nowhere useful on this Linux-hosted rig.
+- **Task battery**: `kvm_agent.battery` — 8 tasks (2 core regression-floor + one/two per
+  the five coverage categories from PROJECT_GUIDANCE_holo.md §3.2: scroll/drag_and_drop,
+  long-horizon/history-eviction, wait-type, deliberately-impossible, small/dense target).
+  Every task graded independently of the model's own completion signal (existing
+  `executive.Verifier`, OCR or vision Q&A against the final frame) — self-report alone
+  was Phase I5's original failure mode. `runner.py` + `tests/test_battery.py` (offline,
+  all pass). **Not yet run against the live rig** — built and offline-tested only.
+- **Rig brought up for the first time this session** (see below) — confirmed working:
+  Holo3.1 (`llama-swap :9292`), capture card (1920x1080, matches `CFG.screen_size`
+  exactly), VM display (SPICE fullscreen via `virt-viewer`, landed on the correct
+  monitor via the saved `~/.config/virt-viewer/settings` UUID mapping), and the Pico.
+- **New bug found + fixed: VM's USB hostdev was pinned to a stale bus:device address.**
+  `virsh start win11-agent` failed: `Did not find USB device 239a:8162 bus:1 device:9` —
+  the Pico currently enumerates as `bus 1 device 4` (device numbers aren't stable across
+  replugs/reboots; same class of drift as the IP issue above). Fix: stripped the
+  `<address bus='.../>` line from the `<hostdev><source>` block in the domain XML
+  (`virsh dumpxml` → edit → `virsh define`), leaving only `<vendor id>`/`<product id>`, so
+  libvirt matches by VID:PID instead of a numeric address that drifts. Not yet upstreamed
+  anywhere / not a libvirt bug (this one's a config choice, unlike the two real libvirt
+  bugs above) — just noting the fix so it isn't rediscovered cold.
+- **New open item: the Pico periodically stops answering on WiFi and needs a physical
+  replug to recover** — flagged by Aaron this session. Confirmed NOT caused by the USB
+  hostdev address fix or VM start (rig.py's very first health check of the session
+  already showed it unreachable, before the VM was touched). After Aaron replugged it
+  physically, `ping` + a real TCP connect (`agent_loop_holo.boot()`) both succeeded
+  immediately. Distinct from the known IP-drift item below — this is about the device
+  going unresponsive on the network at all, not about which IP it's on. Root cause
+  unknown (WiFi radio sleep/hang? CircuitPython WiFi stack issue?) — worth investigating
+  if it recurs during a battery run, since an unresponsive Pico mid-run silently kills
+  a task rather than erroring loudly.
+
 ## Open items / not yet done
 
 - **Phase I6 (latency/robustness tuning)** — optional per the plan, only if per-step
   latency needs to come down. Candidate lever identified above (resolution), not applied.
-- **Phase I7 (task battery + this write-up)** — this document partially satisfies I7;
-  a broader battery of realistic multi-step tasks (beyond Notepad-launch and Calculator)
-  has not been run.
+- **Phase I7 (task battery)** — the custom battery (`kvm_agent.battery`, see above) is
+  built and offline-tested but has never been RUN against the live rig — that's the
+  actual next step, now that the rig is confirmed up end-to-end.
 - **iGPU passthrough** — abandoned for now, not fixed. Would need either a properly
   PCI-Option-ROM-headered GOP driver (nontrivial binary construction on an unconfirmed
   candidate module) or a different approach entirely. The current B580+SPICE-fullscreen
   setup is a full functional substitute; only the two-model-split upside (freeing the B580
   for a future reasoning model) remains blocked on this.
 - **Pico IP is DHCP-assigned and has already drifted once** (`192.168.0.183` →
-  `192.168.0.224`) — `kvm_agent/config.py`'s `CFG.pico_ip` default is now stale. Worth
-  either a DHCP reservation (matching the original R4-era setup, which *was* reserved) or
-  just updating the default.
+  `192.168.0.224`) — `CFG.pico_ip`'s default was updated to match, but no DHCP
+  reservation exists yet (Aaron's to do). Separate from the "needs a physical replug"
+  item above.
+- **Pico periodically stops answering on WiFi, needs a physical replug** — see above;
+  root cause not yet investigated.
 - **`scroll`/`drag_and_drop` tools remain unverified** against any vendor reference or
-  live test in this integration phase (only exercised in the original bring-up's Phase 2
-  capture, on a static screenshot).
-- **The hardcoded Anthropic API key in `kvm_agent/config.py`** flagged during I0 is still
-  present in the working tree, uncommitted, per Aaron's explicit call to leave it — worth
-  remembering before that file is ever committed.
+  live test in this integration phase — the task battery's `scroll_to_about` and
+  `drag_file_to_desktop` tasks target exactly this, once the battery actually runs.
+- **The hardcoded Anthropic API key** — RESOLVED this session (see above): moved to
+  `.env.local`, and the exposed key is confirmed deactivated.
 
 ## Files changed this arc
 
