@@ -4,11 +4,10 @@ kvm_agent.models.holo (NOT the old EvoCUA/UI-TARS loop -- Holo emits a normalize
 action dict via native tool-calling, not pyautogui code strings, so execution here maps
 straight onto env.r4, bypassing the PicoPyAutoGUI exec-shim those older agents used).
 
-STATUS: Phase I0 skeleton (see HOLO_INTEGRATION_PLAN.md). Imports and structure only --
-NOT yet exercised against the live rig. Sequencing per the plan: I2 proves the Pico HID
-seam alone, I3 closes the coordinate space, I4 is the first live ground()+do() step, I5
-adds real multi-step history threading (see the TODO in run() below -- that contract is
-NOT implemented yet, this loop currently grounds each step single-shot / no history).
+STATUS: Phases I0-I5 done (see HOLO_INTEGRATION_PLAN.md) -- verified live against the rig
+(VM target, SPICE-fullscreen capture, Pico HID over WiFi). ground()+do() (single action)
+and run() (multi-step with real history threading -- see run()'s docstring for the
+schema) have both landed a model-decided click correctly on a live target.
 
 Modeled on live_ctl.py's proven propose-then-confirm shape (ground() proposes, do()
 executes) so review-before-fire stays the default, per CLAUDE.md's "make failure loud"
@@ -16,14 +15,14 @@ discipline -- run()'s CONFIRM_FIRST gates the first N steps with a keypress prev
 a stuck-detector (STUCK_LIMIT consecutive dropped/error actions) aborts instead of
 burning the step budget.
 
-Typical (once the rig is live):
+Typical:
     from agent_loop_holo import *
     boot()                                  # open camera + Pico
     cap()                                   # grab a fresh frame -> _dbg/live.png
     ground("click the Save button")         # calls Holo, proposes an action, does NOT execute
     mark()                                  # eyeball the crosshair before firing
     do()                                    # execute the last proposed action
-    run("open Notepad and type hello", max_steps=10)   # closed single-step-history loop
+    run("open Notepad and type hello", max_steps=10)   # closed multi-step loop w/ history
 """
 import os
 import time
@@ -33,7 +32,11 @@ from PIL import Image
 
 from kvm_agent.config import CFG
 from kvm_agent.hardware.env import PicoEnv
-from kvm_agent.models.holo import call_holo, png_bytes_to_data_url
+from kvm_agent.models.holo import (
+    call_holo, call_holo_full, observation_message, png_bytes_to_data_url, trim_to_last_n_images,
+)
+
+MAX_HISTORY_IMAGES = 3   # hub.hcompany.ai/agent-loop: "keep at most the last 3 screenshots"
 
 DBG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_dbg")
 os.makedirs(DBG, exist_ok=True)
@@ -42,7 +45,7 @@ CONFIRM_FIRST = 5   # gate the first N steps of run() with a keypress preview
 STUCK_LIMIT = 3     # k consecutive dropped/error actions -> abort (make-failure-loud guard)
 
 ENV = None
-LAST = {"png": None, "action": None}
+LAST = {"png": None, "action": None, "history": None}
 
 
 def boot():
@@ -139,6 +142,22 @@ def _execute(action, settle_s=1.5):
     time.sleep(settle_s)
 
 
+def _frame_changed(png_a, png_b, threshold=3.0):
+    """Cheap post-action signal for the tool-result message: did the screen visibly
+    change? (mean absolute pixel difference, downscaled for speed). Not a correctness
+    check -- a click that lands on the wrong-but-still-different element also reads as
+    "changed" -- just distinguishes "something happened" from "silent no-op", which is
+    exactly the gap hub.hcompany.ai/agent-loop's pitfall table calls out: a hardcoded
+    tool-result string gives the model no way to learn an action didn't register."""
+    import cv2
+    import numpy as np
+    a = cv2.imdecode(np.frombuffer(png_a, np.uint8), cv2.IMREAD_GRAYSCALE)
+    b = cv2.imdecode(np.frombuffer(png_b, np.uint8), cv2.IMREAD_GRAYSCALE)
+    a = cv2.resize(a, (160, 90))
+    b = cv2.resize(b, (160, 90))
+    return float(np.mean(np.abs(a.astype(int) - b.astype(int)))) > threshold
+
+
 def do(s=1.5):
     """Execute the LAST ground() proposal via the Pico."""
     action = LAST.get("action")
@@ -150,25 +169,45 @@ def do(s=1.5):
 
 
 def run(instruction, max_steps=10, target="local", confirm_first=None):
-    """Single-step-at-a-time closed loop: ground -> confirm (first N steps) -> execute
-    -> re-capture -> repeat.
+    """Multi-step closed loop with real history threading: ground (against the accumulated
+    history) -> confirm (first N steps) -> execute -> re-capture -> thread this step's
+    observation + assistant tool-call + a tool-result message into history -> repeat.
 
-    TODO (Phase I5, not implemented here): thread real multi-turn history into each
-    ground() call -- the assistant tool-call + a tool-result message per step, per the
-    chat-layout convention in docs/FORMAT_NOTES_holo.md -- so Holo can see its own prior
-    actions instead of grounding each step from scratch. Today every step is a fresh,
-    history-less call; this is intentionally honest rather than a fake/incorrect history
-    stub. Phase I5's acceptance criterion is specifically building this out and proving
-    it on a 2-3 step task.
+    History format matches hub.hcompany.ai/agent-loop's documented function-calling chat
+    layout (fetched and diffed against this file after Phase I5's first live run surfaced
+    gaps -- see kvm_agent/models/holo.py's module docstring for the full list): each
+    successful step appends
+      {"role": "user", "content": [<observation>+image+</observation>]}   (this step's own)
+      {"role": "assistant", "tool_calls": [...]}
+      {"role": "tool", "tool_call_id": ..., "content": "<changed/unchanged>"}
+    then trims to the last MAX_HISTORY_IMAGES screenshots. The task instruction is sent
+    ONLY on step 0's observation turn (not every step, per the doc's loop example, which
+    doesn't repeat it) -- later turns carry it via history. Tool-result content is a real
+    frame-diff signal (_frame_changed), not a hardcoded "ok" -- docs flag exactly that gap
+    as a cause of loops/forgetting.
+    Steps that error (dropped/unparseable) are NOT threaded into history -- referencing a
+    malformed tool_calls entry back to the model would confuse it more than a clean retry.
+    tool_choice="required" (set in call_holo_full) should make these rare.
 
-    UNTESTED against the live rig (Phase I0 skeleton) -- exercised starting at I4/I5.
-    confirm_first defaults to CONFIRM_FIRST; pass 0 to run unattended (only once I4/I5
-    have proven the loop out on this rig).
+    confirm_first defaults to CONFIRM_FIRST; pass 0 to run unattended.
     """
     confirm_first = CONFIRM_FIRST if confirm_first is None else confirm_first
+    history = []
+    LAST["history"] = history
     stuck = 0
     for step in range(max_steps):
-        action = ground(instruction, target=target)
+        png = _frame_png()
+        LAST["png"] = png
+        w, h = Image.open(BytesIO(png)).size
+        data_url = png_bytes_to_data_url(png)
+        step_instruction = instruction if step == 0 else ""
+        t0 = time.time()
+        action, message = call_holo_full(step_instruction, data_url, w, h, target=target, history=history,
+                                          max_history_images=MAX_HISTORY_IMAGES)
+        dt = time.time() - t0
+        LAST["action"] = action
+        print(f"[run {dt:.1f}s] step {step}: {action}")
+
         if action.get("action") == "error":
             stuck += 1
             print(f"[run] step {step}: dropped action ({stuck}/{STUCK_LIMIT})")
@@ -177,9 +216,21 @@ def run(instruction, max_steps=10, target="local", confirm_first=None):
                 return False
             continue
         stuck = 0
+
         if step < confirm_first:
             input(f"[run] step {step}: about to execute {action} -- Enter to confirm...")
         _execute(action)
+
+        tool_calls = message.get("tool_calls") or []
+        if tool_calls:
+            post_png = _frame_png()
+            changed = _frame_changed(png, post_png)
+            tool_content = f"Action executed. Screen {'changed.' if changed else 'did not visibly change.'}"
+            history.append(observation_message(data_url, step_instruction))
+            history.append({"role": "assistant", "content": message.get("content") or "", "tool_calls": tool_calls})
+            history.append({"role": "tool", "tool_call_id": tool_calls[0].get("id", "call_0"), "content": tool_content})
+            trim_to_last_n_images(history, n=MAX_HISTORY_IMAGES)
+
         if action.get("action") == "finished":
             print(f"[run] finished: {action.get('text')!r}")
             return True
