@@ -5,6 +5,9 @@ scratch/
 _dbg/
 *.gguf
 
+# secrets - never in git
+.env.local
+
 # vendored upstream clone: reconstructable; we vendor only the 3 used files
 # under kvm_agent/_vendor/osworld/. Delete evocua/ once the vendored path is rig-verified.
 evocua/
