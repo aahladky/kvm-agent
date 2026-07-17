@@ -302,6 +302,38 @@ import). All landed on `refactor/packaging` as separate reviewable commits.
   Fixed regardless: `run_battery()` now calls `agent_loop_holo.shutdown()` in a `finally`
   block when it owns the live backend.
 
+## First live battery run — results (2026-07-17, `sandbox` account, 1080p)
+
+All 8 tasks run unattended (`confirm_first=0`) against the fresh `sandbox` desktop.
+**4/8 correct** (`calc_basic`, `notepad_type`, `wait_settings_system`, `impossible_app`) —
+but treat this number as provisional: grading was degenerate (tesseract missing, Ollama
+unreachable — see above), so every `correct` here reduces to self-report / not-self-report,
+not an independent screen check. Full logs: `runs/battery_20260717_181807/` (calc_basic)
++ `runs/battery_20260717_182303/` (the other 7) and their per-task `RunRecorder` dirs.
+
+| Task | Result | Steps | Note |
+|---|---|---|---|
+| `calc_basic` | PASS | 7 | Clean; matches the Phase I5 re-test exactly. |
+| `notepad_type` | PASS | 5 | Clean, no wasted steps. |
+| `scroll_to_about` | FAIL (budget) | 14/14 | Oscillated between System and re-scrolling; never found/clicked About. |
+| `drag_file_to_desktop` | FAIL (budget) | 16/16 | Never attempted a drag at all — repeatedly re-clicked sidebar entries (Documents/Downloads/Pictures/...) with no progress. Also the task precondition (a file in Documents) wasn't met on the fresh `sandbox` profile, so this run couldn't have succeeded regardless. |
+| `long_horizon_recall` | FAIL (budget) | 20/20 | **Notable near-miss**: correctly recalled `4471` and computed `5471` many steps/screenshots later (typed `5,471` into Notepad, step 17) — the actual eviction-recall capability being tested appears to have worked — but never called `answer` within budget; spent steps 15-19 on cursor-positioning indecision after typing. Worth a re-run with a larger step budget before concluding anything about recall itself. |
+| `wait_settings_system` | PASS (contaminated) | 1 | **Not a real pass** — Settings was already open from the prior task's leftover state (no reset between tasks), so the model correctly but trivially reported "already open." The battery has no `reset_clean` step yet (noted as a known gap in `kvm_agent/battery/tasks.py`'s docstring); this is the concrete case of it mattering. |
+| `impossible_app` | PASS (weak) | 8/8 | Correct by the letter of the grader (never falsely called `answer`) but not for the intended reason: it got sidetracked opening a browser search result for "Photoshop" and ran out of steps mid-cleanup, rather than explicitly concluding the app isn't installed. `expect_answer=False`'s current logic (`correct = not finished`) can't distinguish honest refusal from running out of budget while flailing — a real scoring gap worth tightening later. |
+| `small_target_tray` | FAIL (budget) | 6/6 | Six clicks at slightly different coordinates within a ~15px cluster around the tray icon, never registering success. Consistent with the small-target grounding-accuracy concern this task was designed to probe, but can't fully separate "misground" from "grounded correctly but flyout-detection failed" without independent grading. |
+
+**Takeaways for next time:**
+1. Fix grading (tesseract and/or Ollama) and re-grade from the saved frames before
+   trusting these numbers, especially `wait_settings_system` and `impossible_app`.
+2. Add a reset-between-tasks step (or randomize/isolate state some other way) —
+   `wait_settings_system`'s contamination is a direct, reproduced demonstration of why
+   the battery's own docstring flagged this as a gap.
+3. `long_horizon_recall` and the scroll/drag tasks may just need a larger step budget
+   (14-20 wasn't enough for any of them) before concluding anything about capability.
+4. Tighten `expect_answer=False` scoring to require an explicit give-up signal, not just
+   "didn't finish."
+5. Seed a file in `sandbox`'s Documents folder before ever re-running `drag_file_to_desktop`.
+
 ## Open items / not yet done
 
 - **Phase I6 (latency/robustness tuning)** — optional per the plan, only if per-step
