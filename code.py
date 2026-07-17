@@ -1,12 +1,14 @@
 """
 code.py — Pico W HID injector (absolute mouse + keyboard) over WiFi.  v4
 
-Matches boot.py v4: the absolute mouse is a Generic-Desktop Mouse (usage
+Matches boot.py v5: the absolute mouse is a Generic-Desktop Mouse (usage
 0x01/0x02) carrying **Report ID 2**, enabled alongside the stock keyboard
 (Report ID 1). The report ID is what makes the two collections coexist on one
 HID interface; without it Windows rejects the whole interface (Code 10) and
 NOTHING works. CircuitPython prepends the report-ID byte automatically, so
-send_report(_report) is unchanged and _report stays 5 bytes.
+send_report(_report) is unchanged. v5: _report is now 6 bytes — boot.py added a
+relative Wheel field so 'S' actually scrolls (see scroll() below); needs a
+power-cycle after flashing because the report descriptor re-enumerates.
 
 Changes vs v2:
   - SELFTEST wrapped in try/except (a slow-to-enumerate host raises OSError
@@ -65,7 +67,7 @@ else:
 
 kbd = Keyboard(usb_hid.devices)
 
-_report = bytearray(5)        # buttons, xL, xH, yL, yH   (Report ID prepended by CP)
+_report = bytearray(6)        # buttons, xL, xH, yL, yH, wheel   (Report ID prepended by CP)
 _cur_x = 0
 _cur_y = 0
 
@@ -99,6 +101,22 @@ def click(bit=0x01):
     _set_btn(bit, True)
     time.sleep(0.03)
     _set_btn(bit, False)
+
+def scroll(ticks):
+    # v5: real wheel. byte 5 of the report is a RELATIVE wheel delta (+up / -down). Send one
+    # notch per report for a smooth, host-friendly scroll, then a final wheel=0 idle report so
+    # the host sees the wheel return to rest. Two's-complement via & 0xFF; clamp to the
+    # descriptor's signed-8 range. The X/Y bytes still hold the current absolute position, so
+    # each report just re-asserts the cursor + applies one notch (no cursor jump).
+    ticks = max(-127, min(127, int(ticks)))
+    step = 1 if ticks >= 0 else -1
+    for _ in range(abs(ticks)):
+        _report[5] = step & 0xFF
+        _send()
+        time.sleep(0.01)
+    _report[5] = 0
+    _send()
+    print("  scroll", ticks)
 
 # --- key handling ---
 _NAMED = {
@@ -262,7 +280,7 @@ def handle(line):
         elif cmd == "K": tap(arg)
         elif cmd == "T": type_text(arg)
         elif cmd == "X": combo(arg)
-        elif cmd == "S": move_to(_cur_x, _cur_y)  # scroll removed for now
+        elif cmd == "S": scroll(int(arg) if arg.lstrip("+-").isdigit() else 0)  # v5: real wheel
         else: print("unknown:", line)
     except Exception as e:
         print("  handle err:", e)

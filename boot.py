@@ -19,6 +19,13 @@ Report payload (after the prepended Report ID byte):
   byte 0: buttons (bit0 left, bit1 right, bit2 middle)
   byte 1-2: X (uint16 LE, 0..32767 absolute)
   byte 3-4: Y (uint16 LE, 0..32767 absolute)
+  byte 5: wheel (int8, -127..127 RELATIVE notches; +up / -down)   <-- v5: real scroll
+
+v5 (2026-06-21): added a relative Wheel field so r4.scroll() actually scrolls. It was a no-op
+before — the v4 report had no wheel byte and code.py's 'S' handler did nothing, so below-the-
+fold targets were unreachable. Changing the report descriptor RE-ENUMERATES the HID interface,
+so after flashing this you MUST power-cycle the Pico (unplug/replug). If Windows shows Code 10
+on the re-enumerated device, replug once more (same v4 re-enumeration caveat).
 """
 
 import usb_hid
@@ -51,6 +58,13 @@ ABS_MOUSE_DESCRIPTOR = bytes((
     0x75, 0x10,        #     Report Size (16)
     0x95, 0x02,        #     Report Count (2)
     0x81, 0x02,        #     Input (Data,Var,Abs)
+    # Wheel: relative 8-bit, -127..127  (v5: enables real scroll)
+    0x09, 0x38,        #     Usage (Wheel)
+    0x15, 0x81,        #     Logical Minimum (-127)
+    0x25, 0x7F,        #     Logical Maximum (127)
+    0x75, 0x08,        #     Report Size (8)
+    0x95, 0x01,        #     Report Count (1)
+    0x81, 0x06,        #     Input (Data,Var,Rel)
     0xC0,              #   End Collection
     0xC0,              # End Collection
 ))
@@ -60,7 +74,7 @@ abs_mouse = usb_hid.Device(
     usage_page=0x01,
     usage=0x02,
     report_ids=(2,),           # Report ID 2 (stock keyboard uses 1)
-    in_report_lengths=(5,),    # buttons(1) + X(2) + Y(2); ID byte prepended by CP
+    in_report_lengths=(6,),    # buttons(1) + X(2) + Y(2) + wheel(1); ID byte prepended by CP
     out_report_lengths=(0,),
 )
 

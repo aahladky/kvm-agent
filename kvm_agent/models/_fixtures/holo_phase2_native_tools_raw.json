@@ -1,0 +1,116 @@
+[
+  {
+    "instruction": "Click the 'Models' item in the left sidebar.",
+    "image": "test_screens/llamaswap_ui.png",
+    "message": {
+      "role": "assistant",
+      "content": "",
+      "reasoning_content": "I need to click on the 'Models' item in the left sidebar as instructed. Looking at the screenshot, I can see the left sidebar with various menu items including 'Models' which appears to be a collapsible section with a dropdown arrow. The 'Models' item is located in the left sidebar, and I need to click on it to expand or navigate to the models section. I'll use the click tool with the appropriate coordinates to target this element.\n",
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "click",
+            "arguments": "{\"element\":\"Models item in left sidebar\",\"x\":81,\"y\":243}"
+          },
+          "id": "hhdk0gxmJt4YKhMWsjTNHC1eOd93y8ei"
+        }
+      ]
+    }
+  },
+  {
+    "instruction": "Click the 'Playground' item in the left sidebar.",
+    "image": "test_screens/llamaswap_ui.png",
+    "message": {
+      "role": "assistant",
+      "content": "",
+      "reasoning_content": "I need to click on the 'Playground' item in the left sidebar. Looking at the screenshot, I can see the left sidebar with several menu items. The 'Playground' option is clearly visible in the sidebar, positioned below 'Activity' and above 'Models'. I should click directly on this 'Playground' text to navigate to that section. The coordinates should target the center of the 'Playground' menu item to ensure a successful click.\n",
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "click",
+            "arguments": "{\"element\":\"Playground menu item in left sidebar\",\"x\":68,\"y\":194}"
+          },
+          "id": "1vgRiFZ8iku1gUQCxzjNggEnE6pu70LE"
+        }
+      ]
+    }
+  },
+  {
+    "instruction": "Type 'hello world' into the browser address bar.",
+    "image": "test_screens/llamaswap_ui.png",
+    "message": {
+      "role": "assistant",
+      "content": "",
+      "reasoning_content": "I need to type 'hello world' into the browser address bar. Looking at the current screenshot, I can see the browser address bar at the top showing 'localhost:9221/ui/'. To complete this task, I first need to click on the address bar to focus it, then type the text. The address bar is located at the top of the browser window. I'll click on it to activate it for text input.\n",
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "click",
+            "arguments": "{\"element\":\"browser address bar showing localhost:9221/ui/\",\"x\":250,\"y\":30}"
+          },
+          "id": "ZB1vZEH0qUgsX3f1UXSJStL3aeqfN3gW"
+        }
+      ]
+    }
+  },
+  {
+    "instruction": "Scroll down on the requests table.",
+    "image": "test_screens/llamaswap_ui.png",
+    "message": {
+      "role": "assistant",
+      "content": "",
+      "reasoning_content": "I need to scroll down on the requests table to see more entries. The current view shows requests with IDs 19 down to 15, but there are likely more entries below. I should position my cursor over the table area and scroll down to reveal additional rows. The table appears to be in the lower portion of the screen, so I'll scroll down from a position within the table area to see more request entries.\n",
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "scroll",
+            "arguments": "{\"direction\":\"down\"}"
+          },
+          "id": "qhcMAEQHEWp9iD1LcCXzdNm33cZf9GcD"
+        }
+      ]
+    }
+  },
+  {
+    "instruction": "The browser address bar is now focused and selected. Type 'hello world' into it.",
+    "image": "test_screens/llamaswap_ui.png",
+    "message": {
+      "role": "assistant",
+      "content": "",
+      "reasoning_content": "The browser address bar is already focused and selected as stated in the instruction. I need to type 'hello world' into it. Since the address bar is already selected, I can directly use the write tool to input the text. I'll set press_enter to False since the instruction only asks to type, not to navigate.\n",
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"content\":\"hello world\",\"press_enter\":false}"
+          },
+          "id": "90Duse0TWXlhi4RtAmF5z7RpXQlesCJg"
+        }
+      ]
+    }
+  },
+  {
+    "instruction": "Drag from the top-left corner of the Prompt Processing chart to the bottom-right corner of the same chart, to select a time range.",
+    "image": "test_screens/llamaswap_ui.png",
+    "message": {
+      "role": "assistant",
+      "content": "",
+      "reasoning_content": "I need to drag from the top-left corner of the Prompt Processing chart to its bottom-right corner to select a time range. Looking at the screenshot, the Prompt Processing chart is the orange bar chart on the left side of the screen. The top-left corner appears to be around the upper left area of this chart, and the bottom-right corner would be at the lower right area of the same chart. I'll use the drag_and_drop tool to perform this action, starting from approximately the top-left corner and ending at the bottom-right corner of the Prompt Processing chart.\n",
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "drag_and_drop",
+            "arguments": "{\"x1\":173,\"y1\":244,\"x2\":477,\"y2\":394}"
+          },
+          "id": "6nDVTjVDcY1a6n17XsIDzUNHgmMV6FyE"
+        }
+      ]
+    }
+  }
+]

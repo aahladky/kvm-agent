@@ -1,7 +1,7 @@
 # regenerable data / heavy blobs - never in git
 runs/
 scratch/
-models/
+/models/
 _dbg/
 *.gguf
 
