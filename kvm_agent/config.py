@@ -64,7 +64,9 @@ class Config:
     closed_loop_max_steps: int = int(_env("AGENT_CLOSED_LOOP_MAX_STEPS", "16"))
 
     # --- orchestration / IO ---
-    runs_dir: str = _env("RUNS_DIR", r"C:\Dev\vllm\runs")     # per-run frames + JSON logs
+    # was a Windows path (r"C:\Dev\vllm\runs") from the pre-Holo topology where the rig
+    # ran on the Windows target box; the rig is Linux-hosted now (see FINDINGS_integration.md)
+    runs_dir: str = _env("RUNS_DIR", str(Path(__file__).resolve().parent.parent / "runs"))
 
     # --- verify ---
     tesseract_cmd: str = _env("TESSERACT_CMD", "")  # explicit tesseract.exe path; "" -> auto-discover

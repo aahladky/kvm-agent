@@ -32,6 +32,7 @@ from PIL import Image
 
 from kvm_agent.config import CFG
 from kvm_agent.hardware.env import PicoEnv
+from kvm_agent.instrumentation import RunRecorder
 from kvm_agent.models.holo import (
     call_holo, call_holo_full, observation_message, png_bytes_to_data_url, trim_to_last_n_images,
 )
@@ -168,7 +169,7 @@ def do(s=1.5):
     print(f"[do] {action}")
 
 
-def run(instruction, max_steps=10, target="local", confirm_first=None):
+def run(instruction, max_steps=10, target="local", confirm_first=None, record=True, tag="run"):
     """Multi-step closed loop with real history threading: ground (against the accumulated
     history) -> confirm (first N steps) -> execute -> re-capture -> thread this step's
     observation + assistant tool-call + a tool-result message into history -> repeat.
@@ -190,11 +191,18 @@ def run(instruction, max_steps=10, target="local", confirm_first=None):
     tool_choice="required" (set in call_holo_full) should make these rare.
 
     confirm_first defaults to CONFIRM_FIRST; pass 0 to run unattended.
+
+    record (default True, per PROJECT_GUIDANCE_holo.md §3.3 -- "unlogged runs are wasted
+    runs") writes every step's pre-action frame, raw message, parsed action, token usage,
+    and wall time to CFG.runs_dir/<tag>_<timestamp>/ via RunRecorder, plus a summary.json
+    at the end. tag names the run directory (e.g. the task id in a battery).
     """
     confirm_first = CONFIRM_FIRST if confirm_first is None else confirm_first
     history = []
     LAST["history"] = history
     stuck = 0
+    recorder = RunRecorder(tag, instruction, target=target,
+                            meta={"max_steps": max_steps, "screen_size": CFG.screen_size}) if record else None
     for step in range(max_steps):
         png = _frame_png()
         LAST["png"] = png
@@ -202,17 +210,21 @@ def run(instruction, max_steps=10, target="local", confirm_first=None):
         data_url = png_bytes_to_data_url(png)
         step_instruction = instruction if step == 0 else ""
         t0 = time.time()
-        action, message = call_holo_full(step_instruction, data_url, w, h, target=target, history=history,
-                                          max_history_images=MAX_HISTORY_IMAGES)
+        action, message, usage = call_holo_full(step_instruction, data_url, w, h, target=target, history=history,
+                                                  max_history_images=MAX_HISTORY_IMAGES)
         dt = time.time() - t0
         LAST["action"] = action
         print(f"[run {dt:.1f}s] step {step}: {action}")
 
         if action.get("action") == "error":
             stuck += 1
+            if recorder:
+                recorder.log_step(step, png, message, action, usage, dt, executed=False)
             print(f"[run] step {step}: dropped action ({stuck}/{STUCK_LIMIT})")
             if stuck >= STUCK_LIMIT:
                 print("[run] stuck limit hit -- aborting")
+                if recorder:
+                    recorder.finish(False, note="stuck limit hit")
                 return False
             continue
         stuck = 0
@@ -220,6 +232,8 @@ def run(instruction, max_steps=10, target="local", confirm_first=None):
         if step < confirm_first:
             input(f"[run] step {step}: about to execute {action} -- Enter to confirm...")
         _execute(action)
+        if recorder:
+            recorder.log_step(step, png, message, action, usage, dt, executed=True)
 
         tool_calls = message.get("tool_calls") or []
         if tool_calls:
@@ -233,8 +247,12 @@ def run(instruction, max_steps=10, target="local", confirm_first=None):
 
         if action.get("action") == "finished":
             print(f"[run] finished: {action.get('text')!r}")
+            if recorder:
+                recorder.finish(True, note=action.get("text", ""))
             return True
     print("[run] max_steps reached without finishing")
+    if recorder:
+        recorder.finish(False, note="max_steps reached")
     return False
 
 

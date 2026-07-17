@@ -289,11 +289,12 @@ def _target_config(target: str):
 def call_holo_full(instruction: str, image_data_url: str, image_w: int, image_h: int,
                     target: str = "local", history: list[dict] | None = None,
                     temperature: float = 0.8, enable_thinking: bool = True,
-                    max_history_images: int = 3) -> tuple[dict, dict]:
-    """Like call_holo, but also returns the raw assistant message (dict, via model_dump()) --
-    a multi-step loop needs this to thread real history (the assistant tool-call + a
-    tool-result message per step; see agent_loop_holo.py's run()). call_holo() itself
-    discards it since the REPL/single-shot callers only need the parsed action.
+                    max_history_images: int = 3) -> tuple[dict, dict, dict]:
+    """Like call_holo, but also returns the raw assistant message (dict, via model_dump())
+    and token usage -- a multi-step loop needs the message to thread real history (the
+    assistant tool-call + a tool-result message per step; see agent_loop_holo.py's run())
+    and usage for run instrumentation (see kvm_agent/instrumentation/run_log.py). call_holo()
+    itself discards both since the REPL/single-shot callers only need the parsed action.
 
     Defaults (temperature=0.8, enable_thinking=True, tool_choice="required") match
     hub.hcompany.ai/agent-loop's documented agent-loop config, NOT the separate
@@ -329,7 +330,8 @@ def call_holo_full(instruction: str, image_data_url: str, image_w: int, image_h:
     )
     message = resp.choices[0].message.model_dump()
     action = parse_response(message, image_w, image_h)
-    return action, message
+    usage = resp.usage.model_dump() if resp.usage else {}
+    return action, message, usage
 
 
 def call_holo(instruction: str, image_data_url: str, image_w: int, image_h: int,
@@ -341,8 +343,8 @@ def call_holo(instruction: str, image_data_url: str, image_w: int, image_h: int,
     capture frame (kvm_agent.hardware.env.Camera.png_bytes()) can be passed straight
     through without a round-trip to disk.
     """
-    action, _ = call_holo_full(instruction, image_data_url, image_w, image_h, target=target, history=history,
-                                temperature=temperature, enable_thinking=enable_thinking)
+    action, _, _ = call_holo_full(instruction, image_data_url, image_w, image_h, target=target, history=history,
+                                   temperature=temperature, enable_thinking=enable_thinking)
     return action
 
 
