@@ -1,6 +1,6 @@
 # Project State — KVM-over-IP Computer-Use Agent
 
-_Snapshot: 2026-06-21._
+_Snapshot: 2026-06-21 (evening) — consolidated into `kvm_agent/`; the "set default browser" hard-GUI class is SOLVED, plus preemption hardening (UI-TARS grounding mode, vision `ask`-verify, plan-time lint, always-on per-step logging, primitive self-test)._
 
 ## 1. What it is
 A computer-use agent where **nothing is installed on the target**. A vision model sees the
@@ -11,28 +11,49 @@ WiFi. The target sees only a monitor + a USB mouse/keyboard — OS-agnostic and 
 ## 2. Current status — **WORKING end to end**
 - **Full path is green via Open WebUI.** Goal typed in Open WebUI → `agent_server` → HF planner
   decomposes → executive runs steps (keyboard-first + UI-TARS grounding) → Pico HID on the target
-  → `qwen2.5vl` verifier checks the screen → progress streams back. Verified 2026-06-21:
-  "Open Notepad and type: hello from open-webui" → **done in 8.6s, 0 re-plans, `verify: true`**.
-- **The Pico `10054` "wedge" bug is FIXED** (today). It was a firmware `conn.settimeout(None)`
-  that wedged the serve loop on any half-open connection — root-caused, patched, flashed, and
-  confirmed under live Open WebUI load (zero resets across dozens of runs). Full writeup:
-  `FINDINGS_2026-06-21_pico_wedge_fix.md`.
-- WiFi power-save confirmed **disabled** on the device (`cyw43.PM_DISABLED` works on CP 10.2.1).
-- Real multi-step GUI goals execute and ground correctly. Genuinely hard tasks (e.g. Win11
-  "set default browser") still fail on **task difficulty / verify**, not infrastructure.
+  → verifier checks the screen → progress streams back.
+- **Consolidated into one `kvm_agent/` package** (this session). The flat root modules moved into
+  the package; the root `.py` modules are now 3-line back-compat shims. Re-verified on the rig:
+  `python measure.py --k 10` = **10/10 = 100%** (`runs/measure_20260621_075842`). Behavior is
+  identical — `kvm_agent/config.py` defaults equal the old hardcoded literals.
+- **Verify hardened** (this session): tesseract is auto-discovered (works off-PATH), `has_text`
+  transcribes + substring-matches, `read_number` uses the vision model aimed at the display.
+- **Caps-Lock self-correct in firmware** (flashed + live): the Pico reads the target's Caps-Lock
+  LED and taps it off before typing, so text types in the requested case (was inverting).
+- The Pico `10054` "wedge" bug is FIXED (firmware finite recv timeout, earlier today). WiFi
+  power-save **disabled** (`cyw43.PM_DISABLED`).
+- **Hard GUI now works: "set default browser to Chrome" is SOLVED** on the rig (Win10 target) —
+  the isolated harness runs PASS, Chrome set + vision-verified (`runs/isolate_defbrowser_20260621_091906`).
+  Root cause was THREE code/execution bugs, **not planner size** (model set unchanged): (1) UI-TARS,
+  used as a grounder via the agentic prompt, emitted `finished()`/scroll on visible targets → fixed
+  with the click-only **GROUNDING_DOUBAO** mode; (2) `verify` substring-matched a sentence never on
+  screen → fixed with a vision **`ask`** verify; (3) click "ok" was frame-diff "pixels moved" →
+  surfaced by per-step logging. Full writeup in the CLAUDE.md "evening" banner.
+- **Scroll now works (v5, flashed + verified):** boot.py has a relative Wheel field and code.py's
+  `S` handler sends wheel notches, so `r4.scroll()` actually scrolls (selftest: top marker scrolled
+  into view, `runs/selftest_20260621_110008`, all four primitives pass). Flashing the new descriptor
+  re-enumerates the HID interface — power-cycle the Pico (replug if Windows shows Code 10).
 
-## 3. Architecture (the live system)
-- **PLANNER** (`planner.py`) — decomposes a goal into atomic steps, re-plans on failure. Default
-  `HFPlanner` (Qwen3-VL-8B via HF router). Also `ClaudePlanner`, `LocalPlanner` (the all-local
-  B580 target), `RulePlanner` (deterministic fallback). Entry point `run_goal()`.
-- **EXECUTIVE** (`executive.py`) — runs each step with the right primitive: keyboard-first
-  launch/type (Win+R, no grounding) and **UI-TARS stateless grounding** for visual clicks.
-  `Verifier` (qwen2.5vl) checks the actual screen, not self-report.
-- **ENV** (`pico_env.py`) — `Camera` (MSMF HDMI capture) + `R4` Pico client wrapped as a
-  DesktopEnv-shaped `PicoEnv` (drop-in for the upstream OSWorld env).
-- **SERVER** (`agent_server.py`) — exposes the agent as an OpenAI-compatible streaming model
-  (`computer-use-agent`) for Open WebUI; one task at a time; `--mock` for wiring tests.
-- **FIRMWARE** (`boot.py` + `code.py`) — the Pico 2 W HID injector.
+## 3. Architecture (the live system) — code now under `kvm_agent/`
+- **PLANNER** (`kvm_agent/orchestration/planner.py`) — decomposes a goal into atomic steps,
+  re-plans on failure. Default `HFPlanner` (Qwen3-VL-8B via HF router); also `ClaudePlanner`,
+  `LocalPlanner` (the all-local B580 target), `RulePlanner` (deterministic). Entry point `run_goal()`,
+  which runs every plan through **`validate_plan()`** (plan-time lint) before execution.
+- **EXECUTIVE** (`kvm_agent/orchestration/executive.py`) — runs each step with the right primitive:
+  keyboard-first launch/type (Win+R, no grounding) + **UI-TARS stateless grounding** for visual
+  clicks, now in **click-only grounding mode** (can't `finished()`/scroll on a visible target).
+  `Verifier` (tesseract OCR + `qwen2.5vl` vision) checks the actual screen, not self-report; `verify`
+  supports a vision **`ask`** (yes/no) for states not shown as literal text. Every run (unless
+  `capture=False`) saves a per-step frame + the grounder's raw output to `runs/<tag>_<time>/`.
+- **ENV** (`kvm_agent/hardware/env.py` + `hardware/pico_client.py`) — `Camera` (MSMF HDMI capture)
+  + `R4`/`PicoClient` wrapped as a DesktopEnv-shaped `PicoEnv` (drop-in for the upstream OSWorld env).
+- **CONFIG** (`kvm_agent/config.py`) — every IP/port/endpoint/model-name/path, env-overridable;
+  defaults equal the prior hardcoded literals, so importing through the package is behavior-identical.
+- **SERVER** (`kvm_agent/server/app.py`, launched via root `agent_server.py`) — exposes the agent as
+  an OpenAI-compatible streaming model (`computer-use-agent`) for Open WebUI; one task at a time.
+- **MODELS** (`kvm_agent/models/`) — `uitars.py`, `evocua.py`, `factory.make_agent`. EvoCUA imports
+  the **vendored** osworld (`kvm_agent/_vendor/osworld`, 3 files), not the old 55 MB clone.
+- **FIRMWARE** (`boot.py` + `code.py`) — the Pico 2 W HID injector (stays at root; deployed to CIRCUITPY).
 
 ## 4. Hardware topology + addresses
 | Role | Machine | Address |
@@ -45,73 +66,113 @@ WiFi. The target sees only a monitor + a USB mouse/keyboard — OS-agnostic and 
 - Ollama models (on the laptop): **`uitars-q4`** (executor/grounder), **`qwen2.5vl:7b`** (verifier).
 - Planner: **`Qwen/Qwen3-VL-8B-Instruct`** via HF router (token auto-resolved).
 - Pico when plugged into the orchestrator: serial console = **`COM7`**, CIRCUITPY drive = **`I:`**.
+- All of the above are defaults in `kvm_agent/config.py` — override via env (`PICO_IP`, `OLLAMA_HOST`,
+  `EXECUTOR_MODEL`, `VERIFIER_MODEL`, `AGENT_PLANNER_MODEL`, `TESSERACT_CMD`, …).
 
 ## 5. How to run it
 Open `http://192.168.0.155:8080` (Open WebUI) → pick **`computer-use-agent`** → type a plain-English
-goal → watch the live stream. **Prereqs running:** `agent_server` (`:8088`, real mode) on the desktop;
-laptop Ollama with `uitars-q4` + `qwen2.5vl`; HF planner reachable (token + net); capture card on the
-target; Pico on the target + on WiFi. One task at a time. (Open WebUI's auto Title/Follow-up/Tag
-generation is **disabled** so it doesn't fire background prompts at the rig.)
+goal → watch the live stream. **Run `agent_server.py` from the repo root** (so `kvm_agent` is
+importable). **Prereqs running:** `agent_server` (`:8088`, real mode) on the desktop; laptop Ollama
+with `uitars-q4` + `qwen2.5vl`; HF planner reachable (token + net); capture card on the target; Pico
+on the target + on WiFi. One task at a time. (Open WebUI's auto Title/Follow-up/Tag generation is
+**disabled** so it doesn't fire background prompts at the rig.)
 Re-add the connection if needed: OWUI → Settings → Connections → OpenAI API,
 `base_url = http://192.168.0.184:8088/v1`, `api_key =` anything.
 
 ## 6. File catalog
 
-### Live system (repo root)
+### The package — `kvm_agent/` (canonical code)
+| Path | Role |
+|---|---|
+| `config.py` | **All** IPs/ports/endpoints/model-names/paths, env-overridable. |
+| `hardware/pico_client.py` | Host-side Pico TCP client (`R4`; `PicoClient` alias). `M/C/R/D/U/K/T/X/S/H`. |
+| `hardware/env.py` | `Camera` (MSMF) + `PicoEnv` (DesktopEnv-shaped over the rig). |
+| `models/uitars.py` | UI-TARS-1.5-7B adapter (the executor/grounder). |
+| `models/evocua.py` | EvoCUA-8B S2 agent (earlier model path); imports the vendored osworld. |
+| `models/factory.py` | `make_agent` backend selector. |
+| `orchestration/planner.py` | Pluggable planner (Claude/Local/HF/Rule) + `run_goal()`. |
+| `orchestration/executive.py` | Hierarchical executive/executor + `Verifier`. **CORE.** |
+| `server/app.py` | OpenAI-compatible streaming server for Open WebUI. |
+| `llm/ollama.py` | Shared Ollama/OpenAI client helper (staged; wired at the P2 perf step). |
+| `_vendor/osworld/mm_agents/` | The 3 upstream files actually imported (utils, prompts, qwen_vl_utils). |
+
+### Root (entry points, firmware, shims, config)
 | File | Role |
 |---|---|
-| `planner.py` | Pluggable planner layer (Claude / Local / HF / Rule) + `run_goal()`. |
-| `executive.py` | Hierarchical executive/executor + `Verifier` (qwen2.5vl). **CORE.** |
-| `pico_env.py` | `Camera` (MSMF) + `R4` + `PicoEnv` (DesktopEnv-shaped over the rig). |
-| `r4_client.py` | Host-side Pico TCP client; `M/C/R/D/U/K/T/X/S/H` protocol. _(edited today: 4 retries)_ |
-| `agent_server.py` | OpenAI-compatible streaming server for Open WebUI. _(edited today: pre-check removed)_ |
-| `uitars_agent.py` | UI-TARS-1.5-7B adapter (the executor/grounder model). |
-| `evocua_agent.py` | EvoCUA-8B S2 agent — the earlier model path; matches upstream protocol. |
-| `cua_agent.py` | Backend selector for the rig's agents. |
-| `live_ctl.py` | Persistent interactive REPL controller for the rig (dev driver). |
-| `measure.py` | Honest reliability measurement (K-rep success rates, not anecdotes). |
-| `boot.py` | **Firmware**: Pico HID descriptor v4 (Report-ID-2 abs mouse + keyboard). |
-| `code.py` | **Firmware**: Pico WiFi serve loop + HID exec. _(FIXED today — finite recv timeout)_ |
+| `agent_server.py` | **Entry point** — runs the OWUI server (imports `kvm_agent`). |
+| `measure.py` | **Entry point** — K-rep reliability measurement. |
+| `live_ctl.py` | **Entry point** — interactive REPL rig driver. |
+| `boot.py` / `code.py` | **Firmware** — Pico HID injector (deployed to CIRCUITPY; `code.py` = caps-lock + finite recv timeout). |
+| `r4_client` / `pico_env` / `uitars_agent` / `evocua_agent` / `cua_agent` / `executive` / `planner` `.py` | 3-line **back-compat shims** → `kvm_agent.*`. Removable once importers repoint. |
+| `pyproject.toml`, `.gitignore` | Packaging + ignore (excludes `models/`, `runs/`, `scratch/`, `evocua/`, `__pycache__`). |
 | `Modelfile.uitars` | Ollama Modelfile for the UI-TARS executor. |
 
-### Docs (repo root)
-- `CLAUDE.md` — master handoff / session log (43 KB). Read-first.
-- `PROJECT_STATE.md` — this file.
-- `FINDINGS_2026-06-21_pico_wedge_fix.md` — **today**: the `10054` wedge root cause + fix.
-- `FINDINGS_2026-06-20_executive_architecture.md` — the planner/executive/verifier split (10/10).
-- `FINDINGS_2026-06-20_uitars_q4.md` / `_uitars_Q8.md` / `_uitars_FIX_live.md` — UI-TARS bring-up.
-- `FINDINGS_2026-06-19_flail_rootcause.md`, `FINDINGS_2026-06-18_rootcause.md` — earlier diagnoses.
-- `PLAN_2026-06-19_model_bakeoff.md`, `SESSION_2026-06-21.md` — plan + prior session note.
-- `README_openwebui.md` — Open WebUI wiring. `README_evocua_mcp.md` — MCP server.
-- `UITARS_INTEGRATION.md`, `DEMOS.md` — integration notes + demo goals.
+### Docs
+- Root: `CLAUDE.md` (master handoff, read-first) + `PROJECT_STATE.md` (this file).
+- `docs/` — all session/findings/plan notes (moved off root), incl.
+  `PLAN_2026-06-21_consolidation_and_optimization.md` (the full optimization backlog) +
+  `PACKAGING_STATUS_2026-06-21.md`, the `FINDINGS_*`, `SESSION_*`, `README_*`, etc.
 
-### Directories
+### Directories / data
 | Dir | Contents |
 |---|---|
-| `evocua/` (550) | Upstream EvoCUA + OSWorld `desktop_env` / `mm_agents` package — the reference the adapters match. |
-| `tools/` (13) | Reusable harnesses + diagnostics: `operate.py` (interactive operator), `run_probe.py`, `measure`/`score_batch`/`eval_harness`, `verify.py`, `calibrate_uitars.py`, `evocua_mcp_server.py`, `wol.py`, `pico_serial_log.py`, `pico_diag_windows.py`, `demo_*`, + today's `pico_console_*.log`. |
-| `runs/` (684) | Execution logs — 69 run-dirs + 29 `goal_*.json` (plan/step/status records). |
-| `scratch/` (157) | Throwaway: today's diagnostics (`_pico_diag/idle/load/precheck/recover`, `_flash_and_capture`, `_serial_demo`, `_read_serial`, `_owui_smoke`, `_planner_check`, `trigger_goal`) + logs + frames. |
-| `models/` (12) | Desktop-side GGUF quants (`evocua-8b` f16/q5/q8) + build/ssh logs. _Operational models run on the laptop Ollama, not here._ |
-| `_archive/` (69) | Superseded code + `firmware_old/` (boot_v2/code_v2) + `scratch_probes/` + loose diag scripts. |
-| `probes/` (4), `tests/` (1) | Small format/size probes; `test_uitars_adapter.py`. |
-| `__pycache__/` (27) | Bytecode cache (ignorable). |
+| `tools/` | Reusable harnesses + diagnostics: `isolate_default_browser.py` (deterministic keyboard-first task harness, per-step frames), `probe_grounding.py` (OFFLINE grounding A/B on a saved frame; `--grounding`), `selftest.py` (primitive capability check), `operate.py`, `run_probe.py`, `eval_harness.py`, `score_batch.py`, `verify.py`, `calibrate_uitars.py`, `evocua_mcp_server.py`, `wol.py`, `pico_*`. |
+| `tests/` | `test_uitars_adapter.py` (grow this — pure-logic units are the easy wins). |
+| `runs/`, `scratch/`, `models/` | Execution logs / throwaway / 35 GB GGUF quants — **gitignored**. |
+| `_archive/` | Superseded code (kept; in git history). _(The 55 MB upstream `evocua/` clone was deleted — vendored to 3 files.)_ |
 
-## 7. Changes made this session (2026-06-21)
-- `code.py` — **`CONN_TIMEOUT = 45`** + finite per-connection recv timeout (the anti-wedge fix). Flashed + verified.
-- `r4_client.py` — send retries 2 → 4 with backoff.
-- `agent_server.py` — removed the wedging "check Pico injector" pre-connect.
-- Added `FINDINGS_2026-06-21_pico_wedge_fix.md` + this `PROJECT_STATE.md`.
-- Disabled Open WebUI's auto Title/Follow-up/Tag generation (they were executing as rig goals).
+## 7. Changes this session (2026-06-21)
+
+**Default-browser solved + preemption hardening (evening):**
+- Isolated the long-standing "set default browser" failure to THREE code/execution bugs (not
+  planner size) and fixed all three with the model set unchanged: UI-TARS click-only
+  **GROUNDING_DOUBAO** mode (it was emitting `finished()`/scroll on visible targets), a vision
+  **`ask`** verify op (it was substring-matching a sentence never on screen), and per-step logging
+  that surfaces a false-positive click. Isolated harness now PASS (Chrome set, vision-verified).
+- Added **preemption** layers so this *class* of silent failure is caught, not re-discovered:
+  `validate_plan()` plan-time lint (planner.py → wired into `run_goal`), always-on per-step frame +
+  raw-grounder logging in `run_plan` (`runs/<tag>_<time>/`; `Executive.capture`), and a primitive
+  capability self-test.
+- New diagnostic tools in `tools/`: `isolate_default_browser.py`, `probe_grounding.py`, `selftest.py`.
+  Documented the **firmware scroll no-op** (`code.py:265` + no wheel byte in the HID report).
+- Files touched: `kvm_agent/models/uitars.py` (grounding flag), `kvm_agent/orchestration/{executive,
+  planner}.py`, `measure.py` (`capture=False` to keep the benchmark timing baseline clean).
+- **Firmware v5 — real scroll** (flashed + verified): boot.py wheel field + code.py `S` handler;
+  `selftest.py` now shows all four primitives acting (scroll was a silent no-op before).
+- **Re-verify on the rig:** live `run_goal`/Open WebUI end-to-end; `measure.py --k 10` for no
+  benchmark regression; `run_plan` per-step capture live (`selftest.py` already passes live).
+
+**Consolidation + hardening (late):**
+- Flat root modules → `kvm_agent/` package; root files are now back-compat shims. `measure --k 10` = **10/10**.
+- `kvm_agent/config.py` centralizes all IPs/ports/model-names/paths (defaults == old literals; was duplicated across 8–12 files).
+- Vendored the 3 used osworld files into `kvm_agent/_vendor`; **deleted the 55 MB `evocua/` clone**; killed the `sys.path` need.
+- Verify hardened: tesseract auto-discovery (off-PATH ok), transcribe+substring `has_text`, vision-targeted `read_number`.
+- Firmware `code.py`: Caps-Lock LED self-correct + `capslock` named key (flashed + live).
+- Repo placed under **git** (baseline → cutover → cleanup on `refactor/packaging`); `.gitignore` added; notes moved to `docs/`.
+
+**Earlier today (pico wedge fix):**
+- `code.py` `CONN_TIMEOUT = 45` + finite per-connection recv timeout (anti-wedge). `r4_client` retries 2→4.
+  `agent_server` pre-connect removed. See `docs/FINDINGS_2026-06-21_pico_wedge_fix.md`.
 
 ## 8. Known issues / next steps
-- **No per-command ACK.** A half-open that lands *mid-rollout* can still cost that one rollout
-  (recovered on the next — no power-cycle). If it matters, add a 1-byte ack to the protocol.
-- **Stale `pico_serial_log.py` stuck on the target's COM3** — kill it (hogs the port, spews errors).
-- **Hard GUI tasks** (Win11 default-browser, dense targets) fail on grounding/verify — model/task
-  difficulty, not infra. UI-TARS grounding is the lever.
-- **Optional:** a `### Task:` short-circuit guard in `agent_server` as a backstop against OWUI
-  utility prompts (zero VRAM; currently moot since those are disabled).
-- **Future:** stand up `LocalPlanner` on the desktop B580 (all-local planner path) — only a
-  `base_url` change from `HFPlanner`.
-- **Hygiene:** `scratch/` (157) and `runs/` (684) are accumulating — periodic prune.
+- **No per-command ACK** (R1 in the plan) — a half-open that lands mid-rollout costs that one rollout
+  (recovers on the next). Add a 1-byte ack to the protocol. Highest-value robustness item.
+- **Wait-for-stable** (R2) — replace the ~20 fixed `time.sleep`s with frame-stability polling (faster
+  *and* more robust); the `_frame_diff` primitive already exists.
+- **Shims removable** — repoint the ~8 importers (`agent_server`, `measure`, `live_ctl`, `tools/*`) to
+  `kvm_agent.*` and delete the 7 root shims. Deliberately kept for now (zero runtime cost, reversible).
+- **Hard GUI tasks** — the default-browser class is now SOLVED (grounding mode + `ask`-verify); the
+  general lever going forward is the preemption layer, not a bigger planner.
+- **Preemption hardening (this session)** — catch silent failures by construction / at plan time /
+  loudly: UI-TARS click-only **grounding mode**; vision **`ask`** verify op; **`validate_plan`**
+  plan-time lint; **always-on per-step frame + raw-grounder logging** in `run_plan`; **`tools/selftest.py`**
+  primitive capability check.
+- **Scroll op (now unblocked)** — the firmware wheel works (v5, verified); add a `scroll` op to the
+  plan schema + executive (e.g. `{"op":"scroll","dir":"down","ticks":3}` or a `scroll_until(target)`
+  helper) so plans can reach below-the-fold controls instead of relying on maximize/keyboard.
+- **Optional** — a Win10 default-apps idiom in the planner (launch `ms-settings:defaultapps` → click
+  the current browser tile → click the target browser → `ask`-verify) to make that plan deterministic.
+- **Future:** stand up `LocalPlanner` on the desktop B580 (all-local planner path) — only a `base_url`
+  change from `HFPlanner`.
+- Full optimization backlog (R1–R8 robustness, P1–P6 model-preserving perf):
+  `docs/PLAN_2026-06-21_consolidation_and_optimization.md`.

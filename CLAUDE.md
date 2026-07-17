@@ -5,6 +5,239 @@ What this project is
 A KVM-over-IP-style computer-use agent where nothing is installed on the target machine. A vision model sees the target's screen via HDMI capture, decides actions, and a physical USB-HID device injects mouse/keyboard. Target sees only a monitor + a USB mouse/keyboard — undetectable, OS-agnostic. Pure curiosity project, no practical application.
 
 ═══════════════════════════════════════════════════════════════
+★★★ READ FIRST — 2026-06-22 (LATEST): PORT FIX + REASONING-BUDGET REALITY + FIRST ALL-LOCAL PASS ON A NEW BENCHMARK — see docs/SESSION_2026-06-22_local_portfix_and_calc_benchmark.md ★★★
+═══════════════════════════════════════════════════════════════
+★ FIRST ALL-LOCAL END-TO-END PASS. The B580 9B (llama.cpp Vulkan, now on port 8090) planned + the executive
+ran the NEW benchmark "Compute 47×89 in Calculator, then type the result in Notepad" to `done` in 19.6s, 0
+replans, SCREEN-VERIFIED (Notepad shows 4183 via OCR, not self-report). Run: runs/calc_transcribe_160217.
+DROPPED FIREFOX as the repeatable benchmark (network/winget + mutates persistent state + broken FF Start
+shortcut on target = runs not comparable). NEW benchmark = "compute & transcribe": built-in apps, NO network,
+resettable, keyboard-only (NO UI-TARS grounding) → isolates PLANNING + the keyboard executive; verifiable
+(calc display + Notepad text). Goal: "Compute 47 x 89 using the Calculator app, then open Notepad and type
+the result." (= 4183).
+TWO ENVIRONMENT FIXES that were blocking "is the model even reachable":
+  1. PORT CONFLICT. Docker/SearXNG binds 127.0.0.1:8080 SPECIFICALLY and shadows llama-server's 0.0.0.0:8080
+     on loopback → the planner (base_url 127.0.0.1:8080) was hitting SearXNG (got 404 HTML through the OpenAI
+     client), NOT the model. FIX: serve llama-server on 127.0.0.1:8090 (specific loopback bind → Docker can't
+     shadow it); CFG.planner_local_url default is now :8090. Relaunch from C:\Users\aahla (model files there);
+     logs at C:\Users\aahla\llama_8090.{out,err}.log.
+  2. --reasoning-budget 256 does NOT cap thinking on build b9692 (one decompose = 3419 tok / 78.8s with
+     enable_thinking=True). This build is BINARY: 0=off, non-zero=on/unbounded. The prior NEXT-step #1 ("capped
+     256/512 sweet spot") is NOT achievable here — ABANDON it. budget 0 (fast ~10s) vs on (~78s/call) is the
+     real choice. For the EASY new task, budget 0 plans it PERFECTLY + fast (offline probe AND live run) — so
+     the prior "budget 0 plans badly" was a firefox/HARD-task finding, not universal.
+GAP: the LIVE plan DROPPED the final Notepad verify (only the calc display was verified) — run-to-run variance
+at budget 0; the agent did not self-check Notepad (I confirmed externally via OCR). A robust benchmark must
+pin the final verify.
+NEXT: (1) Claude baseline on the SAME task (scratch\run_calc.bat claude) for the head-to-head; (2) K-rep
+reliability (pass N/N? plan reliably includes BOTH verifies?); (3) ratchet difficulty (a product it can't do
+mentally → forces READING the display; or a click → re-adds grounding). New tooling: scratch/_probe_new_task.py,
+scratch/run_calc.bat, scratch/_ocr.py. Full detail + repro in the doc above.
+═══════════════════════════════════════════════════════════════
+★★★ READ FIRST — 2026-06-22: LOCAL PLANNER ON THE B580 — see docs/SESSION_2026-06-22_local_planner_b580.md ★★★
+═══════════════════════════════════════════════════════════════
+Stood the planner up ALL-LOCAL on the desktop Arc B580: llama.cpp Vulkan `llama-server` (NOT Ollama/
+IPEX-LLM — Intel archived IPEX-LLM Jan 2026) serving unsloth/Qwen3.5-9B-GGUF (a VLM; UD-Q4_K_XL + mmproj),
+OpenAI endpoint :8080. Wired `--kind local` (CFG.planner_local_url / AGENT_PLANNER=local) into
+run_goal_once/probe_planner/server; LocalPlanner now sends enable_thinking explicitly; probe_planner --step
+probes the closed-loop next_step; run_goal_once --plan forces run_goal for a clean A/B.
+STATE: vision EXCELLENT (reads 1080p screens), `--reasoning-budget 0` disables thinking + is FAST (~48 tok/s,
+~138 tok/call) — BUT the 9B's multi-step PLANNING is the new bottleneck: with thinking off it makes logic
+errors (tried to CLICK a firefox path in cmd output; replans DROPPED the set-default flow) and the closed
+loop WANDERS (hallucinated a desktop FF shortcut, missing enter taps) → task NOT completed locally yet.
+Speed solved; plan-quality-vs-latency on a 9B is the open problem. Per-step image re-encode ~22s (SWA, no
+cache reuse) → run_goal >> closed loop for the local vision model. NEXT: capped --reasoning-budget 256/512
+(grounded but not 6477-tok slow); tighten the find-path idiom (type `start "" "<path>"`, never click cmd
+text); default local→run_goal; decide if the 9B suffices vs a hybrid (local simple / Claude hard). Baseline
+to beat: Claude run_goal completes the task in ~27.7s. Full detail + repro cmds in the doc above.
+═══════════════════════════════════════════════════════════════
+★★★ READ FIRST — 2026-06-22: PER-STEP CLOSED LOOP + HARD-FACT CONSTRAINTS — see docs/SESSION_2026-06-22_closed_loop_and_hard_constraints.md ★★★
+═══════════════════════════════════════════════════════════════
+Built the two levers the 2026-06-21 session ended on (the planner not ACTING on injected knowledge).
+Both shipped + FULL offline suite green; NOT yet run live (rig is shared — live A/B is the next step).
+Defaults UNCHANGED: closed loop is opt-in (AGENT_CLOSED_LOOP=0 default → still run_goal), and the
+run_plan refactor is behavior-preserving (all prior regressions green), so the 10/10 keyboard
+benchmark path is untouched.
+  1. PER-STEP CLOSED LOOP — new `run_goal_step` (planner.py): observe → ask for the SINGLE next
+     action (live screen+goal+short history) → execute ONE step → observe → repeat (premature-done
+     guard + stuck limit). Executive `run_plan` body factored into `_run_one_step`; new `run_step`
+     reuses it (one shared step chokepoint). Adds `Planner.next_step` + `_extract_step`/`validate_step`.
+  2. HARD-FACT CONSTRAINTS (retrieval≠utilization → the gap is CODE): `hindsight.classify_facts`
+     splits recalled facts into imperative DIRECTIVES (top-of-prompt, via `_memory_block`) + machine-
+     enforceable GATES the executive BLOCKS on (`set_constraints`/`_blocked_by_constraint` inside
+     `_run_one_step`). A recalled "FF shortcut broken — don't launch it" now BOTH leads the prompt AND
+     hard-blocks the launch op even if the planner ignores the text. `_arm_memory`/`_disarm_memory`
+     unify this for BOTH run_goal and run_goal_step. Opt-in via AGENT_HINDSIGHT (default off).
+  ENABLE LIVE: set AGENT_CLOSED_LOOP=1 (+ AGENT_HINDSIGHT=1, AGENT_PLANNER_MODEL=…-30B-A3B-Thinking),
+  run tools/run_goal_once.py on the firefox goal; watch the gate block launch-Firefox + the loop Esc
+  the broken-shortcut dialog the turn it appears. New tests: tests/test_closed_loop_step.py +
+  tests/test_hard_constraints.py (full suite green). Full writeup + ordered next steps in the doc above.
+═══════════════════════════════════════════════════════════════
+★★★ READ FIRST — 2026-06-21: see docs/SESSION_2026-06-21_replan_feedback.md ★★★
+═══════════════════════════════════════════════════════════════
+Big session layered on the config/firefox work below. Shipped + tested (most also validated LIVE on
+the rig): stateful REPLAN feedback (history of prior attempts + on-screen failure summaries threaded
+into each replan); planner REASONING mode (AGENT_PLANNER_MODEL=Qwen/Qwen3-VL-30B-A3B-Thinking — the
+8B-Thinking is NOT served by the HF router); LAUNCH routing (Start-menu search for installed apps +
+cannot-find guard); a general `scroll` op; a pre-click GROUNDING-VERIFICATION gate (abstains on
+wrong-state/look-alike clicks); the full HINDSIGHT memory loop (recall→inject + write-back recipe +
+dedup-on-write; local server 192.168.0.184:8888 bank TARS; opt-in AGENT_HINDSIGHT / AGENT_HINDSIGHT_WRITE);
+and CLOSED-LOOP guards (pre-click error-dialog auto-dismiss + opt-in per-step `precondition`). Offline
+tests in tests/ (replan/launch/scroll/click/memory/closed_loop); regressions green. New tools/
+diagnostics: diag_clicks, diag_hindsight, diag_router/diag_provider, preflight, probe_planner --memory.
+NEXT: the bottleneck moved from MECHANISM (recall/guards/gate all fire correctly live) to the PLANNER
+ACTING on injected knowledge — it has the recalled facts + the precondition idiom but doesn't use them
+(few-shot the idiom / surface blocking facts as hard constraints / a stronger planner). Target box's
+Firefox Start shortcut is broken (private_browsing.exe moved) — a target-machine issue, not code.
+Full details in the doc above.
+═══════════════════════════════════════════════════════════════
+★★★ READ FIRST — 2026-06-21 (earlier, config session): CONFIG WIRED + LIVE run_goal — INSTALL WORKS, DEFAULT-BROWSER BLOCKED ★★★
+═══════════════════════════════════════════════════════════════
+First real end-to-end exercise of the LIVE planner->executive path (run_goal), not the isolated
+harness. Headline: the "download+install Firefox + set it default" task gets HALFWAY autonomously —
+the winget INSTALL works live; the default-browser half is blocked by a precisely-diagnosed LAUNCH
+bug, NOT a weak planner. Full writeup: docs/SESSION_2026-06-21_config_and_live_firefox.md.
+
+THE EARLIER FIREFOX "1 step, 0.0s, done" SILENT SUCCESS WAS RulePlanner, not a weak 8B. The server
+had been launched with AGENT_PLANNER=rule in its shell (carried over from a measure run); RulePlanner
+returns bare [{"op":"done"}] for any goal outside notepad/calculator -> validate_plan passed it ->
+run_plan ran [done] -> reported success. AGENT_PLANNER is NOT globally set; default is hf. Proven by
+the new planner.json (planner="RulePlanner") — see runs/goal_115333/planner.json.
+
+FIXES LANDED THIS SESSION (verified Windows-side: py_compile + import of kvm_agent.server.app clean):
+  1. NO-OP GUARD + raw planner logging (orchestration/planner.py). run_goal now REFUSES a plan with no
+     state-changing op (new plan_is_actionable()) for a non-empty goal -> fails LOUD / drives a replan
+     instead of a fake "done". validate_plan also warns on actions-without-a-verify. ClaudePlanner/
+     LocalPlanner stash self.last_raw; run_goal writes planner.json (raw reply + parsed + validated +
+     issues) NEXT TO plan.json — the raw reply used to be discarded (that's why goal_111417 couldn't say
+     WHY the plan was empty). Guard unit-tested offline; the 10/10 keyboard benchmark is unaffected
+     (guard lives in run_goal; measure.py calls run_plan directly with actionable plans).
+  2. config.py MIGRATION FINISHED — CFG is now actually the single source (it was half-wired: hardware/
+     llm helpers read CFG, but the SERVER still read os.environ + hardcoded literals). Added planner_kind,
+     send_image, anthropic_key, runs_dir. Repointed server/app.py, executive.py (module endpoints +
+     Executive.open cam/screen/executor), models/uitars.py, models/evocua.py, live_ctl.py at CFG.
+     COLLAPSED root agent_server.py from a 208-line DUPLICATE into a thin launcher that imports
+     kvm_agent.server.app (there were two divergent server impls). Defaults == old literals (executable test).
+  3. PLANNER IDIOMS added (planner.py SYSTEM): install via winget (launch 'cmd' -> 'winget install
+     --silent --accept-package-agreements --accept-source-agreements <Id>' -> enter -> sleep -> verify);
+     set a Windows default via launch 'ms-settings:defaultapps'; REGISTER a freshly-installed browser by
+     launching it once BEFORE setting default; alt+f4 the terminal so it doesn't cover Settings. The 8B
+     ADOPTS all of these and emits a clean keyboard-first plan (seen via tools/probe_planner.py).
+
+LIVE RUN RESULTS (2 runs via tools/run_goal_once.py; per-step frames + planner.json under runs/firefox*):
+  WORKS: cmd -> winget install Mozilla.Firefox -> vision-verified INSTALLED. The replan loop, no-op
+    guard, lint, per-step frame capture, planner.json, and alt+f4-close-terminal all functioned LIVE.
+  BLOCKED (default-browser half), root-caused from the captured frames:
+    (a) launch of Firefox via Win+R errors "Windows cannot find 'Firefox'" — a winget-installed app is
+        NOT bare-name runnable via Win+R (it IS via Start-menu search / full path).
+    (b) Executive.launch() FALSE-CONFIRMED on that error dialog: the dialog's title bar reads "Firefox",
+        so the _app_open vision check ("is a Firefox window open?") answered yes -> reported
+        'launch Firefox ok' when NOTHING launched. A SILENT FALSE-POSITIVE — the exact class we fight.
+        Evidence: runs/firefox_re1_125356/06_launch.png (the error dialog).
+    (c) => Firefox never registered => it is ABSENT from the Win10 default-browser chooser flyout
+        (runs/firefox_re1_125356/09_click.png shows only Chrome/IE/Edge) => default cannot be set, period.
+    Secondary (moot until a/b fixed): the Win10 Default-apps "Web browser" row is below the fold (needs
+    scroll) and the set is a tile->flyout->pick sequence the planner doesn't encode + grounding struggles with.
+
+NEXT STEPS (ordered; (1)+(2) likely get the whole task to pass):
+  1. Launch installed GUI apps via START-MENU SEARCH (tap Win -> type name -> Enter), NOT Win+R. Keep
+     Win+R for system stuff (cmd, ms-settings: URIs). Implement in Executive.launch() (system-command
+     vs installed-app split, or always try Start search for non-system names).
+  2. HARDEN Executive.launch() confirm: treat a "Windows cannot find '<x>'" dialog as FAILURE (vision/
+     OCR-detect it, Esc it, return False) — kills the false-positive in (b). Do NOT trust a same-named
+     dialog as "the app is open".
+  3. Add a `scroll` op to the plan schema + executive (firmware wheel = v5 works) so the planner can
+     reach below-the-fold targets (the "Web browser" row).
+  4. Encode the Win10 default-browser idiom, reusing tools/isolate_default_browser.py's SOLVED flow:
+     scroll to Web browser -> click the CURRENT default tile -> click Firefox in the flyout -> verify.
+     Only works AFTER (1)/(2) make Firefox actually launch + register.
+  5. Re-run firefox live; expect pass.
+
+ENV / TOOLING GOTCHAS (cost real time this session):
+  - The Linux bash mount serves STALE/truncated/null-byte snapshots of files JUST written by the file
+    tools (saw MINUTES of lag; py_compile gave bogus "null bytes"/"unterminated string" errors). PROPER
+    FIX: compile/run repo code via the WINDOWS-side MCP (Windows-MCP PowerShell / Desktop Commander)
+    against C:\Dev\vllm — no host->guest bridge, no lag. Verify file contents with the Read tool, NOT
+    bash. Keep bash only for work that lives entirely inside the sandbox.
+  - New diagnostics in tools/: probe_planner.py (planner output, NO HID; --kind hf|claude|rule, --frame
+    PNG), run_goal_once.py (ONE goal end-to-end on the rig; needs the rig FREE -> stop agent_server
+    first, single capture card). Both default to CFG (8B HFPlanner).
+  - PowerShell MCP runs on the DESKTOP orchestrator, NOT the Win10 TARGET — it can't query the target's
+    registry, only see its screen via the capture card. Firefox IS now installed on the target; Chrome
+    is still the default.
+═══════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════
+★★★ READ FIRST — 2026-06-21 (evening): DEFAULT-BROWSER SOLVED + PREEMPTION HARDENING ★★★
+═══════════════════════════════════════════════════════════════
+The "set default browser to Chrome" class — the long-standing hard-GUI failure — is SOLVED on
+the rig (target is WINDOWS 10, not 11): the isolated harness runs PASS, Chrome set + vision-
+verified (runs/isolate_defbrowser_20260621_091906). It was NOT a planner-size problem; it was
+THREE code/execution bugs, all now fixed with the MODEL SET UNCHANGED (uitars-q4 / qwen2.5vl /
+Qwen3-VL-8B). The unifying theme: every one was a SILENT failure that looked like success.
+
+ROOT CAUSES + FIXES:
+  1. GROUNDING (the real blocker). The Executive used UI-TARS as a grounder via the AGENTIC
+     COMPUTER_USE prompt. Handed a VISIBLE target ("Google Chrome" in the chooser) UI-TARS
+     reasoned the task was already "done" and emitted finished()/scroll instead of a click ->
+     ground() got no coordinate -> a SILENT no-click (looked like a misground at the screen
+     edge). FIX: UI-TARS now grounds in the click-ONLY GROUNDING_DOUBAO prompt (no
+     finished/scroll/wait in its action space); the Executive forces self.agent.grounding=True.
+     Files: models/uitars.py (grounding flag + _build_messages branch), orchestration/
+     executive.py (force in __init__, open()). PROVEN with tools/probe_grounding.py: COMPUTER_USE
+     DONE'd on the chooser frame; GROUNDING mode clicks Chrome. (Anti-"don't finish" wording was
+     IGNORED by q4 — the prompt MODE is the lever, not the phrasing.)
+  2. VERIFY. The verify op did a literal SUBSTRING match of the planner's sentence
+     (expect="Google Chrome is now the default web browser") — a string never on screen — so
+     EVERY run false-failed even when the action worked. FIX: a new {"op":"verify","ask":
+     "<yes/no question>"} routes to the vision model (Executive.confirm()); planner idiom prefers
+     'ask' for states not shown as literal text. orchestration/executive.py run_plan + planner.py.
+  3. CLICK SUCCESS was frame-diff "pixels moved" -> false positives on a misground. Mitigated by
+     grounding mode (always a real click) + per-step logging (below) makes a bad click visible.
+
+FIRMWARE SCROLL — FIXED (v5, flashed + verified 2026-06-21): boot.py now has a relative Wheel
+field and code.py's 'S' handler sends wheel notches, so r4.scroll() actually scrolls (selftest:
+the top marker scrolled into view; runs/selftest_20260621_110008, all four primitives pass). It
+WAS a silent no-op (v4 report had no wheel byte; code.py:265 did nothing) — below-the-fold targets
+were unreachable. Flashing the new descriptor RE-ENUMERATES the HID interface, so it needs a
+power-cycle (replug once more if Windows shows Code 10).
+
+PREEMPTION HARDENING (so this CLASS of silent failure is caught, not re-discovered by hand):
+  - PLAN-TIME LINT: planner.validate_plan() auto-converts sentence-like verify.expect -> ask,
+    drops malformed/unknown/field-missing steps, warns on long click targets, ensures a trailing
+    done. Wired into run_goal (after decompose + after replan); streams "lint:" notes. Conservative
+    — short literal expects (milk/59/"Default apps") stay substring, so the keyboard benchmark is
+    unaffected. Unit-tested offline.
+  - ALWAYS-ON PER-STEP LOGGING: run_plan saves a per-step frame (red crosshair on clicks) + the
+    grounder's raw thoughts/actions to runs/<tag>_<time>/ (Executive.capture, default ON;
+    measure.py sets capture=False to keep timing clean). This is exactly what made these bugs
+    visible — now standard, not a throwaway harness. Executive.ground() stashes self.last_ground.
+  - PRIMITIVE SELF-TEST: tools/selftest.py exercises launch/type/scroll/click vs the live capture
+    and prints a capability table — flags a dead primitive (the scroll no-op) UP FRONT, instead of
+    it surfacing as a mysterious mid-task misground. Run after any firmware reflash / wiring change.
+
+NEW DIAGNOSTIC TOOLS (reusable, in tools/): isolate_default_browser.py (deterministic
+keyboard-first task harness with per-step frames + truthful vision verify; --reach/--flyout/
+--tile-desc/--chrome-desc A/B knobs), probe_grounding.py (OFFLINE grounding A/B on a SAVED frame
+— no rig, only the laptop Ollama; has --grounding), selftest.py.
+
+LESSONS (generalize): UI-TARS is an AGENT that decides termination — when using it purely as a
+grounder, CONSTRAIN it to grounding mode; phrase targets as visual elements ("the blue X icon"),
+not task goals. Every action must ASSERT its post-condition against the SCREEN — no success signal
+decoupled from reality, no primitive that silently no-ops. The fastest debugging lever was per-step
+frames + the grounder's raw output + an OFFLINE probe against saved frames.
+
+NOT YET DONE / re-verify on the rig (don't assume): (a) the LIVE run_goal path end-to-end through
+Open WebUI — the building blocks are in (grounding mode + ask-verify + lint), and a rough plan
+should now RECOVER, but it's untested; (b) re-run `measure.py --k 10` to confirm the executive
+edits didn't regress the 10/10 keyboard benchmark; (c) run_plan per-step capture has NOT run live
+yet (selftest.py HAS — all four primitives pass, scroll now real). Optional next: a Win10
+default-apps idiom in the planner to make that plan deterministic; a `scroll` op in the plan schema
+now that the firmware wheel works. SUPERSEDES the older "Win11 set-default-browser fails on task
+difficulty/verify" note below.
+═══════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════
 ★★★ READ FIRST — 2026-06-21 (late): CONSOLIDATED INTO kvm_agent/ PACKAGE ★★★
 ═══════════════════════════════════════════════════════════════
 The flat root modules are now ONE package: `kvm_agent/`. The loose .py files this doc
