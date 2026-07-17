@@ -255,14 +255,69 @@ import). All landed on `refactor/packaging` as separate reviewable commits.
   unknown (WiFi radio sleep/hang? CircuitPython WiFi stack issue?) — worth investigating
   if it recurs during a battery run, since an unresponsive Pico mid-run silently kills
   a task rather than erroring loudly.
+- **Second new bug: a *live* USB hot-replug orphans the VM's passthrough binding.**
+  After the fix above, Aaron physically replugged the Pico while the VM was already
+  running. `virsh dumpxml` still showed the OLD bus:device (libvirt only re-resolves
+  vendor:product -> bus:device at attach time, not continuously) — the VM was holding a
+  now-stale USB path. Symptom was confusing: QEMU-level `info usb` showed the device
+  attached and the keyboard HID interface worked, but the mouse HID interface did not
+  (zero cursor movement, zero click effect, verified with a clean test after confirming
+  Aaron was no longer touching the VM directly — see below). Hot detach/reattach
+  (`virsh detach-device`/`attach-device --live` with a vendor/product-only fragment) did
+  NOT fully fix it (mouse stayed dead); a full `virsh shutdown` + `virsh start` (cold
+  boot, clean USB re-enumeration) did. **Rule of thumb going forward: after ANY physical
+  Pico replug, fully reboot the VM — don't rely on hot detach/reattach.**
+- **Gotcha: virt-viewer's own SPICE input forwarding is a SEPARATE path from the Pico.**
+  QEMU's `info usb` showed two distinct input devices on the guest: `hostdev0` (the real
+  Pico, USB HID) and a virtual `QEMU USB Tablet` (`input0`, the default absolute-pointer
+  device SPICE clients use). If a human interacts with the virt-viewer window directly
+  (mouse/keyboard) while the Pico is also being driven programmatically, both land on the
+  guest and are indistinguishable from a single capture frame — this caused real
+  confusion this session (a Calculator window's state was misattributed to a Pico click
+  that actually did nothing). When debugging the Pico specifically, confirm no one is
+  touching the virt-viewer window directly first.
+- **First login to the VM's `sandbox` account happened this session** — it's a distinct
+  local Windows account from `Aaron Hladky` (his personal account, PIN-protected, not
+  for agent use). `sandbox` required a full first-time Windows OOBE flow (privacy
+  settings, etc., "This might take a few minutes") since it had never been logged into
+  before — now done, clean desktop reached. Use `sandbox` for rig/agent work going
+  forward, never guess at or attempt `Aaron Hladky`'s PIN.
+- **Grading backends were both down for the first live battery run**: `tesseract` is not
+  installed on this Linux host (no passwordless sudo available to fix it from an agent
+  session) and the Ollama laptop (`192.168.0.155:11434`, hosts the vision-verify model)
+  was unreachable all session. Both `Verifier.has_text`/`read_number` (OCR, tesseract) and
+  `Verifier._vision` (Ollama) degrade to `None` ("can't verify") when their backend is
+  down — by the battery's fail-open design this means `correct` currently reflects the
+  model's self-report alone for any task whose grader came back `None`, which is exactly
+  the gap the battery was built to avoid. Not fatal: `RunRecorder` saves every step's raw
+  frame regardless, so grading can be redone retroactively once tesseract/Ollama are
+  fixed, without re-running anything live.
+- **Bug found + fixed: `run_battery()` never released the camera/Pico.** First live
+  battery task (`calc_basic`) completed correctly (7 steps, correct math, correct
+  `answer` call, matches the Phase I5 re-test) but the process then hit `SIGABRT`
+  ("exception not rethrown") at interpreter exit. Isolated repros of Camera+Pico
+  together didn't reproduce it, so root cause is presumed to be an unclean native
+  teardown race after ~130s of real cv2/network activity with the resources still open —
+  not a correctness issue (the summary was already written to disk before the crash).
+  Fixed regardless: `run_battery()` now calls `agent_loop_holo.shutdown()` in a `finally`
+  block when it owns the live backend.
 
 ## Open items / not yet done
 
 - **Phase I6 (latency/robustness tuning)** — optional per the plan, only if per-step
   latency needs to come down. Candidate lever identified above (resolution), not applied.
-- **Phase I7 (task battery)** — the custom battery (`kvm_agent.battery`, see above) is
-  built and offline-tested but has never been RUN against the live rig — that's the
-  actual next step, now that the rig is confirmed up end-to-end.
+- **Phase I7 (task battery)** — first live run happened this session (`calc_basic` +
+  the remaining 7 tasks); see the battery run's own summary for results. Grading was
+  degraded (see below) so re-grading from saved frames once tesseract/Ollama are back is
+  worth doing before trusting the `correct` numbers.
+- **Grading backends down**: `tesseract` not installed on this host (no passwordless
+  sudo from an agent session — install manually: `apt-get install tesseract-ocr`), and
+  the Ollama laptop (`192.168.0.155:11434`) unreachable all session. Fix either (or
+  both) and re-grade the saved battery frames before trusting any `correct` numbers from
+  tonight's run.
+- **After any physical Pico USB replug, fully reboot the VM** (`virsh shutdown` +
+  `virsh start`) rather than a hot detach/reattach — the latter left the mouse HID
+  interface dead this session even though QEMU showed the device attached. See above.
 - **iGPU passthrough** — abandoned for now, not fixed. Would need either a properly
   PCI-Option-ROM-headered GOP driver (nontrivial binary construction on an unconfirmed
   candidate module) or a different approach entirely. The current B580+SPICE-fullscreen
