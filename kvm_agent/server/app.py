@@ -26,8 +26,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 
-os.environ.setdefault("OPENAI_BASE_URL", "http://192.168.0.155:11434/v1")
-os.environ.setdefault("OPENAI_API_KEY", "ollama")
+from kvm_agent.config import CFG   # single source for endpoints/model-names/paths
+                                  # (importing the package also seeds OPENAI_* env defaults)
 
 MODEL_ID = "computer-use-agent"
 MOCK = "--mock" in sys.argv
@@ -41,15 +41,20 @@ _PLANNER = None
 
 
 def build_planner():
-    kind = os.environ.get("AGENT_PLANNER", "hf").lower()
-    model = os.environ.get("AGENT_PLANNER_MODEL", "Qwen/Qwen3-VL-8B-Instruct")
-    send_image = os.environ.get("AGENT_SEND_IMAGE", "1") != "0"
+    kind = CFG.planner_kind.lower()
+    mt = CFG.planner_effective_max_tokens
     if kind == "hf":
         from kvm_agent.orchestration.planner import HFPlanner
-        return HFPlanner(model=model, send_image=send_image)
+        return HFPlanner(model=CFG.planner_model, send_image=CFG.send_image,
+                         max_tokens=mt, thinking=CFG.planner_thinking)
     if kind == "claude":
         from kvm_agent.orchestration.planner import ClaudePlanner
-        return ClaudePlanner()
+        return ClaudePlanner(api_key=CFG.anthropic_key or None,
+                             max_tokens=mt, thinking=CFG.planner_thinking)
+    if kind == "local":   # OpenAI-compatible endpoint (e.g. the B580 llama-server on :8080)
+        from kvm_agent.orchestration.planner import LocalPlanner
+        return LocalPlanner(model=CFG.planner_model, base_url=CFG.planner_local_url,
+                            send_image=CFG.send_image, max_tokens=mt, thinking=CFG.planner_thinking)
     from kvm_agent.orchestration.planner import RulePlanner
     return RulePlanner()
 
@@ -61,9 +66,9 @@ def get_executive():
     if _EXEC is None:
         from kvm_agent.orchestration.executive import Executive, Verifier
         _EXEC = Executive.open(
-            executor_model=os.environ.get("EXECUTOR_MODEL", "uitars-q4"),
-            verifier=Verifier(os.environ.get("VERIFIER_MODEL", "qwen2.5vl:7b")),
-            log_dir=r"C:\Dev\vllm\runs")
+            executor_model=CFG.executor_model,
+            verifier=Verifier(CFG.verifier_model),
+            log_dir=CFG.runs_dir)
     return _EXEC, _PLANNER
 
 
@@ -111,17 +116,32 @@ def _run_worker(goal, q, out):
             # accept()ed -> first command no-op'd, then WinError 10054. Use ONE connection:
             # the Executive's own R4() already fast-fails (5s) if the Pico is unreachable.
             q.put("booting rig (camera + Pico) if needed…")
-            from kvm_agent.orchestration.planner import run_goal
+            from kvm_agent.orchestration.planner import run_goal, run_goal_step
             try:
                 ex, planner = get_executive()
             except (ConnectionError, OSError):
                 q.put("Pico injector OFFLINE (192.168.0.183:8000 unreachable). "
                       "Power-cycle the Pico / wake the target machine, then retry.")
                 return
-            r = run_goal(goal, planner, ex, on_event=lambda m: q.put(m))
+            mem = None
+            if CFG.hindsight_enabled:
+                from kvm_agent.memory.hindsight import HindsightMemory
+                mem = HindsightMemory()
+            if CFG.closed_loop:
+                q.put(f"mode: per-step closed loop (max {CFG.closed_loop_max_steps} steps)")
+                r = run_goal_step(goal, planner, ex, max_steps=CFG.closed_loop_max_steps,
+                                  on_event=lambda m: q.put(m), memory=mem,
+                                  write_memory=CFG.hindsight_write)
+            else:
+                r = run_goal(goal, planner, ex, on_event=lambda m: q.put(m), memory=mem,
+                             write_memory=CFG.hindsight_write)
             out["result"] = r
-            out["summary"] = (f"Task **{r.get('status')}** in {r.get('elapsed','?')}s "
-                              f"({r.get('replans', 0)} re-plan(s)).")
+            if r.get("loop") == "per-step":
+                out["summary"] = (f"Task **{r.get('status')}** in {r.get('elapsed','?')}s "
+                                  f"({r.get('steps', 0)} step(s), per-step closed loop).")
+            else:
+                out["summary"] = (f"Task **{r.get('status')}** in {r.get('elapsed','?')}s "
+                                  f"({r.get('replans', 0)} re-plan(s)).")
         finally:
             _RIG_LOCK.release()
     except Exception as e:
@@ -182,8 +202,10 @@ async def chat_completions(request: Request):
 @app.get("/health")
 def health():
     return {"ok": True, "model": MODEL_ID, "mock": MOCK,
-            "planner": os.environ.get("AGENT_PLANNER", "hf"),
-            "planner_model": os.environ.get("AGENT_PLANNER_MODEL", "Qwen/Qwen3-VL-8B-Instruct")}
+            "planner": CFG.planner_kind, "planner_model": CFG.planner_model,
+            "thinking": CFG.planner_thinking,
+            "planner_max_tokens": CFG.planner_effective_max_tokens,
+            "closed_loop": CFG.closed_loop, "closed_loop_max_steps": CFG.closed_loop_max_steps}
 
 
 @app.on_event("shutdown")

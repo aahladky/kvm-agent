@@ -24,8 +24,9 @@ Typical:
     shutdown()
 """
 import os, time, base64
-os.environ.setdefault("OPENAI_BASE_URL", "http://192.168.0.155:11434/v1")
-os.environ.setdefault("OPENAI_API_KEY", "ollama")
+from kvm_agent.config import CFG
+os.environ.setdefault("OPENAI_BASE_URL", CFG.openai_base)
+os.environ.setdefault("OPENAI_API_KEY", CFG.openai_key)
 
 import cv2
 from io import BytesIO
@@ -37,7 +38,7 @@ os.makedirs(DBG, exist_ok=True)
 ENV = None          # PicoEnv (camera + R4)
 AG = None           # UITARSAgent (executor)
 LAST = {"png": None, "actions": None, "xy": None, "text": None}
-EXECUTOR_MODEL = os.environ.get("EXECUTOR_MODEL", "uitars-q4")
+EXECUTOR_MODEL = CFG.executor_model
 
 
 def boot(executor=None):
@@ -46,10 +47,10 @@ def boot(executor=None):
     from pico_env import PicoEnv
     from cua_agent import make_agent
     if ENV is None:
-        ENV = PicoEnv(cam_index=0, screen_size=(1920, 1080), show=False)
+        ENV = PicoEnv(cam_index=CFG.cam_index, screen_size=CFG.screen_size, show=False)
     if AG is None:
         AG = make_agent("uitars", model=(executor or EXECUTOR_MODEL), history=1,
-                        temperature=0.0, screen_size=(1920, 1080))
+                        temperature=0.0, screen_size=CFG.screen_size)
     print(f"[boot] ready. executor={getattr(AG,'model','?')}")
     return True
 

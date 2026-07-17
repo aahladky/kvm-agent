@@ -15,21 +15,26 @@ Interface implemented (the subset the agent + a thin run loop touch):
   env.step(action, pause) -> obs,r,done,info   env.controller.start/end_recording()
   env.evaluate()/.close()/.vm_ip/.action_space
 """
+import sys
 import time
 import threading
 import cv2
 from kvm_agent.hardware.pico_client import R4
 
+# Windows target: Media Foundation (MSMF), NOT DirectShow -- the Acer USB3 card delivers
+# YUY2 there and cv2's DSHOW backend mis-reads its stride and ghosts stale frames into the
+# current one (the "wallpaper duplicated at two scales" artifact, 2026-06-19); OBS and MSMF
+# both decode it cleanly. Linux host (the VM-based rig, 2026-07): V4L2 is the native/only
+# real backend for a UVC capture card -- CAP_MSMF doesn't exist outside Windows.
+_CAPTURE_BACKEND = cv2.CAP_MSMF if sys.platform == "win32" else cv2.CAP_V4L2
+
 
 class Camera:
     def __init__(self, index=0, w=1920, h=1080):
-        # Use Media Foundation (MSMF), NOT DirectShow. On the Windows target the Acer
-        # USB3 card delivers YUY2, and cv2's DSHOW backend mis-reads its stride and
-        # ghosts stale frames into the current one (the "wallpaper duplicated at two
-        # scales" artifact, 2026-06-19) — OBS and MSMF both decode it cleanly. MSMF is
-        # slow to OPEN (~20-25s one-time Media Foundation init), hence the longer
-        # first-frame wait below; once open, the threaded read drains fresh frames.
-        self.cap = cv2.VideoCapture(index, cv2.CAP_MSMF)
+        # MSMF is slow to OPEN (~20-25s one-time Media Foundation init) on Windows, hence
+        # the longer first-frame wait below; once open, the threaded read drains fresh
+        # frames. V4L2 on Linux opens fast by comparison.
+        self.cap = cv2.VideoCapture(index, _CAPTURE_BACKEND)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)

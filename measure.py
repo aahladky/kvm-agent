@@ -87,7 +87,10 @@ if __name__ == "__main__":
     ap.add_argument("--executor", default="uitars-q4")
     ap.add_argument("--vision", default="qwen2.5vl:7b")
     args = ap.parse_args()
-    ex = Executive.open(executor_model=args.executor, verifier=Verifier(vision_model=args.vision))
+    # capture=False: this harness measures wall-clock timing and saves its own final frames;
+    # per-step frame capture would add encode/disk overhead and skew the rate/timing baseline.
+    ex = Executive.open(executor_model=args.executor,
+                        verifier=Verifier(vision_model=args.vision), capture=False)
     try:
         multiapp(ex, K=args.k)
     finally:
