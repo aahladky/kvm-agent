@@ -96,7 +96,11 @@ def _cmd_scroll(q):
 
 def _cmd_probe(q):
     p = LINK.probe()
-    return f"PROBE caps={p['caps']} num={p['num']} scroll={p['scroll']}"
+    # kbd/mouse flags = the firmware's view of whether each HID collection is online at
+    # the target OS. The composite device can come up HALF-dead (keyboard alive, mouse
+    # dead -- seen live 2026-07-18), so both must be surfaced for reset verification.
+    return (f"PROBE caps={p['caps']} num={p['num']} scroll={p['scroll']} "
+            f"kbd={int(p['kbd_online'])} mouse={int(p['mouse_online'])}")
 
 
 ROUTES = {

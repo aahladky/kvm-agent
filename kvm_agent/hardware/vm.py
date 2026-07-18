@@ -161,14 +161,31 @@ class VMController:
                     "virt-viewer relaunches -- refusing to run tasks against an unverified "
                     "display (capture is probably showing the host desktop, not the VM)")
         if check_hid:
-            self._verify_hid()
+            # A dead HID post-reset used to warn-and-continue, which then read as "the
+            # model can't click" (2026-07-18: a WAA task burned 4 dead clicks and got
+            # no-progress-aborted while the mouse collection was silently offline). One
+            # extra cold reboot is the documented cure; raise if even that doesn't fix it.
+            for attempt in range(2):
+                if self._verify_hid():
+                    break
+                if attempt == 0:
+                    print("[vm] HID dead after reset -- forcing one more cold reboot")
+                    self._cold_reboot()
+                    self._ensure_virt_viewer(force=True)
+            else:
+                raise VMError(
+                    "USB HID (keyboard or mouse collection) still dead after an extra "
+                    "cold reboot -- refusing to run tasks with a dead input path")
         return True
 
     def _verify_hid(self):
         """Toggle NumLock via the appliance and confirm the LED readback actually flipped --
         a real round trip through bridge->UART->Pico->USB HID->guest OS->keyboard driver,
         independent of the camera/display pipeline (see revert_clean's docstring for why the
-        pixel check alone missed a real dead-HID-post-revert failure)."""
+        pixel check alone missed a real dead-HID-post-revert failure). ALSO require the
+        firmware to report BOTH HID collections online: the composite device can come up
+        keyboard-alive/mouse-dead (observed live 2026-07-18), which a keyboard round-trip
+        alone cannot see. Returns True iff both checks pass."""
         try:
             from kvm_agent.hardware.appliance import ApplianceClient
             c = ApplianceClient()
@@ -180,17 +197,18 @@ class VMController:
             c.key("numlock")  # restore original state
             num_before = "num=1" in before
             num_after = "num=1" in after
-            if num_before == num_after:
-                print(f"\n!!! WARNING: post-revert HID check FAILED -- toggling NumLock did "
-                      f"NOT change the guest's LED readback (before={before!r} "
-                      f"after={after!r}). The passed-through USB HID device may be dead even "
-                      f"though the screen looks fine (a real failure mode: a stale duplicate "
-                      f"<hostdev> entry did exactly this 2026-07-18). Check `virsh dumpxml "
-                      f"{self.domain}` for duplicate hostdev entries, or cold-reboot the VM.\n")
-            else:
-                print(f"[vm] HID round-trip verified (NumLock toggled + read back correctly)")
+            kbd_ok = "kbd=1" in after
+            mouse_ok = "mouse=1" in after
+            if num_before == num_after or not kbd_ok or not mouse_ok:
+                print(f"[vm] HID check FAILED (numlock_flip={num_before != num_after}, "
+                      f"kbd_online={kbd_ok}, mouse_online={mouse_ok}; probe={after!r})")
+                return False
+            print("[vm] HID round-trip verified (NumLock toggled + read back correctly, "
+                  "both HID collections online)")
+            return True
         except Exception as e:
             print(f"[vm] HID round-trip check skipped (appliance unreachable: {e})")
+            return True  # no appliance -> nothing to check; don't block non-HID setups
 
     def _kill_virt_viewer(self):
         subprocess.run(["pkill", "-f", f"virt-viewer.*{self.domain}"], capture_output=True)
