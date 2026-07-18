@@ -14,7 +14,27 @@ model. Until the harness stops lying to both the model (tool-result text) and th
 
 ---
 
-## Pico / action channel — CHOSEN NEXT FOCUS (see structural note at bottom)
+## STATUS — fixes as of 2026-07-18
+
+- **Pico/action channel (#1, #2, #3): RESOLVED** by the Pi 5 + Pico UART appliance rebuild
+  (wired transport, per-command ACK, defined API). See `docs/PLAN_2026-07-18_pi5_pico_appliance.md`
+  and `appliance/`. Stages 1-3,5,6 done; the WiFi Pico is retired.
+- **#5 (Camera SIGABRT race): FIXED** — `Camera.release()` now joins the capture thread before
+  releasing the device (`kvm_agent/hardware/env.py`).
+- **#4 (bogus frame-diff signal): FIXED** — replaced whole-frame mean with a tile-max metric,
+  live-calibrated; offline test in `tests/test_frame_diff.py` (`agent_loop_holo.py`).
+- **#9 (no no-progress detection): FIXED** — `run()` aborts on a frozen screen or clustered
+  repeated clicks (`agent_loop_holo.py`).
+- **#8 (fail-open grading): FIXED** — `Verifier.available()` + per-result verified/unverified/na
+  status + loud warning; a None grade no longer masquerades as a verified pass
+  (`kvm_agent/orchestration/executive.py`, `kvm_agent/battery/runner.py`, `tests/test_battery.py`).
+- **#7 (no reset between tasks): OPEN** — design fork (VM snapshot revert vs HID-best-effort).
+- **#11 (refusal-vs-exhaustion scoring): OPEN** — needs the final answer text exposed from
+  `run()` + a grader for the refusal content (TODO noted in `runner.py`).
+
+---
+
+## Pico / action channel — RESOLVED via the appliance rebuild (structural note at bottom)
 
 ### 1. No command acknowledgement — every action "succeeds" unconditionally. [confirmed]
 `code.py`'s `handle()` never replies. So `pico_client.py._send()`'s `recv(64)` always times
