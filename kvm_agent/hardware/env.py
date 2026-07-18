@@ -50,7 +50,8 @@ class Camera:
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.frame = None
         self.run = True
-        threading.Thread(target=self._loop, daemon=True).start()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
         t0 = time.time()
         while self.frame is None:
             if time.time() - t0 > 15:
@@ -75,7 +76,15 @@ class Camera:
 
     def release(self):
         self.run = False
-        time.sleep(0.1)
+        # Join the capture thread BEFORE releasing the device. Releasing cap while _loop is
+        # blocked inside cap.read() frees the device under an in-flight read -> native abort
+        # (the "exception not rethrown / Aborted (core dumped)" SIGABRT seen 2026-07-17, flaw
+        # #5). Joining bounds the wait; the common case (read returns within a frame interval)
+        # closes the race cleanly. If a read is genuinely wedged past the timeout we still
+        # release (best effort) rather than hang shutdown forever.
+        t = getattr(self, "_thread", None)
+        if t is not None:
+            t.join(timeout=2.0)
         self.cap.release()
 
 
