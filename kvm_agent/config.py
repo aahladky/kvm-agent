@@ -75,10 +75,16 @@ class Config:
 
     # --- Holo battery's Verifier grading backend (kvm_agent.orchestration.executive) ---
     # local llama-swap (same host/server as holo_local_url below), NOT the laptop -- see the
-    # NOTE above ollama_base. gemma4-dense has --mmproj (vision-capable) and is already
-    # loaded/proven reachable via this server; it's a reasoning model, so verifier calls need
-    # a generous max_tokens or the <think> preamble eats the whole budget before answering.
-    verifier_local_model: str = _env("VERIFIER_LOCAL_MODEL", "gemma4-dense")
+    # NOTE above ollama_base. Grade with holo3.1 ITSELF: it is vision-capable and already
+    # resident during a battery run, so grading costs ZERO model swaps. The 2026-07-18
+    # battery run proved the alternative self-defeating -- with the verifier on gemma4-dense
+    # (a 31B model that cannot share the B70 with holo3.1), llama-swap performed 16 full
+    # model evictions/reloads in 45 minutes (one per grading call + one per task start),
+    # inflating every first step to ~32s and every grading call to ~52s. Grading remains an
+    # INDEPENDENT screen check: the verifier reads the final frame with a fresh prompt and
+    # never sees the agent's own self-report. OCR (pytesseract) covers text graders with no
+    # GPU at all. Override with VERIFIER_LOCAL_MODEL if a separate grader is ever wanted.
+    verifier_local_model: str = _env("VERIFIER_LOCAL_MODEL", "holo3.1")
     verifier_max_tokens: int = int(_env("VERIFIER_MAX_TOKENS", "800"))
 
     # --- planner (server-side orchestration brain) ---
