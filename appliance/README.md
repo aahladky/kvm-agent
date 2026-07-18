@@ -46,13 +46,26 @@ type, combo, scroll all emit the correct events; every command ACKs (moves ~4ms,
 ~30ms = real execution time). Firmware: `pico/stage2_hid.py`. Sender: `pi5/send.py`. Verifier:
 `host/stage2_verify.py`.
 
+## Stage 3 result (2026-07-18): PASS
+
+Both HID collections confirmed acting **inside Windows** through the full path
+(Pi → UART → Pico → USB passthrough → win11-agent), verified via the capture card:
+- Mouse: clicked Start → menu opened.
+- Keyboard: typed "notepad" + Enter into Start search → Notepad launched → typed
+  `STAGE3 HID VIA UART OK` → exact text appeared.
+
+Clears the old "keyboard alive / mouse dead" failure mode — both alive through passthrough.
+No new code (reused `stage2_hid.py` + `send.py` + the host capture card). The Pico's control
+path (Pi/UART) is independent of where its USB points, so passing the USB to the VM did not
+affect control. Also fixed the recurring stale hostdev bus/device pin: the VM's Pico
+passthrough now matches by VID:PID (`--config`), so it won't drift on the next replug.
+
 ## Bring-up stages (isolate one unknown per stage — see the plan doc)
 
 1. **UART link** ✅ DONE — `pico/stage1_uart_echo.py` + `pi5/stage1_ping_test.py`.
 2. **HID over UART** ✅ DONE — `pico/stage2_hid.py` + `pi5/send.py` + `host/stage2_verify.py`.
-3. **Through libvirt passthrough → win11-agent** ← *next.* (same commands, now the Pico's USB
-   goes to the VM; confirm they act inside Windows.)
-4. Capture alone (ustreamer on the Pi 5).
+3. **Through libvirt passthrough → win11-agent** ✅ DONE — reused Stage-2 firmware + send.py.
+4. **Capture alone (ustreamer on the Pi 5)** ← *next.*
 5. Appliance HTTP API.
 6. Integrate into the Holo loop (`ApplianceClient` replaces `R4` + `Camera`).
 
