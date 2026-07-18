@@ -19,7 +19,17 @@ import sys
 import time
 import threading
 import cv2
+from kvm_agent.config import CFG
 from kvm_agent.hardware.pico_client import R4
+from kvm_agent.hardware.appliance import ApplianceClient
+
+
+def make_hid_client():
+    """Pick the action channel: the Pi 5 + Pico UART appliance (default) or the retired
+    WiFi Pico. Both expose the same R4 method surface, so the rest of PicoEnv is agnostic."""
+    if CFG.hid_kind == "wifi":
+        return R4()
+    return ApplianceClient()
 
 # Windows target: Media Foundation (MSMF), NOT DirectShow -- the Acer USB3 card delivers
 # YUY2 there and cv2's DSHOW backend mis-reads its stride and ghosts stale frames into the
@@ -203,10 +213,10 @@ class PicoEnv:
         self.screen_width, self.screen_height = screen_size
         self.cam = Camera(cam_index, *screen_size)
         try:
-            self.r4 = R4()
+            self.r4 = make_hid_client()   # appliance (default) or legacy WiFi, per CFG.hid_kind
         except Exception:
             try:
-                self.cam.release()   # don't orphan the capture device if the Pico is offline
+                self.cam.release()   # don't orphan the capture device if the HID client fails
             except Exception:
                 pass
             raise

@@ -35,8 +35,12 @@ def _env(key, default):
 @dataclass(frozen=True)
 class Config:
     # --- hardware: Pico HID injector + HDMI capture ---
-    pico_ip: str = _env("PICO_IP", "192.168.0.224")  # was .183; drifted once already (DHCP, not reserved) — see FINDINGS_integration.md
+    pico_ip: str = _env("PICO_IP", "192.168.0.224")  # LEGACY WiFi Pico (retired); see hid_kind
     pico_port: int = int(_env("PICO_PORT", "8000"))
+    # --- HID action channel: 'appliance' = Pi 5 + Pico over wired UART + HTTP bridge
+    #     (docs/PLAN_2026-07-18_pi5_pico_appliance.md); 'wifi' = the retired R4 WiFi Pico ---
+    hid_kind: str = _env("HID_KIND", "appliance")
+    appliance_url: str = _env("APPLIANCE_URL", "http://192.168.0.29:8080")  # Pi 5 hid_bridge
     cam_index: int = int(_env("CAM_INDEX", "0"))
     screen_w: int = int(_env("SCREEN_W", "1920"))
     screen_h: int = int(_env("SCREEN_H", "1080"))

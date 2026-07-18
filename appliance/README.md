@@ -75,6 +75,20 @@ newline-framed); the host-side client (Stage 6) splits text on newlines into `T`
 `K enter`, as the old R4.type did. TODO: make hid_bridge a systemd service so it survives
 reboots (currently launched via ssh -f).
 
+## Stage 6 result (2026-07-18): PASS
+
+`kvm_agent/hardware/appliance.py: ApplianceClient` — drop-in for the WiFi `R4` (same
+move/click/type/key/combo/scroll/drag surface) but backed by the Pi bridge HTTP API; a
+failed/dropped command raises `ApplianceError` LOUDLY instead of silently succeeding.
+`PicoEnv` now selects the HID client via `CFG.hid_kind` (default `appliance`; `wifi` = retired
+R4), keeping the host `Camera` for capture. New config: `CFG.hid_kind`, `CFG.appliance_url`.
+Verified end-to-end: `agent_loop_holo.boot()` comes up on the appliance + host capture (no
+more dead-WiFi failure), `ENV.r4` typed a line into the VM Notepad through
+host→bridge→UART→Pico→passthrough→VM, and `shutdown()` was clean.
+
+`type()` newline handling lives here (splits on `\n` → `T` segments + `K enter`), since the
+UART protocol can't frame a literal newline.
+
 ## Bring-up stages (isolate one unknown per stage — see the plan doc)
 
 1. **UART link** ✅ DONE — `pico/stage1_uart_echo.py` + `pi5/stage1_ping_test.py`.
@@ -82,8 +96,15 @@ reboots (currently launched via ssh -f).
 3. **Through libvirt passthrough → win11-agent** ✅ DONE — reused Stage-2 firmware + send.py.
 4. **Capture alone (ustreamer on the Pi 5)** — DEFERRED (capture stays host-side for now).
 5. **Appliance HTTP API (HID-only)** ✅ DONE — `pi5/hid_bridge.py`.
-6. **Integrate into the Holo loop** ← *next.* `ApplianceClient` (HID via the bridge API) +
-   keep the host `Camera` for capture; replaces the dead WiFi `R4` path in `agent_loop_holo`.
+6. **Integrate into the Holo loop** ✅ DONE — `kvm_agent/hardware/appliance.py` + `env.py` selector.
+
+## Remaining follow-ups (not blocking)
+
+- Stage 4: move capture to the Pi 5 (ustreamer) when desired.
+- systemd-ify `hid_bridge.py` on the Pi so it survives reboots (currently `ssh -f`).
+- Harness-logic flaws from `docs/FINDINGS_2026-07-18_harness_review.md` (#4 frame-diff signal,
+  #7 no reset, #8 fail-open grading, #9 no-progress, #11 refusal-vs-exhaustion) — separate from
+  the HID rebuild; still open. Also the `Camera.release()` thread-join race (#5).
 
 ## Stage 1 quickstart
 
