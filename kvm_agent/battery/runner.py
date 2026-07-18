@@ -27,20 +27,40 @@ def _live_backend():
     return loop.run, loop._frame_png, loop.shutdown
 
 
-def run_battery(task_ids=None, confirm_first=0, run_fn=None, capture_fn=None, verifier=None):
+def run_battery(task_ids=None, confirm_first=0, run_fn=None, capture_fn=None, verifier=None,
+                reset_fn=None):
     """Run TASKS (or the --only subset), grade each with `verifier`, and return/persist
-    the aggregate summary. run_fn/capture_fn/verifier default to the live rig via
+    the aggregate summary. run_fn/capture_fn/verifier/reset_fn default to the live rig via
     agent_loop_holo but are injectable for offline testing.
 
     Releases the camera/Pico (via agent_loop_holo.shutdown()) when done, but only if this
     call opened them itself -- injected run_fn/capture_fn (tests) own their own lifecycle."""
     shutdown_fn = None
-    if run_fn is None or capture_fn is None:
+    live = run_fn is None or capture_fn is None
+    if live:
         live_run, live_capture, live_shutdown = _live_backend()
         run_fn = run_fn or live_run
         capture_fn = capture_fn or live_capture
         shutdown_fn = live_shutdown
     verifier = verifier or Verifier()
+
+    # Flaw #7: reset the target VM to a clean logged-in desktop BEFORE each task, so no task
+    # inherits the leftover windows of the prior one. Live path defaults to a warm libvirt
+    # snapshot revert (kvm_agent/hardware/vm.py); offline/injected runs get a no-op unless a
+    # reset_fn is passed. Disable with CFG.vm_reset=0.
+    if reset_fn is None:
+        if live and CFG.vm_reset:
+            from kvm_agent.hardware.vm import VMController
+            _vm = VMController()
+            if not _vm.has_snapshot():
+                raise RuntimeError(
+                    f"VM reset enabled but snapshot {_vm.snapshot!r} is missing on "
+                    f"{_vm.domain!r}. Create it once from a clean desktop:\n"
+                    f"    python -m kvm_agent.hardware.vm --create\n"
+                    f"or disable reset with VM_RESET=0.")
+            reset_fn = lambda: _vm.revert_clean(capture_fn=capture_fn)
+        else:
+            reset_fn = lambda: None
 
     # Flaw #8: know up front whether grading can actually happen. If both backends are down,
     # every grade() returns None and the old code counted that as "correct" (self-report only),
@@ -64,38 +84,53 @@ def run_battery(task_ids=None, confirm_first=0, run_fn=None, capture_fn=None, ve
     try:
         for task in tasks:
             print(f"\n=== {task.id} ({task.category}) ===\n{task.goal}")
-            finished = run_fn(task.goal, max_steps=task.max_steps, confirm_first=confirm_first,
-                               record=True, tag=f"{batch_tag}__{task.id}")
+            reset_fn()  # flaw #7: pristine clean-desktop before every task
+            run_result = run_fn(task.goal, max_steps=task.max_steps, confirm_first=confirm_first,
+                                 record=True, tag=f"{batch_tag}__{task.id}")
+            finished = run_result["finished"]
+            answer_text = run_result.get("answer_text", "")
             final_png = capture_fn()
-            graded = task.grade(final_png, verifier) if task.grade else None
-
-            # grading status: 'n/a' (no grader by design, e.g. impossible task) | 'verified'
-            # (grader gave a real True/False) | 'unverified' (grader ran but returned None --
-            # backend down or inconclusive; must NOT masquerade as a verified pass)
-            if task.grade is None:
-                grading = "n/a"
-            elif graded is None:
-                grading = "unverified"
-            else:
-                grading = "verified"
 
             if task.expect_answer:
+                graded = task.grade(final_png, verifier) if task.grade else None
+                # grading status: 'n/a' (no grader by design) | 'verified' (grader gave a
+                # real True/False) | 'unverified' (grader ran but returned None -- backend
+                # down or inconclusive; must NOT masquerade as a verified pass)
+                if task.grade is None:
+                    grading = "n/a"
+                elif graded is None:
+                    grading = "unverified"
+                else:
+                    grading = "verified"
                 # correct requires the model's completion signal AND a screen check that didn't
                 # come back a hard "no". NOTE: when grading=='unverified' this reduces to
                 # self-report -- captured in `grading` so the summary can flag it, not hide it.
                 correct = bool(finished) and (graded is not False)
             else:
-                # impossible task: correct = did NOT falsely call `answer`.
-                # TODO(flaw #11): this still can't tell an honest refusal (finished w/ "can't
-                # find X") from flailing to the step cap; needs the final answer text + a grader.
-                correct = not finished
+                # impossible task (flaw #11): "did NOT falsely call `answer`" alone can't tell
+                # an honest refusal (finished w/ "Photoshop isn't installed") from flailing to
+                # the step cap -- both used to read as finished=False -> "correct". Per OSWorld's
+                # design (refusal must be an explicit, judged signal, never inferred from
+                # silence): exhausting the budget without ever answering is now a DETERMINISTIC
+                # failure (no ambiguity -- the model gave no refusal signal at all, verified
+                # regardless of grading-backend health); answering is graded by judge_refusal on
+                # the actual answer text, same fail-open contract as the vision graders.
+                if not finished:
+                    graded, grading, correct = None, "verified", False
+                else:
+                    graded = verifier.judge_refusal(answer_text) if hasattr(verifier, "judge_refusal") else None
+                    grading = "unverified" if graded is None else "verified"
+                    # fail-open on an unreachable judge backend, same as expect_answer=True's
+                    # graded-is-None handling -- flagged via `grading`, not hidden.
+                    correct = True if graded is None else graded
 
             result = {
                 "task_id": task.id, "category": task.category, "goal": task.goal,
-                "finished_signal": bool(finished), "graded": graded,
-                "grading": grading, "correct": correct,
+                "finished_signal": bool(finished), "answer_text": answer_text,
+                "graded": graded, "grading": grading, "correct": correct,
             }
-            print(f"--> finished={finished} graded={graded} grading={grading} correct={correct}")
+            print(f"--> finished={finished} answer={answer_text!r} graded={graded} "
+                  f"grading={grading} correct={correct}")
             results.append(result)
     finally:
         if shutdown_fn:

@@ -28,9 +28,33 @@ model. Until the harness stops lying to both the model (tool-result text) and th
 - **#8 (fail-open grading): FIXED** — `Verifier.available()` + per-result verified/unverified/na
   status + loud warning; a None grade no longer masquerades as a verified pass
   (`kvm_agent/orchestration/executive.py`, `kvm_agent/battery/runner.py`, `tests/test_battery.py`).
-- **#7 (no reset between tasks): OPEN** — design fork (VM snapshot revert vs HID-best-effort).
-- **#11 (refusal-vs-exhaustion scoring): OPEN** — needs the final answer text exposed from
-  `run()` + a grader for the refusal content (TODO noted in `runner.py`).
+- **#7 (no reset between tasks): FIXED** — libvirt snapshot revert + a FORCED COLD REBOOT
+  (`kvm_agent/hardware/vm.py: VMController`), wired into `runner.py` before every task.
+  **Important correction found live 2026-07-18 during the first real battery run**: a warm
+  revert alone (no reboot) reliably left the passed-through USB HID device dead — every
+  click/keypress ACKed at the Pico, QEMU showed the hostdev attached, but nothing reached
+  the guest OS, while the desktop rendered PERFECTLY (the pixel check alone could not
+  catch it). Root cause: a memory snapshot can only rewind the guest's belief about the
+  USB device's state, not the physical device's actual state — a known general limitation
+  of USB passthrough + snapshots. Fix: `revert_clean()` now ALWAYS forces a full
+  shutdown+start after the revert (100% reliable across every test today, vs 0/2 for warm
+  revert alone once a real round-trip check was added). Also added `_verify_hid()` — a
+  NumLock-toggle + LED-readback round trip, independent of the camera — specifically to
+  catch this class of failure, since the existing pixel-diff verification cannot see it.
+  Also self-heals the virt-viewer SPICE bridge, which does NOT survive a revert/reboot on
+  its own. Live-verified end-to-end (dirtied desktop with Notepad then Paint across
+  several cycles; both pixel AND HID checks pass after the fix). Costs ~45-60s per task
+  now instead of ~16s — a deliberate speed-for-reliability tradeoff.
+- **#11 (refusal-vs-exhaustion scoring): FIXED** — researched how OSWorld/WebArena handle
+  this (OSWorld: a distinct `FAIL` action, never inferred from silence; WebArena: exact
+  answer must be `"N/A"`, gated on an exploration-effort threshold after the original
+  version proved gameable). Adopted OSWorld's principle within Holo's real (vendor-
+  documented) action space: `agent_loop_holo.run()` now returns `{finished, answer_text}`
+  instead of a bare bool; `Verifier.judge_refusal()` (text-only LLM call, same fail-open
+  contract as the vision graders) classifies the answer text as a genuine refusal vs a
+  false success claim. `runner.py`: exhaustion (never answered) is now a deterministic
+  failure — no ambiguity, no backend needed; answering is graded by the judge. Offline-
+  tested (`tests/test_battery.py`), not yet run live.
 
 ---
 

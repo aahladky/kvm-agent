@@ -13,8 +13,10 @@ Every task is graded by an independent screen check (Verifier: OCR or vision Q&A
 the FINAL frame), never by the model's own self-report alone -- self-reported success was
 exactly the failure mode Phase I5 found and the vendor-alignment pass fixed (see
 FINDINGS_integration.md's "Latency investigation" section and the whole vendor-alignment
-table). `expect_answer=False` tasks invert the check: correct == the model did NOT
-falsely call `answer` on an impossible request.
+table). `expect_answer=False` tasks invert the check: correct requires an EXPLICIT,
+judged refusal signal (Verifier.judge_refusal on the model's actual final answer text),
+not merely the absence of a false "answer" call -- see kvm_agent/battery/runner.py's
+flaw #11 fix (2026-07-18) for why silence/timeout must score as failure, not success.
 
 These are goal STRINGS run against whatever the VM's current desktop state is -- unlike
 the old EvoCUA-era harness, there is no automated reset_clean step here yet. Run tasks

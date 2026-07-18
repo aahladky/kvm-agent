@@ -1,5 +1,6 @@
 """
-test_battery.py — OFFLINE tests for kvm_agent.battery.runner (2026-07-17).
+test_battery.py — OFFLINE tests for kvm_agent.battery.runner (2026-07-17, updated 2026-07-18
+for flaw #11: refusal-vs-exhaustion scoring on expect_answer=False tasks).
 
 No rig: run_fn/capture_fn/verifier are faked and injected into run_battery(), so this
 covers the grading/aggregation control flow (expect_answer correct-logic, category
@@ -23,11 +24,17 @@ def check(name, cond):
 
 
 class FakeVerifier:
-    def __init__(self, any_backend=True):
+    """`refusal` controls judge_refusal's return (flaw #11); omit/None to simulate a
+    verifier that can't judge refusals at all (hasattr fallback -> fail-open)."""
+    def __init__(self, any_backend=True, refusal=None):
         self._any = any_backend
+        self._refusal = refusal
 
     def available(self):
         return {"tesseract": self._any, "vision": self._any, "any": self._any}
+
+    def judge_refusal(self, answer_text):
+        return self._refusal
 
 
 def fake_grade_true(png, verifier):
@@ -53,11 +60,15 @@ def with_tasks(tasks, fn):
         battery_runner.TASKS = saved
 
 
-def run_one(task, finished, run_fn=None):
+def _run_result(finished, answer_text=""):
+    return {"finished": finished, "answer_text": answer_text}
+
+
+def run_one(task, finished, run_fn=None, verifier=None):
     return with_tasks([task], lambda: battery_runner.run_battery(
-        run_fn=run_fn or (lambda *a, **k: finished),
+        run_fn=run_fn or (lambda *a, **k: _run_result(finished)),
         capture_fn=lambda: b"PNG",
-        verifier=FakeVerifier(),
+        verifier=verifier or FakeVerifier(),
     ))
 
 
@@ -76,21 +87,49 @@ s = run_one(Task(id="t4", category="core", goal="g", grade=fake_grade_true), fin
 check("expect_answer=True, finished=False -> NOT correct even if graded True",
       s["results"][0]["correct"] is False)
 
-# 2. expect_answer=False (impossible task): correct == did NOT finish -------------------------
-s = run_one(Task(id="t5", category="impossible", goal="g", expect_answer=False, grade=None), finished=False)
-check("expect_answer=False, finished=False (honest refusal) -> correct", s["results"][0]["correct"] is True)
-
-s = run_one(Task(id="t6", category="impossible", goal="g", expect_answer=False, grade=None), finished=True)
-check("expect_answer=False, finished=True (false-positive finish) -> NOT correct",
+# 2. expect_answer=False (impossible task), flaw #11: refusal-vs-exhaustion ---------------------
+# 2a. exhaustion: never answered at all -> deterministic failure, no judge call needed.
+t5 = Task(id="t5", category="impossible", goal="g", expect_answer=False, grade=None)
+s = run_one(t5, finished=False, verifier=FakeVerifier(refusal=True))
+check("expect_answer=False, finished=False (exhausted budget) -> NOT correct "
+      "(no distinct refusal signal was ever given, even though a judge WOULD say refusal)",
       s["results"][0]["correct"] is False)
+check("exhaustion is deterministic -- graded stays None, grading 'verified' (no ambiguity)",
+      s["results"][0]["graded"] is None and s["results"][0]["grading"] == "verified")
+
+# 2b. answered, judge says genuine refusal ("Photoshop isn't installed") -> correct.
+s = run_one(t5, finished=True,
+            run_fn=lambda *a, **k: _run_result(True, "Photoshop is not installed on this VM."),
+            verifier=FakeVerifier(refusal=True))
+check("expect_answer=False, finished=True + judge says genuine refusal -> correct",
+      s["results"][0]["correct"] is True)
+check("genuine refusal -> grading 'verified'", s["results"][0]["grading"] == "verified")
+check("answer_text is captured on the result", "Photoshop" in s["results"][0]["answer_text"])
+
+# 2c. answered, judge says this is a FALSE claim of success -> NOT correct (the original
+#     Phase I5 false-positive-finish failure mode, now actually caught).
+s = run_one(t5, finished=True,
+            run_fn=lambda *a, **k: _run_result(True, "Successfully opened Photoshop and created a new document."),
+            verifier=FakeVerifier(refusal=False))
+check("expect_answer=False, finished=True + judge says NOT a refusal (false success claim) "
+      "-> NOT correct", s["results"][0]["correct"] is False)
+
+# 2d. answered, but the judge backend is unreachable -> fail-open (self-report), flagged
+#     unverified -- same contract as the expect_answer=True graded=None case.
+s = run_one(t5, finished=True,
+            run_fn=lambda *a, **k: _run_result(True, "can't find that app"),
+            verifier=FakeVerifier(refusal=None))
+check("expect_answer=False, finished=True + judge unreachable -> correct (fail-open)",
+      s["results"][0]["correct"] is True)
+check("judge unreachable -> grading 'unverified'", s["results"][0]["grading"] == "unverified")
 
 # 3. --only filtering ---------------------------------------------------------------------------
 def _test_only_filter():
-    s = battery_runner.run_battery(task_ids=["b"], run_fn=lambda *a, **k: True,
+    s = battery_runner.run_battery(task_ids=["b"], run_fn=lambda *a, **k: _run_result(True),
                                     capture_fn=lambda: b"PNG", verifier=FakeVerifier())
     check("--only filters to the requested task", [r["task_id"] for r in s["results"]] == ["b"])
     try:
-        battery_runner.run_battery(task_ids=["nope"], run_fn=lambda *a, **k: True,
+        battery_runner.run_battery(task_ids=["nope"], run_fn=lambda *a, **k: _run_result(True),
                                     capture_fn=lambda: b"PNG", verifier=FakeVerifier())
         check("unknown task id raises", False)
     except ValueError:
@@ -103,7 +142,7 @@ with_tasks([
 
 # 4. category rollup + summary file actually written --------------------------------------------
 def _test_rollup_and_persistence():
-    s = battery_runner.run_battery(run_fn=lambda *a, **k: True, capture_fn=lambda: b"PNG",
+    s = battery_runner.run_battery(run_fn=lambda *a, **k: _run_result(True), capture_fn=lambda: b"PNG",
                                     verifier=FakeVerifier())
     check("overall correct count", s["correct"] == 2)
     check("by_category rollup: core 1/2", s["by_category"]["core"] == {"n": 2, "correct": 1})
@@ -125,7 +164,7 @@ with_tasks([
 # 5. grading status (flaw #8): verified / unverified / n/a, and n_unverified surfaced -----------
 def run_one_v(task, finished, verifier):
     return with_tasks([task], lambda: battery_runner.run_battery(
-        run_fn=lambda *a, **k: finished, capture_fn=lambda: b"PNG", verifier=verifier))
+        run_fn=lambda *a, **k: _run_result(finished), capture_fn=lambda: b"PNG", verifier=verifier))
 
 s = run_one_v(Task(id="v", category="core", goal="g", grade=fake_grade_true), True, FakeVerifier(True))
 check("grade True -> grading 'verified'", s["results"][0]["grading"] == "verified")
@@ -138,9 +177,31 @@ check("summary records grading_backends", s["grading_backends"]["any"] is False)
 check("unverified still not silently dropped (correct reflects self-report, flagged)",
       s["results"][0]["correct"] is True and s["results"][0]["grading"] == "unverified")
 
-s = run_one_v(Task(id="na", category="impossible", goal="g", expect_answer=False, grade=None), False,
-              FakeVerifier(True))
-check("no grader by design -> grading 'n/a'", s["results"][0]["grading"] == "n/a")
+# 5b. reset between tasks (flaw #7): reset_fn called once per task, BEFORE the run ---------------
+def _test_reset_between_tasks():
+    order = []
+    def reset(): order.append("reset")
+    def run(*a, **k): order.append("run"); return _run_result(True)
+    s = battery_runner.run_battery(run_fn=run, capture_fn=lambda: b"PNG",
+                                    verifier=FakeVerifier(), reset_fn=reset)
+    check("reset_fn called once per task", order.count("reset") == s["n"])
+    check("reset happens BEFORE each run (reset,run,reset,run,...)",
+          order == ["reset", "run"] * s["n"])
+
+with_tasks([
+    Task(id="r1", category="core", goal="g", grade=fake_grade_true),
+    Task(id="r2", category="core", goal="g", grade=fake_grade_true),
+], _test_reset_between_tasks)
+
+# 5c. offline/injected run must NOT touch the VM (no reset_fn given, run_fn injected) -------------
+def _test_no_vm_in_offline():
+    # run_fn+capture_fn injected -> live=False -> reset defaults to a no-op, never imports/uses
+    # VMController. If this raised/hung it would mean the offline path reached virsh.
+    s = battery_runner.run_battery(run_fn=lambda *a, **k: _run_result(True), capture_fn=lambda: b"PNG",
+                                    verifier=FakeVerifier())
+    check("offline run completes without VM reset", s["n"] >= 1)
+
+with_tasks([Task(id="o1", category="core", goal="g", grade=fake_grade_true)], _test_no_vm_in_offline)
 
 # 6. real TASKS list sanity (not faked) -----------------------------------------------------------
 ids = [t.id for t in battery_runner.TASKS]

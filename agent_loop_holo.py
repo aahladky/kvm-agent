@@ -219,6 +219,13 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     runs") writes every step's pre-action frame, raw message, parsed action, token usage,
     and wall time to CFG.runs_dir/<tag>_<timestamp>/ via RunRecorder, plus a summary.json
     at the end. tag names the run directory (e.g. the task id in a battery).
+
+    Returns {"finished": bool, "answer_text": str}, NOT a bare bool (flaw #11: the battery
+    runner needs the model's actual final answer text to tell an honest refusal apart from
+    silently exhausting the step budget -- both used to look identical as `finished=False`).
+    answer_text is the `answer` tool's content when the model called it (kvm_agent/models/
+    holo.py maps that to {"action":"finished","text":...}); "" on every non-finished return
+    (stuck limit / no-progress abort / max_steps) since no explicit answer was ever given.
     """
     confirm_first = CONFIRM_FIRST if confirm_first is None else confirm_first
     history = []
@@ -251,7 +258,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                 print("[run] stuck limit hit -- aborting")
                 if recorder:
                     recorder.finish(False, note="stuck limit hit")
-                return False
+                return {"finished": False, "answer_text": ""}
             continue
         stuck = 0
 
@@ -273,10 +280,11 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
             trim_to_last_n_images(history, n=MAX_HISTORY_IMAGES)
 
         if action.get("action") == "finished":
-            print(f"[run] finished: {action.get('text')!r}")
+            answer_text = action.get("text", "")
+            print(f"[run] finished: {answer_text!r}")
             if recorder:
-                recorder.finish(True, note=action.get("text", ""))
-            return True
+                recorder.finish(True, note=answer_text)
+            return {"finished": True, "answer_text": answer_text}
 
         # no-progress guards (flaw #9): abort instead of silently burning the budget.
         # (a) screen frozen -- consecutive executed steps with no visible change; (b) clustered
@@ -299,11 +307,11 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
             print(f"[run] no progress ({reason}) -- aborting")
             if recorder:
                 recorder.finish(False, note="no progress: " + reason)
-            return False
+            return {"finished": False, "answer_text": ""}
     print("[run] max_steps reached without finishing")
     if recorder:
         recorder.finish(False, note="max_steps reached")
-    return False
+    return {"finished": False, "answer_text": ""}
 
 
 def shutdown():

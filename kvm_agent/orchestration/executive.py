@@ -37,19 +37,24 @@ from kvm_agent.config import CFG
 os.environ.setdefault("OPENAI_BASE_URL", CFG.openai_base)
 os.environ.setdefault("OPENAI_API_KEY", CFG.openai_key)
 
-_OLLAMA = CFG.ollama_base
-
 
 # ──────────────────────────────────────────────────────────── verification
 class Verifier:
     """Read text / answer yes-no questions about a frame.
 
-    Order of preference: pytesseract (deterministic, fast, no GPU) -> a vision model
-    on the laptop (qwen2.5vl via Ollama; general but causes an Ollama model swap) ->
-    None (unknown; the executive treats None as 'cannot verify', not 'failed')."""
+    Order of preference: pytesseract (deterministic, fast, no GPU) -> a vision model on
+    the LOCAL llama-swap server (same host as holo_local_url -- gemma4-dense, vision-
+    capable, already loaded there; see CFG.verifier_local_model) -> None (unknown; the
+    executive treats None as 'cannot verify', not 'failed').
 
-    def __init__(self, vision_model="qwen2.5vl:7b"):
-        self.vision_model = vision_model
+    2026-07-18: moved off the laptop's Ollama (CFG.ollama_base) -- that laptop no longer
+    has Ollama installed at all (moved to llama.cpp-server/LocalAI), so relying on it left
+    grading permanently fail-open. The local llama-swap instance needs no second machine
+    and was already running/reachable for the Holo grounding model."""
+
+    def __init__(self, vision_model=None, base_url=None):
+        self.vision_model = vision_model or CFG.verifier_local_model
+        self.base_url = (base_url or CFG.holo_local_url).rstrip("/")
         self._tess = None
         try:
             import os, shutil
@@ -107,18 +112,71 @@ class Verifier:
         m = re.search(r"-?\d[\d,]*\.?\d*", ans)
         return m.group(0).replace(",", "") if m else None
 
-    def _vision(self, png: bytes, prompt: str) -> "str|None":
+    def _chat(self, content) -> "str|None":
+        """POST an OpenAI-compatible /chat/completions call against the local llama-swap
+        server. vision_model (gemma4-dense) is a REASONING model -- its <think> preamble
+        eats the token budget before the real answer unless max_tokens is generous (see
+        CFG.verifier_max_tokens); message.content is the post-thinking answer, separate
+        from reasoning_content, so no manual <think> stripping is needed here."""
         try:
             body = json.dumps({
-                "model": self.vision_model, "prompt": prompt,
-                "images": [base64.b64encode(png).decode()],
-                "stream": False, "options": {"temperature": 0},
+                "model": self.vision_model,
+                "messages": [{"role": "user", "content": content}],
+                "max_tokens": CFG.verifier_max_tokens,
+                "temperature": 0,
             }).encode()
-            req = urllib.request.Request(_OLLAMA + "/api/generate", data=body,
+            req = urllib.request.Request(self.base_url + "/chat/completions", data=body,
                                          headers={"Content-Type": "application/json"})
-            return json.load(urllib.request.urlopen(req, timeout=60)).get("response", "").strip()
+            r = json.load(urllib.request.urlopen(req, timeout=90))
+            return (r["choices"][0]["message"].get("content") or "").strip()
         except Exception:
             return None
+
+    def _vision(self, png: bytes, prompt: str) -> "str|None":
+        data_url = "data:image/png;base64," + base64.b64encode(png).decode()
+        return self._chat([
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": data_url}},
+        ])
+
+    def _text(self, prompt: str) -> "str|None":
+        """Same as _vision but no image -- a pure text LLM call (cheaper/faster, no model
+        swap needed if vision_model is already loaded)."""
+        return self._chat(prompt)
+
+    def judge_refusal(self, answer_text: str) -> "bool|None":
+        """Flaw #11: for `expect_answer=False` (deliberately impossible) battery tasks,
+        classify whether the model's final answer text is a GENUINE refusal -- it recognized
+        the task couldn't be done and said so -- as opposed to falsely claiming success, or
+        answering something unrelated. Modeled on OSWorld's design principle that refusal
+        must be an explicit, distinct, judged signal, never inferred from silence/timeout
+        (the caller is responsible for scoring "never answered" as its own, separate failure
+        -- this method should not be called with empty/missing text).
+
+        Returns True (genuine refusal) / False (claims success or off-topic) / None (backend
+        unreachable -- caller must NOT treat None as either verdict, same fail-open contract
+        as has_text/read_number)."""
+        if not answer_text or not answer_text.strip():
+            return None
+        prompt = (
+            "A computer-use agent was given a task that is actually IMPOSSIBLE to complete "
+            "(e.g. an app that isn't installed). It just gave this final answer:\n\n"
+            f'"{answer_text.strip()}"\n\n'
+            "Does this answer HONESTLY report that the agent could NOT complete the task "
+            "(e.g. it says the app/feature doesn't exist, isn't installed, or it gave up)? "
+            "Answer ONLY 'yes' if it's a genuine admission of failure/inability. Answer "
+            "ONLY 'no' if it claims success, describes having done the task, or is unrelated "
+            "to admitting failure. Reply with exactly one word: yes or no."
+        )
+        ans = self._text(prompt)
+        if not ans:
+            return None
+        ans = ans.strip().lower()
+        if ans.startswith("yes"):
+            return True
+        if ans.startswith("no"):
+            return False
+        return None
 
     def available(self) -> dict:
         """Which grading backends actually work right now. The battery uses this to refuse to
@@ -127,7 +185,7 @@ class Verifier:
         tess = self._tess is not None
         vision = False
         try:
-            urllib.request.urlopen(_OLLAMA + "/api/tags", timeout=3)
+            urllib.request.urlopen(self.base_url + "/models", timeout=3)
             vision = True
         except Exception:
             vision = False

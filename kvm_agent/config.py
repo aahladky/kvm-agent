@@ -45,15 +45,41 @@ class Config:
     screen_w: int = int(_env("SCREEN_W", "1920"))
     screen_h: int = int(_env("SCREEN_H", "1080"))
 
+    # --- target VM reset (flaw #7): libvirt snapshot revert + a forced cold reboot between
+    #     battery tasks so each task starts from a byte-identical clean desktop AND with USB
+    #     HID passthrough guaranteed working (warm revert alone reliably breaks HID -- see
+    #     kvm_agent/hardware/vm.py's module docstring). ---
+    vm_domain: str = _env("VM_DOMAIN", "win11-agent")
+    vm_reset: bool = _env("VM_RESET", "1") != "0"        # revert to the clean snapshot per task
+    vm_snapshot: str = _env("VM_SNAPSHOT", "clean-desktop")  # baseline snapshot name
+    vm_revert_settle: float = float(_env("VM_REVERT_SETTLE", "8"))  # secs to settle after revert
+    vm_boot_wait: float = float(_env("VM_BOOT_WAIT", "35"))  # secs for Windows to reach the
+                                                              # desktop after the forced cold boot
+
     # --- model endpoints (laptop Ollama / OpenAI-compatible shim) ---
-    ollama_base: str = _env("OLLAMA_HOST", "http://192.168.0.155:11434")
-    openai_base: str = _env("OPENAI_BASE_URL", "http://192.168.0.155:11434/v1")
+    # NOTE 2026-07-18: the laptop's IP is 192.168.0.76, not .155 (corrected by the user --
+    # the old .155 default was stale/wrong). Ollama itself is no longer installed on the
+    # laptop at all (moved to llama.cpp-server + LocalAI); these fields are kept for the
+    # older EvoCUA/UI-TARS tooling (rig.py, live_ctl.py, tools/preflight.py) that still
+    # references them, but kvm_agent.orchestration.executive.Verifier -- the grader the
+    # CURRENT Holo battery actually uses -- was repointed at the local llama-swap instance
+    # instead (verifier_model/verifier_local_url below), which needs no laptop at all.
+    ollama_base: str = _env("OLLAMA_HOST", "http://192.168.0.76:11434")
+    openai_base: str = _env("OPENAI_BASE_URL", "http://192.168.0.76:11434/v1")
     openai_key: str = _env("OPENAI_API_KEY", "ollama")
 
     # --- model NAMES (unchanged set; centralized, never swapped) ---
     executor_model: str = _env("EXECUTOR_MODEL", "uitars-q4")
-    verifier_model: str = _env("VERIFIER_MODEL", "qwen2.5vl:7b")
+    verifier_model: str = _env("VERIFIER_MODEL", "qwen2.5vl:7b")   # older Ollama-based pipeline only
     planner_model: str = _env("AGENT_PLANNER_MODEL", "Qwen/Qwen3-VL-30B-A3B-Thinking")
+
+    # --- Holo battery's Verifier grading backend (kvm_agent.orchestration.executive) ---
+    # local llama-swap (same host/server as holo_local_url below), NOT the laptop -- see the
+    # NOTE above ollama_base. gemma4-dense has --mmproj (vision-capable) and is already
+    # loaded/proven reachable via this server; it's a reasoning model, so verifier calls need
+    # a generous max_tokens or the <think> preamble eats the whole budget before answering.
+    verifier_local_model: str = _env("VERIFIER_LOCAL_MODEL", "gemma4-dense")
+    verifier_max_tokens: int = int(_env("VERIFIER_MAX_TOKENS", "800"))
 
     # --- planner (server-side orchestration brain) ---
     planner_kind: str = _env("AGENT_PLANNER", "local")           # hf | claude | rule | local
