@@ -216,7 +216,10 @@ class PicoHidLink:
         for kc in reversed(codes):
             self.kbd_key(kc, False)
 
-    def type_text(self, text):
+    def type_text(self, text, hold_s=0.02, gap_s=0.03):
+        # Pace every keystroke (hold + inter-key gap): with zero pacing, Windows drops
+        # HID reports during focus transitions -- observed live 2026-07-18 as
+        # "holo battery test" arriving as "holo bay te" (battery task notepad_type).
         for ch in text:
             name, needs_shift = key_for_char(ch)
             if name is None:
@@ -224,10 +227,13 @@ class PicoHidLink:
             kc = KEYCODES[name]
             if needs_shift:
                 self.kbd_key(KEYCODES["shift"], True)
+                time.sleep(hold_s)
             self.kbd_key(kc, True)
+            time.sleep(hold_s)
             self.kbd_key(kc, False)
             if needs_shift:
                 self.kbd_key(KEYCODES["shift"], False)
+            time.sleep(gap_s)
 
     def click(self, screen_w=None, screen_h=None):
         self.mouse_button(_BTN_LEFT_SEL | _BTN_LEFT_ST)
