@@ -6,6 +6,7 @@ capture. Design + rationale: `docs/PLAN_2026-07-18_pi5_pico_appliance.md`. Motiv
 
 - `pico/` — CircuitPython firmware for the Pico 2 W (deploy to CIRCUITPY as `code.py`).
 - `pi5/`  — code that runs on the Pi 5 appliance.
+- `host/` — main-host bring-up/verification tooling (not the production client).
 
 Host-side integration (the client the Holo loop talks to) will live at
 `kvm_agent/hardware/appliance.py`, not here.
@@ -35,11 +36,22 @@ reference. Enable the Pi 5 header UART (`enable_uart=1` in `/boot/firmware/confi
   come → round trip pinned at ~101ms. Reading `uart.in_waiting` bytes and acting immediately
   dropped it to ~2.6ms (40×). Fixed in `pico/stage1_uart_echo.py`.
 
+## Stage 2 result (2026-07-18): PASS
+
+8/8 checks. Full HID command set (`M/C/R/D/U/H/K/T/X/S` + `PROBE`) runs through the appliance
+path (Pi → UART → Pico → USB HID → host) and was verified against real kernel input events
+captured with an **exclusive device grab** (EVIOCGRAB) — so nothing touched the desktop.
+Absolute moves land exactly (0,0 / 32767,32767 / 16383,16383 for 0,0 / max / center); click,
+type, combo, scroll all emit the correct events; every command ACKs (moves ~4ms, typing/scroll
+~30ms = real execution time). Firmware: `pico/stage2_hid.py`. Sender: `pi5/send.py`. Verifier:
+`host/stage2_verify.py`.
+
 ## Bring-up stages (isolate one unknown per stage — see the plan doc)
 
 1. **UART link** ✅ DONE — `pico/stage1_uart_echo.py` + `pi5/stage1_ping_test.py`.
-2. **HID over UART** ← *next.* (Pico USB → main host, not the VM yet).
-3. Through libvirt passthrough → win11-agent.
+2. **HID over UART** ✅ DONE — `pico/stage2_hid.py` + `pi5/send.py` + `host/stage2_verify.py`.
+3. **Through libvirt passthrough → win11-agent** ← *next.* (same commands, now the Pico's USB
+   goes to the VM; confirm they act inside Windows.)
 4. Capture alone (ustreamer on the Pi 5).
 5. Appliance HTTP API.
 6. Integrate into the Holo loop (`ApplianceClient` replaces `R4` + `Camera`).
