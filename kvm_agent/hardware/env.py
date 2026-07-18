@@ -19,9 +19,34 @@ import sys
 import time
 import threading
 import cv2
+import numpy as np
 from kvm_agent.config import CFG
 from kvm_agent.hardware.pico_client import R4
 from kvm_agent.hardware.appliance import ApplianceClient
+
+
+def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=2.0, poll_s=0.05):
+    """Wait up to max_s for the screen to STOP changing, returning as soon as
+    `stable_frames` consecutive polls show a mean-abs diff below `thresh` on a 160x90
+    grayscale downscale (small enough to ignore capture-sensor noise, big enough to catch
+    structural UI change). Replaces blind post-action sleeps: fast actions proceed
+    immediately, slow-rendering apps still get the full window. 2026-07-18."""
+    end = time.time() + max_s
+    prev = None
+    stable = 0
+    while time.time() < end:
+        f = read_fn()
+        if f is not None:
+            curr = cv2.cvtColor(cv2.resize(f, (160, 90)), cv2.COLOR_BGR2GRAY).astype(np.int16)
+            if prev is not None:
+                if float(np.abs(curr - prev).mean()) < thresh:
+                    stable += 1
+                    if stable >= stable_frames:
+                        return
+                else:
+                    stable = 0
+            prev = curr
+        time.sleep(poll_s)
 
 
 def make_hid_client():
@@ -70,8 +95,17 @@ class Camera:
     def read(self):
         return self.frame
 
-    def png_bytes(self):
-        ok, buf = cv2.imencode(".png", self.frame)
+    def png_bytes(self, full_res=False):
+        # Downscale 1080p -> 720p before encoding: vision-token count scales with pixels
+        # (measured 2026-07-17: 1/4 the pixels ~ -35% prompt tokens, and format does NOT
+        # matter, only resolution) -- this is the single biggest per-step latency lever.
+        # Safe for grounding because Holo outputs [0,1000] normalized coords and
+        # agent_loop_holo projects them against the REAL screen size, not this PNG.
+        # full_res=True skips the downscale for EVIDENCE frames (grading/verify/reference):
+        # tesseract OCR on a 720p analog-capture frame produces garbage (proven 2026-07-18,
+        # calc_basic's "56" unreadable) -- the model reads 720p, the graders read 1080p.
+        frame = self.frame if full_res else cv2.resize(self.frame, (1280, 720))
+        ok, buf = cv2.imencode(".png", frame)
         return buf.tobytes()
 
     def release(self):
@@ -242,10 +276,15 @@ class PicoEnv:
         print(f"[pico_env] capture {f.shape[1]}x{f.shape[0]}  (must equal Pico SCREEN_W/H)")
 
     def _settle(self, secs):
+        # Smart settle (2026-07-18): return as soon as the UI stops changing instead of
+        # always burning the full blind wait.
+        if not self.show:
+            wait_until_stable(self.cam.read, secs)
+            return
         end = time.time() + secs
         while time.time() < end:
             f = self.cam.read()
-            if self.show and f is not None:
+            if f is not None:
                 cv2.imshow("capture", f); cv2.waitKey(15)
             else:
                 time.sleep(0.01)

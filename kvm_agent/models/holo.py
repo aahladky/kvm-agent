@@ -21,8 +21,10 @@ everything else below was brought into line with the documented convention:
       documented AGENT-LOOP config -- temperature=0.0/no-thinking is what the docs
       specify for the separate, stateless, single-shot element-localization endpoint,
       a different tool for a different job; this file had been configured like that one.
-    - trim_to_last_n_images() keeps only the last 3 screenshots in history (docs: "more
-      degrades accuracy"), evicting older image chunks to "[screenshot evicted]" text.
+    - trim_to_last_n_images() keeps only the last screenshot in history by default
+      ("goldfish memory" 2026-07-18 -- vendor docs suggest 3, but each kept screenshot
+      re-pays its vision tokens every step and the text history carries the narrative),
+      evicting older image chunks to "[screenshot evicted]" text.
     - agent_loop_holo.py's run() now threads real tool-result content (a frame-diff-based
       "screen changed / did not visibly change" signal) instead of a hardcoded "ok" --
       docs flag exactly this gap as the cause of loops/forgetting.
@@ -222,11 +224,15 @@ def build_messages(instruction: str, image_data_url: str, history: list[dict] | 
     return messages
 
 
-def trim_to_last_n_images(messages: list[dict], n: int = 3) -> None:
+def trim_to_last_n_images(messages: list[dict], n: int = 1) -> None:
     """In place: keep only the last n image_url chunks across all messages, replacing
-    older ones with a "[screenshot evicted]" text chunk (docs: "Keep at most the last 3
-    screenshots in context; more degrades accuracy") -- the <observation> text wrapper
-    around each stays, only the image chunk itself gets replaced."""
+    older ones with a "[screenshot evicted]" text chunk. Vendor docs say "keep at most the
+    last 3 screenshots"; we default to 1 (2026-07-18, "goldfish memory"): screenshots are
+    the dominant prompt-token cost per step (~35% fewer at 1/4 resolution, and each extra
+    kept screenshot re-pays its vision tokens every step), while the text-based history
+    (<observation> wrappers, tool calls/results) still carries the narrative of what was
+    tried. The <observation> text wrapper around each stays, only the image chunk itself
+    gets replaced."""
     image_positions = [
         (mi, ci)
         for mi, m in enumerate(messages)
@@ -299,7 +305,7 @@ def _target_config(target: str):
 def call_holo_full(instruction: str, image_data_url: str, image_w: int, image_h: int,
                     target: str = "local", history: list[dict] | None = None,
                     temperature: float = 0.8, enable_thinking: bool = True,
-                    max_history_images: int = 3) -> tuple[dict, dict, dict]:
+                    max_history_images: int = 1) -> tuple[dict, dict, dict]:
     """Like call_holo, but also returns the raw assistant message (dict, via model_dump())
     and token usage -- a multi-step loop needs the message to thread real history (the
     assistant tool-call + a tool-result message per step; see agent_loop_holo.py's run())

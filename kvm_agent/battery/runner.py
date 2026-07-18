@@ -24,7 +24,7 @@ from kvm_agent.orchestration.executive import Verifier
 def _live_backend():
     import agent_loop_holo as loop
     loop.boot()
-    return loop.run, loop._frame_png, loop.shutdown
+    return loop.run, loop._frame_png_full, loop.shutdown
 
 
 def run_battery(task_ids=None, confirm_first=0, run_fn=None, capture_fn=None, verifier=None,

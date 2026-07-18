@@ -31,13 +31,15 @@ from io import BytesIO
 from PIL import Image
 
 from kvm_agent.config import CFG
-from kvm_agent.hardware.env import PicoEnv
+from kvm_agent.hardware.env import PicoEnv, wait_until_stable
 from kvm_agent.instrumentation import RunRecorder
 from kvm_agent.models.holo import (
     call_holo, call_holo_full, observation_message, png_bytes_to_data_url, trim_to_last_n_images,
 )
 
-MAX_HISTORY_IMAGES = 3   # hub.hcompany.ai/agent-loop: "keep at most the last 3 screenshots"
+MAX_HISTORY_IMAGES = 1   # "goldfish memory" 2026-07-18: current frame only + text history.
+                         # Vendor docs suggest 3; each kept screenshot re-pays its vision
+                         # tokens on EVERY step, and text history already carries the narrative.
 
 DBG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_dbg")
 os.makedirs(DBG, exist_ok=True)
@@ -72,6 +74,13 @@ def _frame_png():
     return ENV.observe()["screenshot"]
 
 
+def _frame_png_full():
+    """Full-1080p EVIDENCE frame for grading/verify/reference (OCR needs the pixels --
+    the 720p model-input downscale destroys tesseract, proven on calc_basic 2026-07-18).
+    NOT for model input: that stays 720p for the vision-token savings."""
+    return ENV.cam.png_bytes(full_res=True)
+
+
 def cap(name="live"):
     """Grab a fresh frame, save PNG to _dbg/<name>.png, return the path."""
     png = _frame_png()
@@ -89,7 +98,10 @@ def ground(instruction, target="local"):
     review it (mark() to eyeball the crosshair) then call do() to fire it."""
     png = _frame_png()
     LAST["png"] = png
-    w, h = Image.open(BytesIO(png)).size
+    # Projection targets REAL screen pixels, not the (downscaled, see Camera.png_bytes)
+    # model-input PNG: Holo outputs [0,1000] normalized coords, so the image size only
+    # matters as the projection basis -- and that basis must be the screen the HID moves on.
+    w, h = CFG.screen_size
     data_url = png_bytes_to_data_url(png)
     t0 = time.time()
     action = call_holo(instruction, data_url, w, h, target=target)
@@ -109,7 +121,12 @@ def mark(name="mark"):
     import cv2
     import numpy as np
     arr = cv2.imdecode(np.frombuffer(LAST["png"], np.uint8), cv2.IMREAD_COLOR)
+    # LAST["png"] is downscaled (720p, see Camera.png_bytes) while action coords are real
+    # screen pixels -- scale into PNG space before drawing.
+    pw, ph = arr.shape[1], arr.shape[0]
+    sw, sh = CFG.screen_size
     x, y = (int(v) for v in action["coordinate"])
+    x, y = int(x * pw / sw), int(y * ph / sh)
     cv2.drawMarker(arr, (x, y), (0, 0, 255), cv2.MARKER_CROSS, 40, 3)
     cv2.circle(arr, (x, y), 22, (0, 0, 255), 2)
     p = os.path.join(DBG, f"{name}.png")
@@ -157,10 +174,11 @@ def _execute(action, settle_s=1.5):
         pass    # nothing to execute; run() handles these as loop-terminal/stuck
     else:
         print(f"[execute] unknown action kind {kind!r} -- no-op")
-    time.sleep(settle_s)
+    # Smart settle (2026-07-18): proceed the moment the UI stops changing, up to settle_s.
+    wait_until_stable(ENV.cam.read, settle_s)
 
 
-def _frame_diff_score(png_a, png_b):
+def _frame_diff_score(png_a, png_b, drop_bottom_row=False):
     """Max over a coarse tile grid of per-tile mean-abs pixel diff (0-255).
 
     Flaw #4 fix: the old metric was a single mean over a 160x90 downscale of the WHOLE
@@ -168,7 +186,15 @@ def _frame_diff_score(png_a, png_b):
     measured 0.01-0.71 (read as "no change") while a full-screen flyout measured ~9.5.
     Tiling makes a small localized change register strongly in its own tile instead of
     being averaged into nothing. Downscale to 480x270, 16x9 grid of 30x30 tiles, take the
-    loudest tile."""
+    loudest tile.
+
+    drop_bottom_row excludes the bottom tile row (the taskbar strip: clock, weather/widget
+    text, notification badges) -- content that churns BY ITSELF between a reference frame
+    and a later verify. vm.py's post-revert check uses this: on 2026-07-18 a weather-widget
+    text change (tile diff ~12) tripped the reset verifier and aborted a battery run over
+    what was actually a perfectly clean desktop. Anything the check exists to catch (host
+    desktop instead of the VM, an app auto-launched) differs in tiles far above the taskbar,
+    so dropping that row costs no real sensitivity."""
     import cv2
     import numpy as np
     a = cv2.imdecode(np.frombuffer(png_a, np.uint8), cv2.IMREAD_GRAYSCALE)
@@ -177,6 +203,8 @@ def _frame_diff_score(png_a, png_b):
     b = cv2.resize(b, (480, 270)).astype(np.int16)
     d = np.abs(a - b)                              # 270x480
     tiles = d.reshape(9, 30, 16, 30).mean(axis=(1, 3))   # 9x16 per-tile means
+    if drop_bottom_row:
+        tiles = tiles[:-1, :]
     return float(tiles.max())
 
 
@@ -246,7 +274,10 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     for step in range(max_steps):
         png = _frame_png()
         LAST["png"] = png
-        w, h = Image.open(BytesIO(png)).size
+        # Projection basis is the REAL screen (CFG.screen_size), not the model-input PNG,
+        # which Camera.png_bytes downscales to 720p to clamp vision tokens -- Holo's
+        # [0,1000] output must land on actual HID screen pixels.
+        w, h = CFG.screen_size
         data_url = png_bytes_to_data_url(png)
         step_instruction = instruction if step == 0 else ""
         t0 = time.time()

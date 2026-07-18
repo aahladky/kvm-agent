@@ -263,7 +263,10 @@ class VMController:
         from agent_loop_holo import _frame_diff_score
         with open(self.ref_frame_path, "rb") as f:
             ref = f.read()
-        score = _frame_diff_score(ref, capture_fn())
+        # drop_bottom_row: the taskbar strip (clock / weather-widget text / badges) churns
+        # on its own between the reference frame and any later verify -- it aborted a whole
+        # battery run 2026-07-18 over a weather-text change on an otherwise clean desktop.
+        score = _frame_diff_score(ref, capture_fn(), drop_bottom_row=True)
         if score > threshold:
             if warn:
                 print(f"\n!!! WARNING: post-revert screen differs from the clean-desktop reference "
@@ -300,7 +303,7 @@ if __name__ == "__main__":
         try:
             import agent_loop_holo as loop_mod
             loop_mod.boot()
-            cap_fn = loop_mod._frame_png
+            cap_fn = loop_mod._frame_png_full   # full-res: reference/verify are evidence frames
         except Exception as e:
             print(f"[vm] camera unavailable ({e}); proceeding without reference frame")
             loop_mod = None
