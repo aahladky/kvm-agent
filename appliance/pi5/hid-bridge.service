@@ -1,0 +1,17 @@
+[Unit]
+Description=Pico HID bridge (Pi5+Pico appliance) — UART -> Pico HID, HTTP API on :8080
+Documentation=https://github.com/ (see repo docs/PLAN_2026-07-18_pi5_pico_appliance.md)
+After=network.target
+
+[Service]
+Type=simple
+User=aaron
+# aaron must be in the 'dialout' group for /dev/ttyAMA0
+ExecStart=/usr/bin/python3 /home/aaron/hid_bridge.py --serial /dev/ttyAMA0 --port 8080
+# always-on appliance daemon: restart on ANY exit except an explicit `systemctl stop`
+# (on-failure would NOT restart after a SIGTERM, which systemd treats as a clean stop)
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

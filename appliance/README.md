@@ -69,11 +69,11 @@ real Pico ACK as JSON `{ok, ack, ms, cmd}`. Verified from the host via curl: `/h
 end-to-end visible test (`/hid/key?name=enter` + `/hid/type?text=STAGE5 API OK`) landed the
 exact text in the VM Notepad. Capture deliberately NOT in the bridge (deferred).
 
-Run it: `ssh -f pi 'setsid python3 ~/hid_bridge.py >~/hid_bridge.log 2>&1 </dev/null'`
-(→ http://<pi>:8080). NOTE: `/hid/type` can't carry a literal newline (the UART protocol is
-newline-framed); the host-side client (Stage 6) splits text on newlines into `T` segments +
-`K enter`, as the old R4.type did. TODO: make hid_bridge a systemd service so it survives
-reboots (currently launched via ssh -f).
+Runs as a **systemd service** (`pi5/hid-bridge.service` → `/etc/systemd/system/`), enabled
+(starts on boot) with `Restart=always` (self-heals on crash — verified: SIGKILL → back in ~2s).
+`sudo systemctl {status,restart,stop} hid-bridge`. Serves http://<pi>:8080. NOTE: `/hid/type`
+can't carry a literal newline (the UART protocol is newline-framed); the host-side client
+(Stage 6) splits text on newlines into `T` segments + `K enter`, as the old R4.type did.
 
 ## Stage 6 result (2026-07-18): PASS
 
@@ -101,7 +101,6 @@ UART protocol can't frame a literal newline.
 ## Remaining follow-ups (not blocking)
 
 - Stage 4: move capture to the Pi 5 (ustreamer) when desired.
-- systemd-ify `hid_bridge.py` on the Pi so it survives reboots (currently `ssh -f`).
 - Harness-logic flaws from `docs/FINDINGS_2026-07-18_harness_review.md` (#4 frame-diff signal,
   #7 no reset, #8 fail-open grading, #9 no-progress, #11 refusal-vs-exhaustion) — separate from
   the HID rebuild; still open. Also the `Camera.release()` thread-join race (#5).
