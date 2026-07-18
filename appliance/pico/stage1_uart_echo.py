@@ -25,12 +25,12 @@ link itself is proven.
 """
 import board
 import busio
+import time
 
 BAUD = 115200
 
-# UART0 on the Pico's default pins: GP0 = TX, GP1 = RX. timeout is per-read (s);
-# receiver_buffer_size bumped so a burst of pings can't overflow the RX FIFO.
-uart = busio.UART(board.GP0, board.GP1, baudrate=BAUD, timeout=0.05,
+# UART0 on the Pico's default pins: GP0 = TX, GP1 = RX.
+uart = busio.UART(board.GP0, board.GP1, baudrate=BAUD, timeout=0.01,
                   receiver_buffer_size=256)
 
 print("stage1_uart_echo up: UART0 GP0(TX)/GP1(RX) @", BAUD, "baud")
@@ -43,7 +43,16 @@ def _reply(s):
 
 
 while True:
-    chunk = uart.read(64)          # up to 64 bytes, or None on timeout
+    # Drain only what's actually waiting and act immediately -- do NOT call
+    # read(N) with a fixed timeout, which blocks the full timeout waiting for N
+    # bytes that never come and pins round-trip latency at ~2x the timeout
+    # (measured 101ms with read(64)+50ms timeout in Stage 1). in_waiting + a 1ms
+    # idle sleep drops it to near the wire time.
+    n = uart.in_waiting
+    if not n:
+        time.sleep(0.001)
+        continue
+    chunk = uart.read(n)
     if not chunk:
         continue
     _buf += chunk
