@@ -5,7 +5,7 @@ capture. Design + rationale: `docs/PLAN_2026-07-18_pi5_pico_appliance.md`. Motiv
 `docs/FINDINGS_2026-07-18_harness_review.md`.
 
 - `pico/` — CircuitPython firmware for the Pico 2 W (deploy to CIRCUITPY as `code.py`).
-- `pi5/`  — code that runs on the Pi 5 appliance.
+- `pi5/`  — code that runs on the Pi 5 appliance (`send.py` one-shot; `hid_bridge.py` service).
 - `host/` — main-host bring-up/verification tooling (not the production client).
 
 Host-side integration (the client the Holo loop talks to) will live at
@@ -60,14 +60,30 @@ path (Pi/UART) is independent of where its USB points, so passing the USB to the
 affect control. Also fixed the recurring stale hostdev bus/device pin: the VM's Pico
 passthrough now matches by VID:PID (`--config`), so it won't drift on the next replug.
 
+## Stage 5 result (2026-07-18): PASS (HID-only)
+
+`pi5/hid_bridge.py` — a stdlib-http.server + pyserial service holding ONE persistent serial
+link to the Pico, serializing seq/ACK'd commands under a lock. Every endpoint returns the
+real Pico ACK as JSON `{ok, ack, ms, cmd}`. Verified from the host via curl: `/health` +
+`/hid/probe`/`move`/`scroll` all ok with real ACKs; 404/400 error handling correct; and an
+end-to-end visible test (`/hid/key?name=enter` + `/hid/type?text=STAGE5 API OK`) landed the
+exact text in the VM Notepad. Capture deliberately NOT in the bridge (deferred).
+
+Run it: `ssh -f pi 'setsid python3 ~/hid_bridge.py >~/hid_bridge.log 2>&1 </dev/null'`
+(→ http://<pi>:8080). NOTE: `/hid/type` can't carry a literal newline (the UART protocol is
+newline-framed); the host-side client (Stage 6) splits text on newlines into `T` segments +
+`K enter`, as the old R4.type did. TODO: make hid_bridge a systemd service so it survives
+reboots (currently launched via ssh -f).
+
 ## Bring-up stages (isolate one unknown per stage — see the plan doc)
 
 1. **UART link** ✅ DONE — `pico/stage1_uart_echo.py` + `pi5/stage1_ping_test.py`.
 2. **HID over UART** ✅ DONE — `pico/stage2_hid.py` + `pi5/send.py` + `host/stage2_verify.py`.
 3. **Through libvirt passthrough → win11-agent** ✅ DONE — reused Stage-2 firmware + send.py.
-4. **Capture alone (ustreamer on the Pi 5)** ← *next.*
-5. Appliance HTTP API.
-6. Integrate into the Holo loop (`ApplianceClient` replaces `R4` + `Camera`).
+4. **Capture alone (ustreamer on the Pi 5)** — DEFERRED (capture stays host-side for now).
+5. **Appliance HTTP API (HID-only)** ✅ DONE — `pi5/hid_bridge.py`.
+6. **Integrate into the Holo loop** ← *next.* `ApplianceClient` (HID via the bridge API) +
+   keep the host `Camera` for capture; replaces the dead WiFi `R4` path in `agent_loop_holo`.
 
 ## Stage 1 quickstart
 
