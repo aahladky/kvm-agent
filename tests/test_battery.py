@@ -23,7 +23,11 @@ def check(name, cond):
 
 
 class FakeVerifier:
-    pass  # graders in these tests don't call into it
+    def __init__(self, any_backend=True):
+        self._any = any_backend
+
+    def available(self):
+        return {"tesseract": self._any, "vision": self._any, "any": self._any}
 
 
 def fake_grade_true(png, verifier):
@@ -118,7 +122,27 @@ with_tasks([
     Task(id="s1", category="small_target", goal="g", grade=fake_grade_true),
 ], _test_rollup_and_persistence)
 
-# 5. real TASKS list sanity (not faked) -----------------------------------------------------------
+# 5. grading status (flaw #8): verified / unverified / n/a, and n_unverified surfaced -----------
+def run_one_v(task, finished, verifier):
+    return with_tasks([task], lambda: battery_runner.run_battery(
+        run_fn=lambda *a, **k: finished, capture_fn=lambda: b"PNG", verifier=verifier))
+
+s = run_one_v(Task(id="v", category="core", goal="g", grade=fake_grade_true), True, FakeVerifier(True))
+check("grade True -> grading 'verified'", s["results"][0]["grading"] == "verified")
+check("verified run: n_unverified 0", s["n_unverified"] == 0)
+
+s = run_one_v(Task(id="u", category="core", goal="g", grade=fake_grade_none), True, FakeVerifier(False))
+check("grade None + backend down -> grading 'unverified'", s["results"][0]["grading"] == "unverified")
+check("unverified counted in n_unverified", s["n_unverified"] == 1)
+check("summary records grading_backends", s["grading_backends"]["any"] is False)
+check("unverified still not silently dropped (correct reflects self-report, flagged)",
+      s["results"][0]["correct"] is True and s["results"][0]["grading"] == "unverified")
+
+s = run_one_v(Task(id="na", category="impossible", goal="g", expect_answer=False, grade=None), False,
+              FakeVerifier(True))
+check("no grader by design -> grading 'n/a'", s["results"][0]["grading"] == "n/a")
+
+# 6. real TASKS list sanity (not faked) -----------------------------------------------------------
 ids = [t.id for t in battery_runner.TASKS]
 check("TASKS has no duplicate ids", len(ids) == len(set(ids)))
 check("TASKS covers all five custom categories + core",

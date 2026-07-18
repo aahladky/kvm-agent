@@ -42,6 +42,16 @@ def run_battery(task_ids=None, confirm_first=0, run_fn=None, capture_fn=None, ve
         shutdown_fn = live_shutdown
     verifier = verifier or Verifier()
 
+    # Flaw #8: know up front whether grading can actually happen. If both backends are down,
+    # every grade() returns None and the old code counted that as "correct" (self-report only),
+    # silently. Surface it loudly and mark such results UNVERIFIED instead of pretending.
+    backends = verifier.available() if hasattr(verifier, "available") else {"any": True}
+    if not backends.get("any"):
+        print("\n!!! WARNING: no grading backend available "
+              f"({backends}). expect_answer tasks will be UNVERIFIED — results reflect the "
+              "model's self-report only, NOT an independent screen check. Fix tesseract/Ollama "
+              "and re-grade from the saved RunRecorder frames before trusting these numbers.\n")
+
     tasks = [t for t in TASKS if task_ids is None or t.id in task_ids]
     if not tasks:
         raise ValueError(f"no tasks match {task_ids!r} (known ids: {[t.id for t in TASKS]})")
@@ -59,20 +69,33 @@ def run_battery(task_ids=None, confirm_first=0, run_fn=None, capture_fn=None, ve
             final_png = capture_fn()
             graded = task.grade(final_png, verifier) if task.grade else None
 
+            # grading status: 'n/a' (no grader by design, e.g. impossible task) | 'verified'
+            # (grader gave a real True/False) | 'unverified' (grader ran but returned None --
+            # backend down or inconclusive; must NOT masquerade as a verified pass)
+            if task.grade is None:
+                grading = "n/a"
+            elif graded is None:
+                grading = "unverified"
+            else:
+                grading = "verified"
+
             if task.expect_answer:
-                # correct requires BOTH the model's own completion signal AND an independent
-                # screen check that didn't come back a hard "no" (None = "can't verify", not a
-                # failure -- see Verifier's own None-means-unknown convention)
+                # correct requires the model's completion signal AND a screen check that didn't
+                # come back a hard "no". NOTE: when grading=='unverified' this reduces to
+                # self-report -- captured in `grading` so the summary can flag it, not hide it.
                 correct = bool(finished) and (graded is not False)
             else:
-                # impossible task: correct = did NOT falsely call `answer` (the Phase I5 failure mode)
+                # impossible task: correct = did NOT falsely call `answer`.
+                # TODO(flaw #11): this still can't tell an honest refusal (finished w/ "can't
+                # find X") from flailing to the step cap; needs the final answer text + a grader.
                 correct = not finished
 
             result = {
                 "task_id": task.id, "category": task.category, "goal": task.goal,
-                "finished_signal": bool(finished), "graded": graded, "correct": correct,
+                "finished_signal": bool(finished), "graded": graded,
+                "grading": grading, "correct": correct,
             }
-            print(f"--> finished={finished} graded={graded} correct={correct}")
+            print(f"--> finished={finished} graded={graded} grading={grading} correct={correct}")
             results.append(result)
     finally:
         if shutdown_fn:
@@ -84,16 +107,22 @@ def run_battery(task_ids=None, confirm_first=0, run_fn=None, capture_fn=None, ve
         c["n"] += 1
         c["correct"] += int(r["correct"])
 
+    n_unverified = sum(1 for r in results if r["grading"] == "unverified")
     summary = {
         "batch": batch_tag,
+        "grading_backends": backends,
         "n": len(results),
         "correct": sum(r["correct"] for r in results),
+        "n_unverified": n_unverified,
         "by_category": by_category,
         "results": results,
     }
     with open(os.path.join(out_dir, "battery_summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
     print(f"\n{summary['correct']}/{summary['n']} correct -> {out_dir}/battery_summary.json")
+    if n_unverified:
+        print(f"!!! {n_unverified}/{summary['n']} results are UNVERIFIED (grading backend down) "
+              "— they reflect self-report, not an independent check. Re-grade from saved frames.")
     return summary
 
 

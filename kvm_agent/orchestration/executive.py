@@ -120,6 +120,19 @@ class Verifier:
         except Exception:
             return None
 
+    def available(self) -> dict:
+        """Which grading backends actually work right now. The battery uses this to refuse to
+        silently score on the model's self-report when both are down (flaw #8): a grader that
+        returns None because its backend is unreachable must not read as 'verified correct'."""
+        tess = self._tess is not None
+        vision = False
+        try:
+            urllib.request.urlopen(_OLLAMA + "/api/tags", timeout=3)
+            vision = True
+        except Exception:
+            vision = False
+        return {"tesseract": tess, "vision": vision, "any": bool(tess or vision)}
+
 
 # ──────────────────────────────────────────────────────────── executive
 class Executive:
