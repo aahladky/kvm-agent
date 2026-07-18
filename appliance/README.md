@@ -4,8 +4,18 @@ Device-side code for the rig appliance that replaces Pico-over-WiFi HID and host
 capture. Design + rationale: `docs/PLAN_2026-07-18_pi5_pico_appliance.md`. Motivating flaws:
 `docs/FINDINGS_2026-07-18_harness_review.md`.
 
-- `pico/` — CircuitPython firmware for the Pico 2 W (deploy to CIRCUITPY as `code.py`).
-- `pi5/`  — code that runs on the Pi 5 appliance (`send.py` one-shot; `hid_bridge.py` service).
+- `pico_fw/` — **current firmware**, a real port of PiKVM's own Pico HID firmware
+  (C/pico-sdk/TinyUSB) to RP2350/Pico 2 W. See `pico_fw/README.md` for the port diff, build,
+  and flash steps. Replaced `pico/` (below) 2026-07-18 — the custom CircuitPython firmware was
+  structurally unsound (no real per-command ACK contract, composite HID collections that died
+  independently on re-enumeration); rather than keep patching it, PiKVM's proven implementation
+  was ported wholesale.
+- `pico/` — RETIRED CircuitPython firmware. Kept for history; not deployed. Do not resurrect
+  without a strong reason — `pico_fw/` supersedes it.
+- `pi5/`  — code that runs on the Pi 5 appliance. `hid_bridge.py` (systemd service, HTTP API)
+  now speaks `pikvm_proto.py`'s binary CRC16-framed protocol against `pico_fw/`, replacing the
+  old ASCII-line protocol against `pico/`. `send.py` is a one-shot sender for the OLD protocol
+  (not yet ported; use `pikvm_proto.PicoHidLink` directly for new one-shot needs).
 - `host/` — main-host bring-up/verification tooling (not the production client).
 
 Host-side integration (the client the Holo loop talks to) will live at
@@ -98,12 +108,34 @@ UART protocol can't frame a literal newline.
 5. **Appliance HTTP API (HID-only)** ✅ DONE — `pi5/hid_bridge.py`.
 6. **Integrate into the Holo loop** ✅ DONE — `kvm_agent/hardware/appliance.py` + `env.py` selector.
 
+## Firmware swap (2026-07-18): CircuitPython → ported PiKVM Pico HID
+
+Same day as the Stage 1-6 appliance bring-up above, the CircuitPython firmware (`pico/`) was
+replaced with a real port of PiKVM's own Pico HID firmware to RP2350/Pico 2 W (`pico_fw/`) --
+see `pico_fw/README.md` for the full port diff and [[pikvm_hid_rp2350_port]] memory. Validated
+live end-to-end via the camera (not self-report): keyboard single-key + full ASCII typing
+(shift/digits/punctuation, via a real search-box test), absolute mouse (pixel-exact right-click
+landed at the exact commanded coordinate), scroll. `pi5/hid_bridge.py` + the new
+`pi5/pikvm_proto.py` keep the SAME HTTP surface, so `kvm_agent/hardware/appliance.py` needed no
+changes. New device VID:PID is **1209:eda2** ("PiKVM HID"), not the old Adafruit `239a:8162` --
+the host's udev rule (`/etc/udev/rules.d/99-pico-hid-passthrough.rules`) and the VM's libvirt
+`<hostdev>` match were both updated to the new ID.
+
+**Recurring gotcha, orthogonal to the firmware swap, still applies:** the host's `usbhid`
+driver will re-claim the Pico's HID interfaces (both mouse AND keyboard) on any USB
+re-enumeration unless the udev rule is in place and matches the CURRENT VID:PID -- see
+[[pico_passthrough_mouse_dead]]. If HID commands stop moving the VM's cursor/typing, check
+`grep -i pikvm /proc/bus/input/devices` on the HOST first (empty = correctly unclaimed).
+
 ## Remaining follow-ups (not blocking)
 
 - Stage 4: move capture to the Pi 5 (ustreamer) when desired.
 - Harness-logic flaws from `docs/FINDINGS_2026-07-18_harness_review.md` (#4 frame-diff signal,
-  #7 no reset, #8 fail-open grading, #9 no-progress, #11 refusal-vs-exhaustion) — separate from
-  the HID rebuild; still open. Also the `Camera.release()` thread-join race (#5).
+  #8 fail-open grading, #9 no-progress, #11 refusal-vs-exhaustion) — separate from the HID
+  rebuild; #7 (no reset) fixed same day via `kvm_agent/hardware/vm.py` warm snapshot revert.
+  Also the `Camera.release()` thread-join race (#5) — fixed.
+- `pi5/send.py` still speaks the OLD ASCII protocol against the retired `pico/` firmware; not
+  yet ported to `pikvm_proto.py`. Low priority (not on the ApplianceClient/hid_bridge path).
 
 ## Stage 1 quickstart
 
