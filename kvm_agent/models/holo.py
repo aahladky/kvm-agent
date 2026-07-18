@@ -102,11 +102,15 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "scroll",
-            "description": "Scroll the screen in a direction.",
+            "description": "Scroll in a direction at a specific point on the screen. Move the cursor over the pane you want to scroll (x, y), then the wheel turns there.",
             "parameters": {
                 "type": "object",
-                "properties": {"direction": {"type": "string", "enum": ["up", "down", "left", "right"]}},
-                "required": ["direction"],
+                "properties": {
+                    "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
+                    "x": {"type": "integer", "description": "X coordinate of the point to scroll at, in [0, 1000]"},
+                    "y": {"type": "integer", "description": "Y coordinate of the point to scroll at, in [0, 1000]"},
+                },
+                "required": ["direction", "x", "y"],
             },
         },
     },
@@ -264,7 +268,13 @@ def parse_response(message: dict, image_w: int, image_h: int) -> dict:
     if name == "write":
         return {"action": "type", "text": args.get("content", ""), "press_enter": args.get("press_enter", False)}
     if name == "scroll":
-        return {"action": "scroll", "direction": args.get("direction")}
+        out = {"action": "scroll", "direction": args.get("direction")}
+        # Targeted scroll (flaw #10 fix, 2026-07-18): the wheel turns wherever the cursor
+        # happens to sit, so an untargeted scroll silently scrolls the wrong pane -- or
+        # nothing at all (11 zero-effect scrolls in the scroll_to_about battery task).
+        if "x" in args and "y" in args:
+            out["coordinate"] = project_point(_scalar(args["x"]), _scalar(args["y"]), image_w, image_h)
+        return out
     if name == "drag_and_drop":
         return {
             "action": "drag",

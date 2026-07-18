@@ -133,6 +133,13 @@ def _execute(action, settle_s=1.5):
             ENV.r4.key("enter")
     elif kind == "scroll":
         direction = action.get("direction")
+        # Flaw #10: the wheel turns wherever the cursor last landed -- an untargeted
+        # scroll can no-op forever (scroll_to_about, 2026-07-18). If the model gave a
+        # target point, move there FIRST so the pane under it is what actually scrolls.
+        target = action.get("coordinate")
+        if target:
+            ENV.r4.move(int(target[0]), int(target[1]))
+            time.sleep(0.3)
         if direction == "up":
             ENV.r4.scroll(3)
         elif direction == "down":

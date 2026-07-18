@@ -123,8 +123,10 @@ class VMController:
         `check_hid` below exists specifically to catch.
 
         If `capture_fn` and a reference frame are available, verify the post-reset screen
-        matches the baseline and warn LOUDLY if it doesn't -- a revert/reboot that silently
-        didn't land in the clean state must not pass as a clean reset. `check_hid` (default
+        matches the baseline -- retrying virt-viewer relaunches a bounded number of times
+        and RAISING if it still doesn't, since a task run against an unverified display
+        (e.g. the capture card looking at the bare host desktop) produces garbage results
+        that masquerade as model failures. `check_hid` (default
         True) additionally does a keyboard round-trip (toggle NumLock, read the LED back)
         against the appliance -- a real, camera-INDEPENDENT proof the passed-through USB HID
         device still functions; the pixel check alone cannot see a dead input path, since
@@ -139,17 +141,25 @@ class VMController:
             self._settle()
         self._ensure_virt_viewer()
         if capture_fn is not None and os.path.exists(self.ref_frame_path):
-            ok = self._verify(capture_fn, verify_threshold, warn=False)
-            if not ok:
-                # A live virt-viewer process is not proof it's actually fullscreen -- GTK/SPICE
-                # occasionally lands it windowed (observed repeatedly this session, always fixed
-                # by a fresh kill+relaunch). One bounded self-heal retry before surfacing the
-                # loud unverified-reset warning for real.
-                print("[vm] post-revert verify failed; virt-viewer may not be fullscreen -- "
-                      "killing + relaunching once and re-checking")
+            # A live virt-viewer process is not proof it's actually fullscreen -- GTK/SPICE
+            # occasionally lands it windowed (observed repeatedly 2026-07-18, always fixed by
+            # a fresh kill+relaunch). Retry the kill+relaunch a bounded number of times, and
+            # if the screen STILL doesn't match the baseline, RAISE -- warn-and-continue here
+            # meant a battery task once ran against a capture of the bare HOST desktop
+            # (diff 191.8) and its result looked like a model failure. A task result produced
+            # on an unverified display is worse than no result.
+            for attempt in range(3):
+                if self._verify(capture_fn, verify_threshold, warn=False):
+                    break
+                print(f"[vm] post-revert verify failed (attempt {attempt + 1}/3); "
+                      "virt-viewer may not be fullscreen -- killing + relaunching")
                 self._kill_virt_viewer()
                 self._ensure_virt_viewer(force=True)
-                self._verify(capture_fn, verify_threshold, warn=True)
+            else:
+                raise VMError(
+                    "post-revert screen does not match the clean-desktop baseline after 3 "
+                    "virt-viewer relaunches -- refusing to run tasks against an unverified "
+                    "display (capture is probably showing the host desktop, not the VM)")
         if check_hid:
             self._verify_hid()
         return True
