@@ -44,6 +44,16 @@ os.makedirs(DBG, exist_ok=True)
 
 CONFIRM_FIRST = 5   # gate the first N steps of run() with a keypress preview
 STUCK_LIMIT = 3     # k consecutive dropped/error actions -> abort (make-failure-loud guard)
+# _frame_changed threshold on the tile-max metric (0-255 per-tile mean diff). Calibrated
+# live 2026-07-18: static screen = 0.00, a typed word = 4.5, calc digit/op changes = 5.7-17
+# (the exact changes the OLD whole-frame-mean metric missed as 0.03-0.71 -> flaw #4). 3.0
+# sits well above static/caret-flicker and below the real-change cluster. A lone single char
+# (~1.6) reads as "no change" -- an accepted edge case (it's in caret-blink territory, and the
+# model sees the actual screenshot regardless).
+FRAME_CHANGE_THRESHOLD = 3.0
+NO_PROGRESS_LIMIT = 4   # k consecutive executed steps with no visible change OR the identical
+                        # action repeated -> abort as "no progress" (flaw #9). small_target_tray
+                        # clicked ~the same coord 6x and burned the whole budget undetected.
 
 ENV = None
 LAST = {"png": None, "action": None, "history": None}
@@ -143,20 +153,33 @@ def _execute(action, settle_s=1.5):
     time.sleep(settle_s)
 
 
-def _frame_changed(png_a, png_b, threshold=3.0):
-    """Cheap post-action signal for the tool-result message: did the screen visibly
-    change? (mean absolute pixel difference, downscaled for speed). Not a correctness
-    check -- a click that lands on the wrong-but-still-different element also reads as
-    "changed" -- just distinguishes "something happened" from "silent no-op", which is
-    exactly the gap hub.hcompany.ai/agent-loop's pitfall table calls out: a hardcoded
-    tool-result string gives the model no way to learn an action didn't register."""
+def _frame_diff_score(png_a, png_b):
+    """Max over a coarse tile grid of per-tile mean-abs pixel diff (0-255).
+
+    Flaw #4 fix: the old metric was a single mean over a 160x90 downscale of the WHOLE
+    frame, which drowned out small localized changes -- a calculator digit appearing
+    measured 0.01-0.71 (read as "no change") while a full-screen flyout measured ~9.5.
+    Tiling makes a small localized change register strongly in its own tile instead of
+    being averaged into nothing. Downscale to 480x270, 16x9 grid of 30x30 tiles, take the
+    loudest tile."""
     import cv2
     import numpy as np
     a = cv2.imdecode(np.frombuffer(png_a, np.uint8), cv2.IMREAD_GRAYSCALE)
     b = cv2.imdecode(np.frombuffer(png_b, np.uint8), cv2.IMREAD_GRAYSCALE)
-    a = cv2.resize(a, (160, 90))
-    b = cv2.resize(b, (160, 90))
-    return float(np.mean(np.abs(a.astype(int) - b.astype(int)))) > threshold
+    a = cv2.resize(a, (480, 270)).astype(np.int16)
+    b = cv2.resize(b, (480, 270)).astype(np.int16)
+    d = np.abs(a - b)                              # 270x480
+    tiles = d.reshape(9, 30, 16, 30).mean(axis=(1, 3))   # 9x16 per-tile means
+    return float(tiles.max())
+
+
+def _frame_changed(png_a, png_b, threshold=FRAME_CHANGE_THRESHOLD):
+    """Post-action signal for the tool-result message: did the screen visibly change?
+    Not a correctness check -- a click that lands on the wrong-but-still-different element
+    also reads as "changed" -- just distinguishes "something happened" from "silent no-op",
+    the gap hub.hcompany.ai/agent-loop's pitfall table calls out (a hardcoded tool-result
+    gives the model no way to learn an action didn't register)."""
+    return _frame_diff_score(png_a, png_b) > threshold
 
 
 def do(s=1.5):
@@ -201,6 +224,9 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     history = []
     LAST["history"] = history
     stuck = 0
+    frozen = 0          # consecutive executed steps with no visible screen change
+    click_repeat = 0    # consecutive left_clicks landing in ~the same spot
+    last_click = None
     recorder = RunRecorder(tag, instruction, target=target,
                             meta={"max_steps": max_steps, "screen_size": CFG.screen_size}) if record else None
     for step in range(max_steps):
@@ -235,10 +261,11 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         if recorder:
             recorder.log_step(step, png, message, action, usage, dt, executed=True)
 
+        post_png = _frame_png()
+        changed = _frame_changed(png, post_png)
+
         tool_calls = message.get("tool_calls") or []
         if tool_calls:
-            post_png = _frame_png()
-            changed = _frame_changed(png, post_png)
             tool_content = f"Action executed. Screen {'changed.' if changed else 'did not visibly change.'}"
             history.append(observation_message(data_url, step_instruction))
             history.append({"role": "assistant", "content": message.get("content") or "", "tool_calls": tool_calls})
@@ -250,6 +277,29 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
             if recorder:
                 recorder.finish(True, note=action.get("text", ""))
             return True
+
+        # no-progress guards (flaw #9): abort instead of silently burning the budget.
+        # (a) screen frozen -- consecutive executed steps with no visible change; (b) clustered
+        # repeated clicks -- consecutive left_clicks within ~25px (the small_target_tray case,
+        # where clicks toggled a flyout so 'changed' was True but nothing advanced).
+        frozen = frozen + 1 if not changed else 0
+        if action.get("action") == "left_click":
+            c = action.get("coordinate")
+            if last_click and c and abs(c[0] - last_click[0]) <= 25 and abs(c[1] - last_click[1]) <= 25:
+                click_repeat += 1
+            else:
+                click_repeat = 0
+            last_click = c
+        else:
+            click_repeat = 0
+            last_click = None
+        if frozen >= NO_PROGRESS_LIMIT or click_repeat >= NO_PROGRESS_LIMIT:
+            reason = (f"screen frozen {frozen} steps" if frozen >= NO_PROGRESS_LIMIT
+                      else f"same click x{click_repeat + 1}")
+            print(f"[run] no progress ({reason}) -- aborting")
+            if recorder:
+                recorder.finish(False, note="no progress: " + reason)
+            return False
     print("[run] max_steps reached without finishing")
     if recorder:
         recorder.finish(False, note="max_steps reached")
