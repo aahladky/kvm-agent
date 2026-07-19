@@ -58,11 +58,62 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import threading
+import time
 
 from kvm_agent.config import CFG
 from kvm_agent.llm.ollama import openai_client
 
 logger = logging.getLogger("holo")
+
+
+class _RequestLog:
+    """Append-only JSONL log of every actual request/response to the model (2026-07-19,
+    the same "log everything, verify what was actually sent" fix applied to hid_bridge.py/
+    appliance.py earlier this session -- see those files' _CommandLog/CommandLogger). Before
+    this, NOTHING captured the outgoing request: RunRecorder's step_NN.json only saves the
+    model's RESPONSE (message/action/usage), never the messages list actually sent -- so
+    whether the system prompt, notes block, or `note`-required tool schema were correctly
+    constructed for a given step could not be verified after the fact, only assumed from
+    reading the code. image_url data: URIs are redacted to a byte count (not omitted, not
+    kept in full) -- multi-MB base64 blobs per step would make this log impractical, and the
+    actual pixels are separately available via RunRecorder's saved step_NN.png; the TEXT
+    structure (system prompt, <observation>/<notes> wrapper, tool schema, tool_choice,
+    temperature) is what "verify the prompt" actually needs, and none of that is touched by
+    the redaction."""
+
+    def __init__(self, path=None):
+        self.path = path or os.path.join(os.path.dirname(CFG.runs_dir), "logs", "holo_requests.jsonl")
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        self.lock = threading.Lock()
+
+    @staticmethod
+    def _redact(messages):
+        out = []
+        for m in messages:
+            content = m.get("content")
+            if isinstance(content, list):
+                content = [
+                    ({**c, "image_url": {"url": f"<redacted, {len(c['image_url']['url'])} chars>"}}
+                     if c.get("type") == "image_url" else c)
+                    for c in content
+                ]
+                out.append({**m, "content": content})
+            else:
+                out.append(m)
+        return out
+
+    def write(self, record):
+        record["ts"] = time.time()
+        line = json.dumps(record)
+        with self.lock:
+            with open(self.path, "a") as f:
+                f.write(line + "\n")
+                f.flush()
+
+
+REQUEST_LOG = _RequestLog()
 
 # Ported 2026-07-19 from H Company's own holo-desktop-cli (hcompai/holo-desktop-cli),
 # captured live via a logging proxy between it and our local holo3.1 endpoint -- not
@@ -474,14 +525,27 @@ def call_holo_full(instruction: str, image_data_url: str, image_w: int, image_h:
     client = openai_client(base_url=base_url, api_key=api_key or "unused")
     messages = build_messages(instruction, image_data_url, history=history, notes=notes)
     trim_to_last_n_images(messages, n=max_history_images)
-    resp = client.chat.completions.create(
-        model=model, messages=messages, tools=TOOLS, tool_choice="required",
-        max_tokens=4096, temperature=temperature,
-        extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
-    )
+    t0 = time.time()
+    try:
+        resp = client.chat.completions.create(
+            model=model, messages=messages, tools=TOOLS, tool_choice="required",
+            max_tokens=4096, temperature=temperature,
+            extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
+        )
+    except Exception as e:
+        REQUEST_LOG.write({"target": target, "model": model, "messages": REQUEST_LOG._redact(messages),
+                           "tools": TOOLS, "tool_choice": "required", "temperature": temperature,
+                           "enable_thinking": enable_thinking, "error": str(e),
+                           "http_ms": round((time.time() - t0) * 1000.0, 1)})
+        raise
     message = resp.choices[0].message.model_dump()
     action = parse_response(message, image_w, image_h)
     usage = resp.usage.model_dump() if resp.usage else {}
+    REQUEST_LOG.write({"target": target, "model": model, "messages": REQUEST_LOG._redact(messages),
+                       "tools": TOOLS, "tool_choice": "required", "temperature": temperature,
+                       "enable_thinking": enable_thinking, "response_message": message,
+                       "parsed_action": action, "usage": usage,
+                       "http_ms": round((time.time() - t0) * 1000.0, 1)})
     return action, message, usage
 
 
