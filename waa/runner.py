@@ -198,8 +198,16 @@ def load_tasks(category=None, task_id=None):
         for fn in sorted(os.listdir(cat_dir)):
             if not fn.endswith(".json"):
                 continue
-            t = json.loads(open(os.path.join(cat_dir, fn)).read().replace(
-                "C:\\\\Users\\\\Docker", f"C:\\\\Users\\\\{WIN_USER}"))
+            raw = open(os.path.join(cat_dir, fn)).read()
+            # Task JSON encodes Windows paths both ways: "C:\\Users\\Docker" (most tasks)
+            # and "C:/Users/Docker" (a few -- 2026-07-19: 1 chrome + 3 file_explorer tasks
+            # grepped directly out of evaluation_examples_windows, confirmed via
+            # `grep -rl 'C:/Users/Docker' examples/`). The backslash-only rewrite silently
+            # missed those 4 -- their setup/eval would target a nonexistent "Docker" profile
+            # on our "sandbox"-user golden image. Rewrite both spellings.
+            raw = raw.replace("C:\\\\Users\\\\Docker", f"C:\\\\Users\\\\{WIN_USER}")
+            raw = raw.replace("C:/Users/Docker", f"C:/Users/{WIN_USER}")
+            t = json.loads(raw)
             t["_category"] = cat
             if task_id and t["id"] != task_id:
                 continue
