@@ -37,8 +37,9 @@ eventual loop is a drop-in):
     {"action": "scroll", "direction": "up"|"down"|"left"|"right", "note": "..."?}
     {"action": "drag", "start": [x1, y1], "coordinate": [x2, y2], "note": "..."?}
     {"action": "finished", "text": "..."}
-    # "note"? = present only when the model chose to persist something this step
-    # (ported from native holo-desktop-cli 2026-07-19; see NOTE_PARAM below).
+    # "note"? = present whenever the underlying tool call included one; absent only if the
+    # model returned an empty string despite `note` being a REQUIRED schema field (rare --
+    # see NOTE_PARAM below for why it's required, not optional, as of 2026-07-19).
 
 Format contract (verified empirically -- see docs/FORMAT_NOTES_holo.md, not assumed
 from vendor docs):
@@ -74,15 +75,30 @@ logger = logging.getLogger("holo")
 # doesn't fit: it would burn a step every time, worsening the exact step-budget-burn
 # problem (M4) this is meant to help with. Adapted instead as an optional `note` param on
 # every ACTION tool, so a step can act AND persist in one call. See NOTE_PARAM below.
+#
+# REQUIRED, not optional (2026-07-19 follow-up, see tools/probe_holo_note_uptake_at_depth.py):
+# as an optional leaf param, note-uptake measured 0/40 on a real failing run and 1/15 across
+# offline replays of REAL accumulated run history at 5 depths -- collapsing to ~0% the moment
+# any multi-turn history was present, regardless of whether note was reached via function-
+# calling or a native-style structured-output {note,thought,tool_calls} schema (also 0/15).
+# Two cheaper fixes were tried and FAILED: a worked-example paragraph in the system prompt
+# (0/9) and seeding note-writing precedent into the model's own reconstructed past turns
+# (this one WORKED, 15/15, but requires history-tampering machinery to seed the precedent).
+# Marking `note` REQUIRED in the schema -- a hard constraint instead of an instruction the
+# model can ignore -- recovered uptake to 9/9 with ZERO history tampering and zero prompt
+# changes beyond this schema edit. Root cause, not guessed: this is a mechanism finding, not
+# a wording one -- the model complies with hard JSON-schema constraints far more reliably
+# than with textual guidance once real "I've never written a note" history exists in context.
 NOTE_PARAM = {
     "note": {
         "type": "string",
         "description": (
-            "Optional: task-relevant information to persist before this screenshot is "
-            "gone from memory (only the last screenshot is kept -- see the system prompt). "
-            "Record values, short text, file paths, dialog messages, confirmations, "
-            "button/field states -- anything you'll need later but can't re-read once the "
-            "screen changes. Omit if there's nothing new worth persisting."
+            "Required: task-relevant information to persist before this screenshot is gone "
+            "from memory (only the last screenshot is kept -- see the system prompt). Record "
+            "values, short text, file paths, dialog messages, confirmations, button/field "
+            "states -- anything you'll need later but can't re-read once the screen changes. "
+            "If genuinely nothing new is worth persisting, write a short note anyway (e.g. "
+            "'no new state to record')."
         ),
     },
 }
@@ -105,7 +121,7 @@ TOOLS = [
                     "y": {"type": "integer", "description": "Y coordinate as integer in [0, 1000]"},
                     **NOTE_PARAM,
                 },
-                "required": ["element", "x", "y"],
+                "required": ["element", "x", "y", "note"],
             },
         },
     },
@@ -121,7 +137,7 @@ TOOLS = [
                     "press_enter": {"type": "boolean", "default": False, "description": "Whether to press Enter after typing"},
                     **NOTE_PARAM,
                 },
-                "required": ["content"],
+                "required": ["content", "note"],
             },
         },
     },
@@ -148,7 +164,7 @@ TOOLS = [
                     "key": {"type": "string", "description": "Key name or '+'-joined combo, e.g. 'ctrl+a'"},
                     **NOTE_PARAM,
                 },
-                "required": ["key"],
+                "required": ["key", "note"],
             },
         },
     },
@@ -169,7 +185,7 @@ TOOLS = [
                     "y": {"type": "integer", "description": "Y coordinate of the point to scroll at, in [0, 1000]"},
                     **NOTE_PARAM,
                 },
-                "required": ["direction", "x", "y"],
+                "required": ["direction", "x", "y", "note"],
             },
         },
     },
@@ -187,7 +203,7 @@ TOOLS = [
                     "y2": {"type": "integer"},
                     **NOTE_PARAM,
                 },
-                "required": ["x1", "y1", "x2", "y2"],
+                "required": ["x1", "y1", "x2", "y2", "note"],
             },
         },
     },
@@ -225,9 +241,10 @@ SYSTEM_PROMPT = (
     "a keyboard shortcut instead of a click, or back out (Escape) and re-enter the flow. Do not "
     "repeat an action that already failed twice in a row.\n\n"
     "Only the current screenshot is kept in memory -- earlier ones are gone and you cannot "
-    "re-check them. Every tool call accepts an optional `note` argument: use it to persist "
-    "values, text, file paths, dialog messages, or button/field states you will need later, "
-    "before the screen that shows them is gone. Notes accumulate and are always visible to you.\n\n"
+    "re-check them. Every tool call requires a `note` argument: use it to persist values, "
+    "text, file paths, dialog messages, or button/field states you will need later, before "
+    "the screen that shows them is gone. If nothing new is worth recording, write a short "
+    "note saying so. Notes accumulate and are always visible to you.\n\n"
     "Before calling `answer`, confirm: the requested state is actually reached (not just "
     "attempted), you have concrete on-screen evidence for it (not an assumption), and no cheaper "
     "alternative action remains untried. Prefer 'I confirmed X because the screen showed Y' over "
