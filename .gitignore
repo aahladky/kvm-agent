@@ -1,5 +1,6 @@
 # regenerable data / heavy blobs - never in git
 runs/
+logs/
 scratch/
 /models/
 _dbg/

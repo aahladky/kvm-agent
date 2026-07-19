@@ -13,6 +13,9 @@ Capture is unchanged (still the host `Camera`); only the action channel moves to
 the appliance. So PicoEnv keeps its `cam` and swaps only `r4`.
 """
 import json
+import os
+import threading
+import time
 import urllib.parse
 import urllib.request
 
@@ -21,6 +24,36 @@ from kvm_agent.config import CFG
 
 class ApplianceError(RuntimeError):
     pass
+
+
+class _CommandLog:
+    """Host-side half of the 2026-07-19 command-logging fix (see hid_bridge.py's
+    CommandLogger for the appliance side -- same JSONL-per-line, flush-per-write design).
+    Before this, NOTHING was logged anywhere: not what the host sent, not what came back.
+    Now every _req() call is one line here, and since the Pi 5's response already includes
+    the decoded Pico wire-level data (kbd_online/mouse_online/LEDs/wire_ms -- see
+    hid_bridge.py's _wire_info), this single log captures the WHOLE chain: what was sent,
+    what the appliance did, and what the target (Windows guest) actually reported back,
+    with no separate correlation step needed."""
+
+    _DEFAULT_PATH = os.path.join(os.path.dirname(CFG.runs_dir), "logs",
+                                  "appliance_client_commands.jsonl")
+
+    def __init__(self, path=None):
+        self.path = path or self._DEFAULT_PATH
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        self.lock = threading.Lock()
+
+    def write(self, record):
+        record["ts"] = time.time()
+        line = json.dumps(record)
+        with self.lock:
+            with open(self.path, "a") as f:
+                f.write(line + "\n")
+                f.flush()
+
+
+CMD_LOG = _CommandLog()
 
 
 class ApplianceClient:
@@ -33,11 +66,17 @@ class ApplianceClient:
         if params:
             url += "?" + urllib.parse.urlencode(params)
         req = urllib.request.Request(url, method=method)
+        t0 = time.time()
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 data = json.load(r)
         except Exception as e:
+            CMD_LOG.write({"path": path, "params": params, "ok": False,
+                           "error": f"transport error: {e}", "http_ms": round((time.time() - t0) * 1000.0, 1)})
             raise ApplianceError(f"{path} transport error: {e}")
+        CMD_LOG.write({"path": path, "params": params, "ok": data.get("ok"),
+                       "ack": data.get("ack"), "wire": data.get("wire"),
+                       "http_ms": round((time.time() - t0) * 1000.0, 1)})
         if not data.get("ok"):
             raise ApplianceError(f"{path} not ok: {data.get('ack') or data.get('error') or data}")
         return data
