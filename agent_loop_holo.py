@@ -227,7 +227,8 @@ def do(s=1.5):
     print(f"[do] {action}")
 
 
-def run(instruction, max_steps=10, target="local", confirm_first=None, record=True, tag="run"):
+def run(instruction, max_steps=10, target="local", confirm_first=None, record=True, tag="run",
+        no_progress_abort=True):
     """Multi-step closed loop with real history threading: ground (against the accumulated
     history) -> confirm (first N steps) -> execute -> re-capture -> thread this step's
     observation + assistant tool-call + a tool-result message into history -> repeat.
@@ -339,7 +340,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         else:
             click_repeat = 0
             last_click = None
-        if frozen >= NO_PROGRESS_LIMIT or click_repeat >= NO_PROGRESS_LIMIT:
+        if no_progress_abort and (frozen >= NO_PROGRESS_LIMIT or click_repeat >= NO_PROGRESS_LIMIT):
             reason = (f"screen frozen {frozen} steps" if frozen >= NO_PROGRESS_LIMIT
                       else f"same click x{click_repeat + 1}")
             print(f"[run] no progress ({reason}) -- aborting")

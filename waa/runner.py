@@ -67,6 +67,49 @@ def wait_for_server(timeout=120):
     raise TimeoutError(f"WAA server not reachable at {VM_IP}:5000 after {timeout}s")
 
 
+def wait_shell_ready(env, timeout=180):
+    """Wait for the Windows SHELL to actually accept input, not just draw itself.
+    2026-07-18 (twice): tasks started ~90-150s post-boot had clicks on shell elements
+    silently swallowed -- Start opened but menu-item clicks and search typing did
+    nothing for the first ~30-60s, reading as agent failure. A UIA button PRESENCE
+    check is NOT sufficient (proven: passed in 1s while clicks were still being eaten
+    -- StartMenuExperienceHost draws before it accepts input). So probe FUNCTIONALLY,
+    in-guest (this tests the shell, not our HID path, which is checked separately):
+    open Start, type a char, and require the search box to actually RECEIVE it."""
+    snippet = (
+        'import time\n'
+        'import pyautogui\n'
+        'pyautogui.press("win")\n'
+        'time.sleep(1.0)\n'
+        'pyautogui.typewrite("z", interval=0.05)\n'
+        'time.sleep(1.0)\n'
+        'ok = False\n'
+        'try:\n'
+        '    from pywinauto import Desktop\n'
+        '    for w in Desktop(backend="uia").windows():\n'
+        '        for e in w.descendants(control_type="Edit"):\n'
+        '            if "z" in (e.get_value() or ""):\n'
+        '                ok = True\n'
+        'except Exception as ex:\n'
+        '    print("probe-err", ex)\n'
+        'pyautogui.press("esc")\n'
+        'time.sleep(0.3)\n'
+        'pyautogui.press("esc")\n'
+        'print("READY" if ok else "NOTREADY")')
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        try:
+            r = env.controller.execute_python_command(snippet)
+            out = (r.get("output") or "").strip()
+            if out.endswith("READY") and "NOTREADY" not in out:
+                print(f"[waa] shell input-ready after {time.time() - t0:.0f}s of probing")
+                return True
+        except Exception as e:
+            print(f"[waa] shell probe error (retrying): {e}")
+        time.sleep(5)
+    raise TimeoutError("Windows shell not input-ready after {timeout}s")
+
+
 def evaluate(env, task):
     """Mirror of DesktopEnv.evaluate() (desktop_env/envs/desktop_env.py), minus the
     action_history FAIL handling (our loop has no FAIL action; infeasible tasks are
@@ -123,11 +166,16 @@ def run_task(task, max_steps=40, reset=True, record=True):
         VMController().revert_clean(capture_fn=loop._frame_png_full)
     wait_for_server()
     env = WAAEnvShim()
+    wait_shell_ready(env)
     if task.get("config"):
         env.setup_controller.setup(task["config"])
     t0 = time.time()
     res = loop.run(task["instruction"], max_steps=max_steps, confirm_first=0,
-                   record=record, tag=f"waa__{task['id']}")
+                   record=record, tag=f"waa__{task['id']}",
+                   # Our amateur no-progress aborts fired falsely on real WAA tasks
+                   # (mid-recovery pauses read as "frozen"); the benchmark's step
+                   # budget is the only honest limiter.
+                   no_progress_abort=False)
     wall = time.time() - t0
     try:
         score, note = evaluate(env, task)
