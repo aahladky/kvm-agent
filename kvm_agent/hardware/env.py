@@ -85,6 +85,17 @@ class Camera:
         # discard the first few frames: MSMF's first frame post-open can be torn
         for _ in range(8):
             time.sleep(0.03)
+        # ACTUAL negotiated resolution (2026-07-19): cap.set() above is a REQUEST, not a
+        # guarantee -- V4L2/MSMF can silently fall back to a supported mode the card actually
+        # offers. Read it back from the real frame shape (more trustworthy than cap.get(),
+        # which some backends report stale/pre-negotiation values for) so callers -- notably
+        # PicoEnv, which hands this to the HID appliance's /hid/set_screen -- act on what was
+        # ACTUALLY captured, not what was requested. See appliance/pi5/hid_bridge.py's
+        # _cmd_set_screen docstring for the other half of this.
+        self.actual_h, self.actual_w = self.frame.shape[:2]
+        if (self.actual_w, self.actual_h) != (w, h):
+            print(f"[Camera] WARNING: requested {w}x{h} but capture card negotiated "
+                  f"{self.actual_w}x{self.actual_h} -- using the actual size")
 
     def _loop(self):
         while self.run:
@@ -253,8 +264,12 @@ class PicoEnv:
 
     def __init__(self, cam_index=0, screen_size=(1920, 1080),
                  reset_coord=(534, 630), reset_settle=1.5, show=False):
-        self.screen_width, self.screen_height = screen_size
+        # screen_size is a REQUEST to the capture card, not the source of truth -- Camera
+        # reads back what it actually negotiated (self.cam.actual_w/h) and that's what we
+        # use from here on, so a capture-card mode drift can't silently desync click math
+        # from what's on screen (2026-07-19, see Camera.__init__ and appliance.set_screen).
         self.cam = Camera(cam_index, *screen_size)
+        self.screen_width, self.screen_height = self.cam.actual_w, self.cam.actual_h
         try:
             self.r4 = make_hid_client()   # appliance (default) or legacy WiFi, per CFG.hid_kind
         except Exception:
@@ -263,8 +278,22 @@ class PicoEnv:
             except Exception:
                 pass
             raise
+        # Tell the HID appliance the ACTUAL capture resolution, so its pixel->wire-range
+        # scale factor (SCREEN_W/H in appliance/pi5/hid_bridge.py, a --screen-w/--screen-h
+        # launch default until now) matches reality instead of coincidentally agreeing with
+        # it. The legacy WiFi R4 client has no equivalent -- it doesn't do this scaling
+        # host-side at all (the Pico firmware does, via its own hardcoded SCREEN_W/H) -- so
+        # this is a no-op there, guarded rather than assumed.
+        set_screen = getattr(self.r4, "set_screen", None)
+        if set_screen is not None:
+            try:
+                set_screen(self.screen_width, self.screen_height)
+            except Exception as e:
+                print(f"[pico_env] WARNING: could not sync HID appliance to {self.screen_width}x"
+                      f"{self.screen_height}: {e} -- clicks may be miscalibrated if this "
+                      f"differs from the appliance's launch default")
         self.controller = PicoController(self.cam, self.r4)
-        self.controller.cam_w, self.controller.cam_h = screen_size
+        self.controller.cam_w, self.controller.cam_h = self.screen_width, self.screen_height
         self.vm_ip = None
         self.action_space = "pyautogui"
         self.instruction = None
@@ -273,7 +302,7 @@ class PicoEnv:
         self.action_history = []
         self.show = show
         f = self.cam.read()
-        print(f"[pico_env] capture {f.shape[1]}x{f.shape[0]}  (must equal Pico SCREEN_W/H)")
+        print(f"[pico_env] capture {f.shape[1]}x{f.shape[0]}  (HID appliance synced to this)")
 
     def _settle(self, secs):
         # Smart settle (2026-07-18): return as soon as the UI stops changing instead of

@@ -86,6 +86,15 @@ class ApplianceClient:
     def health(self):
         return self._req("/health", method="GET")
 
+    def set_screen(self, w, h):
+        """Tell the bridge the ACTUAL capture resolution (2026-07-19), so its pixel->wire-
+        range scale factor matches reality instead of a --screen-w/--screen-h launch default
+        that has to independently agree with kvm_agent.config.CFG.screen_w/h by convention.
+        See kvm_agent.hardware.env.PicoEnv.__init__ for the caller (right after Camera opens
+        and the real negotiated frame size is known) and hid_bridge.py's _cmd_set_screen for
+        why this doesn't need a Pico firmware reflash."""
+        return self._req("/hid/set_screen", w=int(w), h=int(h))
+
     def close(self):
         pass  # stateless HTTP; nothing to release
 

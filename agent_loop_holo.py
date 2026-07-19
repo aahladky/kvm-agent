@@ -103,7 +103,10 @@ def ground(instruction, target="local"):
     # Projection targets REAL screen pixels, not the (downscaled, see Camera.png_bytes)
     # model-input PNG: Holo outputs [0,1000] normalized coords, so the image size only
     # matters as the projection basis -- and that basis must be the screen the HID moves on.
-    w, h = CFG.screen_size
+    # ENV.screen_width/height (2026-07-19), not CFG.screen_size: the ACTUAL capture-card
+    # resolution PicoEnv negotiated, which the HID appliance was synced to -- see
+    # kvm_agent/hardware/env.py PicoEnv.__init__.
+    w, h = ENV.screen_width, ENV.screen_height
     data_url = png_bytes_to_data_url(png)
     t0 = time.time()
     action = call_holo(instruction, data_url, w, h, target=target)
@@ -126,7 +129,7 @@ def mark(name="mark"):
     # LAST["png"] is downscaled (720p, see Camera.png_bytes) while action coords are real
     # screen pixels -- scale into PNG space before drawing.
     pw, ph = arr.shape[1], arr.shape[0]
-    sw, sh = CFG.screen_size
+    sw, sh = ENV.screen_width, ENV.screen_height
     x, y = (int(v) for v in action["coordinate"])
     x, y = int(x * pw / sw), int(y * ph / sh)
     cv2.drawMarker(arr, (x, y), (0, 0, 255), cv2.MARKER_CROSS, 40, 3)
@@ -227,7 +230,7 @@ def _execute(action, settle_s=1.5, verify_retries=2):
                 # send a click on the window first. Screen-center, not the coordinate the
                 # model gave (there wasn't one for "type"): every app window tested this
                 # session was large enough for its content area to cover that point.
-                cx, cy = CFG.screen_size[0] // 2, CFG.screen_size[1] // 2
+                cx, cy = ENV.screen_width // 2, ENV.screen_height // 2
                 print(f"[execute] WARNING: type produced no visible screen change "
                       f"(diff={diff:.1f} <= {FRAME_CHANGE_THRESHOLD}) -- likely stale Win32 "
                       f"focus (launching an app does not reliably transfer keyboard focus to "
@@ -350,14 +353,17 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     click_repeat = 0    # consecutive left_clicks landing in ~the same spot
     last_click = None
     recorder = RunRecorder(tag, instruction, target=target,
-                            meta={"max_steps": max_steps, "screen_size": CFG.screen_size}) if record else None
+                            meta={"max_steps": max_steps,
+                                  "screen_size": (ENV.screen_width, ENV.screen_height)}) if record else None
     for step in range(max_steps):
         png = _frame_png()
         LAST["png"] = png
-        # Projection basis is the REAL screen (CFG.screen_size), not the model-input PNG,
-        # which Camera.png_bytes downscales to 720p to clamp vision tokens -- Holo's
-        # [0,1000] output must land on actual HID screen pixels.
-        w, h = CFG.screen_size
+        # Projection basis is the REAL screen (ENV.screen_width/height, the ACTUAL capture-
+        # card resolution -- see PicoEnv.__init__ -- not CFG.screen_size, a request that may
+        # not be what got negotiated), not the model-input PNG, which Camera.png_bytes
+        # downscales to 720p to clamp vision tokens -- Holo's [0,1000] output must land on
+        # actual HID screen pixels.
+        w, h = ENV.screen_width, ENV.screen_height
         data_url = png_bytes_to_data_url(png)
         step_instruction = instruction if step == 0 else ""
         t0 = time.time()

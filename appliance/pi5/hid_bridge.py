@@ -22,6 +22,9 @@ appliance.py (ApplianceClient) needs no changes:
   POST /hid/combo?spec=ctrl%2Ba     (ctrl+a)
   POST /hid/scroll?ticks=3
   GET  /hid/probe                   -> keyboard liveness (LED readback)
+  POST /hid/set_screen?w=&h=        -> update the pixel->wire-range scale factor at
+                                        runtime (2026-07-19); see set_screen's docstring
+                                        for why this exists.
 Every response is JSON: {"ok":bool, "ack":str, "ms":float, "cmd":str}.
 
 Run:
@@ -94,6 +97,26 @@ def _cmd_scroll(q):
     return f"S {ticks}"
 
 
+def _cmd_set_screen(q):
+    """Update SCREEN_W/SCREEN_H at runtime instead of only at process launch (2026-07-19).
+
+    Before this, the bridge's pixel->wire-range scale factor was a `--screen-w`/`--screen-h`
+    CLI arg fixed for the process's lifetime, defaulting to 1920x1080 -- the SAME hardcoded
+    default independently assumed on the host side (kvm_agent.config.CFG.screen_w/h). The
+    two had to be kept in sync by convention, with nothing catching a drift if the physical
+    capture card ever negotiated something other than 1920x1080 (cv2's `cap.set()` is a
+    REQUEST, not a guarantee -- V4L2 can silently fall back to a supported mode). This
+    endpoint lets the host tell the bridge what it ACTUALLY captured, once, right after
+    opening the capture device -- see kvm_agent/hardware/env.py PicoEnv.__init__ for the
+    caller. No Pico firmware involved: SCREEN_W/H is a plain Python global here, used only
+    to compute the wire-range scale in mouse_abs() -- changing it takes effect on the very
+    next /hid/move call, no restart needed.
+    """
+    global SCREEN_W, SCREEN_H
+    SCREEN_W, SCREEN_H = int(q["w"][0]), int(q["h"][0])
+    return f"SET_SCREEN {SCREEN_W}x{SCREEN_H}"
+
+
 def _cmd_probe(q):
     p = LINK.probe()
     # kbd/mouse flags = the firmware's view of whether each HID collection is online at
@@ -107,7 +130,7 @@ ROUTES = {
     "/hid/move": _cmd_move, "/hid/click": _cmd_click, "/hid/rclick": _cmd_rclick,
     "/hid/down": _cmd_down, "/hid/up": _cmd_up, "/hid/home": _cmd_home,
     "/hid/key": _cmd_key, "/hid/type": _cmd_type, "/hid/combo": _cmd_combo,
-    "/hid/scroll": _cmd_scroll, "/hid/probe": _cmd_probe,
+    "/hid/scroll": _cmd_scroll, "/hid/probe": _cmd_probe, "/hid/set_screen": _cmd_set_screen,
 }
 
 
@@ -136,7 +159,8 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/health":
             result = self._run(_cmd_probe, {})
             return self._json(200, {"ok": result["ok"], "port": LINK.port,
-                                    "pico_acking": result["ok"], "probe": result["ack"]})
+                                    "pico_acking": result["ok"], "probe": result["ack"],
+                                    "screen_w": SCREEN_W, "screen_h": SCREEN_H})
         fn = ROUTES.get(u.path)
         if not fn:
             return self._json(404, {"ok": False, "error": "no such route", "path": u.path})
