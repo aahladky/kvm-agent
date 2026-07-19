@@ -308,23 +308,22 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         no_progress_abort=True):
     """Multi-step closed loop with real history threading: ground (against the accumulated
     history) -> confirm (first N steps) -> execute -> re-capture -> thread this step's
-    observation + assistant tool-call + a tool-result message into history -> repeat.
+    observation + assistant JSON turn into history -> repeat.
 
-    History format matches hub.hcompany.ai/agent-loop's documented function-calling chat
-    layout (fetched and diffed against this file after Phase I5's first live run surfaced
-    gaps -- see kvm_agent/models/holo.py's module docstring for the full list): each
-    successful step appends
+    History format (2026-07-19 rearchitecture to structured output -- see kvm_agent/models/
+    holo.py's module docstring for the full contamination-audit rationale): each successful
+    step appends
       {"role": "user", "content": [<observation>+image+</observation>]}   (this step's own)
-      {"role": "assistant", "tool_calls": [...]}
-      {"role": "tool", "tool_call_id": ..., "content": "<changed/unchanged>"}
-    then trims to the last MAX_HISTORY_IMAGES screenshots. The task instruction is sent
-    ONLY on step 0's observation turn (not every step, per the doc's loop example, which
-    doesn't repeat it) -- later turns carry it via history. Tool-result content is a real
-    frame-diff signal (_frame_changed), not a hardcoded "ok" -- docs flag exactly that gap
-    as a cause of loops/forgetting.
-    Steps that error (dropped/unparseable) are NOT threaded into history -- referencing a
-    malformed tool_calls entry back to the model would confuse it more than a clean retry.
-    tool_choice="required" (set in call_holo_full) should make these rare.
+      {"role": "assistant", "content": "<the JSON string the model returned>"}
+    then trims to the last MAX_HISTORY_IMAGES screenshots. No "tool" role -- native has no
+    execution-result feedback channel at all; the frame-diff "changed/did not visibly
+    change" signal from THIS step is instead folded into the NEXT step's own <observation>
+    text via call_holo_full's prev_result param (see observation_message's docstring).
+    The task instruction is sent ONLY on step 0's observation turn -- later turns carry it
+    via history.
+    Steps that error (dropped/unparseable JSON) are NOT threaded into history -- referencing
+    a malformed turn back to the model would confuse it more than a clean retry. The
+    response_format schema constraint (set in call_holo_full) should make these rare.
 
     confirm_first defaults to CONFIRM_FIRST; pass 0 to run unattended.
 
@@ -352,6 +351,10 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     frozen = 0          # consecutive executed steps with no visible screen change
     click_repeat = 0    # consecutive left_clicks landing in ~the same spot
     last_click = None
+    # Frame-diff result from the PREVIOUS step's execution, folded into the CURRENT step's
+    # <observation> text (2026-07-19 -- see kvm_agent/models/holo.py's observation_message
+    # docstring for why this isn't a synthetic "tool" role message anymore). None on step 0.
+    prev_result = None
     recorder = RunRecorder(tag, instruction, target=target,
                             meta={"max_steps": max_steps,
                                   "screen_size": (ENV.screen_width, ENV.screen_height)}) if record else None
@@ -368,7 +371,8 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         step_instruction = instruction if step == 0 else ""
         t0 = time.time()
         action, message, usage = call_holo_full(step_instruction, data_url, w, h, target=target, history=history,
-                                                  max_history_images=MAX_HISTORY_IMAGES, notes=notes)
+                                                  max_history_images=MAX_HISTORY_IMAGES, notes=notes,
+                                                  prev_result=prev_result)
         dt = time.time() - t0
         LAST["action"] = action
         print(f"[run {dt:.1f}s] step {step}: {action}")
@@ -399,13 +403,14 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         post_png = _frame_png()
         changed = _frame_changed(png, post_png)
 
-        tool_calls = message.get("tool_calls") or []
-        if tool_calls:
-            tool_content = f"Action executed. Screen {'changed.' if changed else 'did not visibly change.'}"
-            history.append(observation_message(data_url, step_instruction))
-            history.append({"role": "assistant", "content": message.get("content") or "", "tool_calls": tool_calls})
-            history.append({"role": "tool", "tool_call_id": tool_calls[0].get("id", "call_0"), "content": tool_content})
-            trim_to_last_n_images(history, n=MAX_HISTORY_IMAGES)
+        # This step's own observation (built WITHOUT notes/prev_result -- matches the
+        # existing pattern where the <notes> block and prev-result text only ever appear on
+        # the CURRENT/latest turn's live call, not duplicated into every historical message)
+        # + the model's own JSON content, verbatim. No "tool" role -- see run()'s docstring.
+        history.append(observation_message(data_url, step_instruction))
+        history.append({"role": "assistant", "content": message.get("content") or ""})
+        trim_to_last_n_images(history, n=MAX_HISTORY_IMAGES)
+        prev_result = f"Previous action executed. Screen {'changed.' if changed else 'did not visibly change.'}"
 
         if action.get("action") == "finished":
             answer_text = action.get("text", "")

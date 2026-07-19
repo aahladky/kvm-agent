@@ -1,0 +1,107 @@
+[
+  {
+    "instruction": "Click on the year 2024 in this year picker.",
+    "message": {
+      "content": "{\n  \"note\": \"The Calculator app is open with the Date calculation section active. A year picker is displayed showing years from 2017 to 2032, with 2026 currently selected (highlighted in blue). The year 2024 is visible in the grid.\",\n  \"thought\": \"I need to click on the year 2024 in the year picker. Looking at the grid, 2024 is positioned in the third row, fourth column of the year selection grid. This is clearly visible and accessible.\",\n  \"tool_calls\": [\n    {\n      \"tool_name\": \"click\",\n      \"element\": \"Year 2024 in the year picker grid\",\n      \"x\": 184,\n      \"y\": 295\n    }\n  ]\n}",
+      "refusal": null,
+      "role": "assistant",
+      "annotations": null,
+      "audio": null,
+      "function_call": null,
+      "tool_calls": null,
+      "reasoning_content": "I need to click on the year 2024 in the year picker to select it. The year 2024 is visible in the grid of years displayed in the Calculator app's Date calculation section. It's located in the third row, fourth column of the year grid.\n"
+    },
+    "image_w": 1920,
+    "image_h": 1080
+  },
+  {
+    "instruction": "Type '1980' into the currently focused field.",
+    "message": {
+      "content": "{\n  \"note\": \"Year picker is open showing 2017-2032 range with 2026 selected. Need to navigate to 1980 by going to earlier years.\",\n  \"thought\": \"The year picker is currently showing years 2017-2032, but I need to input 1980. I need to navigate to earlier years by clicking the left navigation arrow or scrolling up to find 1980.\",\n  \"tool_calls\": [\n    {\n      \"tool_name\": \"click\",\n      \"element\": \"Left navigation arrow in year picker\",\n      \"x\": 165,\n      \"y\": 172\n    }\n  ]\n}",
+      "refusal": null,
+      "role": "assistant",
+      "annotations": null,
+      "audio": null,
+      "function_call": null,
+      "tool_calls": null,
+      "reasoning_content": "I need to input '1980' but the current year picker only shows 2017-2032. I should navigate to earlier years by clicking the left arrow or scrolling up to find 1980. The most direct approach is to click on the left navigation arrow at the top of the year picker to go back in time.\n"
+    },
+    "image_w": 1920,
+    "image_h": 1080
+  },
+  {
+    "instruction": "Press Escape to close this calendar picker without selecting anything.",
+    "message": {
+      "content": "{\n  \"note\": \"Calendar year picker is open showing years 2017-2032, with 2026 currently selected. The main Calculator window shows 'Date calculation' mode with 'Difference between dates' selected.\",\n  \"thought\": \"The instruction explicitly states to press Escape to close the calendar picker without selecting anything. This is a standard keyboard shortcut to dismiss modal dialogs. I should use the keyboard to press Escape rather than clicking elsewhere, as that's what the instruction requests.\",\n  \"tool_calls\": [\n    {\n      \"tool_name\": \"press_key\",\n      \"key\": \"escape\"\n    }\n  ]\n}",
+      "refusal": null,
+      "role": "assistant",
+      "annotations": null,
+      "audio": null,
+      "function_call": null,
+      "tool_calls": null,
+      "reasoning_content": "I need to close this calendar picker without selecting a year since the instruction explicitly asks to press Escape. The calendar is currently open and blocking further interaction with the date calculation interface. Pressing Escape is the standard way to dismiss such dialogs without making a selection.\n"
+    },
+    "image_w": 1920,
+    "image_h": 1080
+  },
+  {
+    "instruction": "Scroll down over this calendar to see if there are more options below.",
+    "message": {
+      "content": "{\n  \"note\": \"Calendar for July 2026 is visible in Calculator's Date calculation section. Need to scroll down to check for additional options below the current view.\",\n  \"thought\": \"The user wants me to scroll down over the calendar to see if there are more options below. I can see the calendar for July 2026 in the Calculator app. I need to position my cursor over the calendar area and perform a scroll down action to reveal any content that might be below the current view.\",\n  \"tool_calls\": [\n    {\n      \"tool_name\": \"scroll\",\n      \"direction\": \"down\",\n      \"x\": 120,\n      \"y\": 350\n    }\n  ]\n}",
+      "refusal": null,
+      "role": "assistant",
+      "annotations": null,
+      "audio": null,
+      "function_call": null,
+      "tool_calls": null,
+      "reasoning_content": "The user wants me to scroll down over the calendar to see if there are more options below. Looking at the current screenshot, I can see a calendar for July 2026 in the Calculator app's Date calculation section. The calendar shows the month of July 2026 with dates from the 28th of June (partial week) through the 8th of August (partial week at the bottom).\n\nI need to scroll down to see if there are additional options or content below the current view. The calendar appears to be taking up most of the visible area, but there might be more content below that's not currently visible.\n\nTo scroll down, I should position my cursor over the calendar area and use a scroll action. The calendar is in the upper-left portion of the Calculator window. I'll aim for an area within the calendar or just below it to perform the scroll action.\n\nLooking at the coordinates, I should target an area within the calendar widget or slightly below it. The calendar spans from approximately x=30 to x=200 and y=150 to y=460. I'll position my scroll action around the middle-lower part of the calendar area to ensure I'm scrolling the calendar content.\n\nLet me scroll down over the calendar area to reveal any additional options that might be below the current view.\n"
+    },
+    "image_w": 1920,
+    "image_h": 1080
+  },
+  {
+    "instruction": "Drag from the top-left corner of the month grid to the bottom-right corner to select a range.",
+    "message": {
+      "content": "{\"note\": \"Currently in Date calculation mode with July 2026 selected. Need to select a date range by dragging from top-left to bottom-right of the month grid.\", \"thought\": \"To select a date range in this calculator, I need to drag from the top-left corner of the month grid to the bottom-right corner. The top-left month appears to be January 2026, and I need to drag to the bottom-right visible month. I'll start by clicking and holding on the January month in the top-left of the grid.\", \"tool_calls\": [{\"tool_name\": \"drag_and_drop\", \"x1\": 53, \"y1\": 230, \"x2\": 187, \"y2\": 431}]}",
+      "refusal": null,
+      "role": "assistant",
+      "annotations": null,
+      "audio": null,
+      "function_call": null,
+      "tool_calls": null,
+      "reasoning_content": "I need to select a date range in the date calculator. Currently, July 2026 is selected. To select a range, I need to drag from the top-left corner of the month grid (which appears to be January 2026) to the bottom-right corner (which appears to be April 2027 based on the visible months). The first step is to click and hold on the top-left month (January).\n"
+    },
+    "image_w": 1920,
+    "image_h": 1080
+  },
+  {
+    "instruction": "What year is currently highlighted/selected in this year picker? Answer with just the year.",
+    "message": {
+      "content": "{\n  \"note\": \"\",\n  \"thought\": \"The screenshot shows a year picker in the Calculator app's Date calculation feature. I can clearly see that 2026 has a blue circle around it, indicating it is the currently highlighted/selected year. The question asks for just the year, so I should provide only '2026' as the answer.\",\n  \"tool_calls\": [\n    {\n      \"tool_name\": \"answer\",\n      \"content\": \"2026\"\n    }\n  ]\n}",
+      "refusal": null,
+      "role": "assistant",
+      "annotations": null,
+      "audio": null,
+      "function_call": null,
+      "tool_calls": null,
+      "reasoning_content": "I need to identify which year is currently highlighted or selected in the year picker interface shown in the Calculator app. Looking at the screenshot, I can see a year picker dialog with years from 2017 to 2032 displayed in a grid format. There's a blue circle highlighting one specific year, which indicates it's the currently selected year. I can clearly see that 2026 is the year with the blue circle around it, making it the highlighted/selected year. The question is straightforward and only requires me to identify this year, so I should provide just the year as my answer without any additional text.\n"
+    },
+    "image_w": 1920,
+    "image_h": 1080
+  },
+  {
+    "instruction": "The text \"if\" in this document is already selected/highlighted. Type: hello (this will replace the selected text).",
+    "message": {
+      "content": "{\"note\": \"The text 'if' is currently selected in draft.txt. Typing will replace the selected text.\", \"thought\": \"The instruction is to type 'hello' to replace the selected 'if'. Since the text is already highlighted, I can directly type the new text which will replace the selection.\", \"tool_calls\": [{\"tool_name\": \"write\", \"content\": \"hello\", \"press_enter\": false}]}",
+      "refusal": null,
+      "role": "assistant",
+      "annotations": null,
+      "audio": null,
+      "function_call": null,
+      "tool_calls": null,
+      "reasoning_content": "The instruction says to type \"hello\" to replace the selected text \"if\". Since \"if\" is already selected (highlighted), typing will automatically replace it. I need to use the write tool to input the text \"hello\".\n"
+    },
+    "image_w": 1280,
+    "image_h": 720
+  }
+]
