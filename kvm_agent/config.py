@@ -42,6 +42,15 @@ class Config:
     hid_kind: str = _env("HID_KIND", "appliance")
     appliance_url: str = _env("APPLIANCE_URL", "http://192.168.0.29:8080")  # Pi 5 hid_bridge
     cam_index: int = int(_env("CAM_INDEX", "0"))
+    # FALLBACK ONLY (2026-07-19) -- NOT a source of truth for what the guest is actually
+    # rendering at. Discovered live: the guest was genuinely running at 1280x720 (confirmed
+    # via pyautogui.size() inside the VM) while this default silently drove a 1920x1080
+    # capture request the whole time -- the capture chip complied by upscaling to 1080p,
+    # which agent_loop_holo's own code then downscaled back to 720p for the model, a lossy
+    # round trip for nothing. Used only until a caller with guest access queries the real
+    # value and calls PicoEnv.sync_to_guest_resolution() (see waa/runner.py's
+    # query_guest_resolution) -- there is no reliable way to detect the true resolution from
+    # the capture card itself (see kvm_agent.hardware.env.Camera.set_resolution's docstring).
     screen_w: int = int(_env("SCREEN_W", "1920"))
     screen_h: int = int(_env("SCREEN_H", "1080"))
 

@@ -66,15 +66,21 @@ _CAPTURE_BACKEND = cv2.CAP_MSMF if sys.platform == "win32" else cv2.CAP_V4L2
 
 class Camera:
     def __init__(self, index=0, w=1920, h=1080):
+        self.index = index
+        self.frame = None
+        self._thread = None
+        self._open(w, h)
+
+    def _open(self, w, h):
         # MSMF is slow to OPEN (~20-25s one-time Media Foundation init) on Windows, hence
         # the longer first-frame wait below; once open, the threaded read drains fresh
         # frames. V4L2 on Linux opens fast by comparison.
-        self.cap = cv2.VideoCapture(index, _CAPTURE_BACKEND)
+        self.cap = cv2.VideoCapture(self.index, _CAPTURE_BACKEND)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.frame = None
-        self.run = True
+        self.run = True   # set_resolution() sets this False to stop the OLD thread first
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
         t0 = time.time()
@@ -85,17 +91,43 @@ class Camera:
         # discard the first few frames: MSMF's first frame post-open can be torn
         for _ in range(8):
             time.sleep(0.03)
-        # ACTUAL negotiated resolution (2026-07-19): cap.set() above is a REQUEST, not a
-        # guarantee -- V4L2/MSMF can silently fall back to a supported mode the card actually
-        # offers. Read it back from the real frame shape (more trustworthy than cap.get(),
-        # which some backends report stale/pre-negotiation values for) so callers -- notably
-        # PicoEnv, which hands this to the HID appliance's /hid/set_screen -- act on what was
-        # ACTUALLY captured, not what was requested. See appliance/pi5/hid_bridge.py's
-        # _cmd_set_screen docstring for the other half of this.
         self.actual_h, self.actual_w = self.frame.shape[:2]
-        if (self.actual_w, self.actual_h) != (w, h):
-            print(f"[Camera] WARNING: requested {w}x{h} but capture card negotiated "
-                  f"{self.actual_w}x{self.actual_h} -- using the actual size")
+
+    def set_resolution(self, w, h):
+        """Re-request the capture resolution on an ALREADY-OPEN device (2026-07-19).
+
+        CORRECTION to an earlier, wrong assumption in this file: reading self.frame.shape
+        after cap.set() does NOT reveal the true incoming HDMI signal on this hardware (a
+        Macrosilicon MS21xx-class USB3 capture dongle). Tested directly: requesting 1920x1080
+        returns a clean 1920x1080 frame, and separately requesting 1280x720 returns a clean
+        1280x720 frame -- the chip has its own internal scaler and complies with WHATEVER
+        cv2.set() asks for, regardless of the actual guest/host render resolution. So
+        frame.shape after cap.set(w, h) is circular: it will always equal (h, w), never a
+        genuine mismatch signal. There is no way to learn the true incoming resolution from
+        the capture device itself.
+
+        The only reliable source of truth is the GUEST's own reported resolution (e.g.
+        `pyautogui.size()` run inside the VM via WAA's execute channel -- see
+        waa/runner.py's query_guest_resolution()). Call this method with THAT value once it's
+        known, so the capture request matches the guest's actual render size 1:1 instead of
+        capturing at a stale/wrong resolution and round-tripping through the chip's scaler
+        (request 1920x1080 against a genuinely-720p guest = the chip upscales 720p content to
+        1080p, we then downscale it back to 720p for the model in png_bytes() -- a lossy
+        no-op round trip that was happening silently before this existed).
+
+        Does a full stop-thread -> release -> reopen -> restart-thread cycle, NOT a live
+        cap.set() on the already-streaming device (tried that first: it errored with
+        "VIDIOC_REQBUFS: Device or resource busy" and crashed the background reader thread
+        with an assertion inside cv2's V4L2 backend -- V4L2 will not renegotiate the buffer
+        format while capture is in flight; the device has to be reopened, exactly like
+        __init__ does it safely before any threading starts).
+        """
+        self.run = False
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+        self.cap.release()
+        self._open(w, h)
+        return self.actual_w, self.actual_h
 
     def _loop(self):
         while self.run:
@@ -264,10 +296,20 @@ class PicoEnv:
 
     def __init__(self, cam_index=0, screen_size=(1920, 1080),
                  reset_coord=(534, 630), reset_settle=1.5, show=False):
-        # screen_size is a REQUEST to the capture card, not the source of truth -- Camera
-        # reads back what it actually negotiated (self.cam.actual_w/h) and that's what we
-        # use from here on, so a capture-card mode drift can't silently desync click math
-        # from what's on screen (2026-07-19, see Camera.__init__ and appliance.set_screen).
+        # screen_size is a best-effort FALLBACK REQUEST, not a source of truth of any kind.
+        # CORRECTED 2026-07-19: an earlier version of this comment claimed Camera "reads
+        # back what it actually negotiated" and treated that as ground truth -- WRONG. The
+        # physical capture chip has its own internal scaler and complies with whatever
+        # resolution cv2.set() asks for regardless of the true guest/host render size (see
+        # Camera.set_resolution's docstring), so self.cam.actual_w/h only ever echoes the
+        # request back -- it cannot detect a genuine mismatch. The ONLY reliable source of
+        # truth is the guest's own self-reported resolution (pyautogui.size() run inside the
+        # VM). This constructor has no way to query that (no guest exec channel at this
+        # layer, by design -- see the module docstring's "nothing installed on the target"
+        # premise; the exec channel only exists because WAA's benchmark server is installed
+        # for evaluation purposes). Callers with guest access (waa/runner.py) MUST call
+        # sync_to_guest_resolution() below once they know the true value; screen_size here
+        # is only what gets used until/unless that happens.
         self.cam = Camera(cam_index, *screen_size)
         self.screen_width, self.screen_height = self.cam.actual_w, self.cam.actual_h
         try:
@@ -278,20 +320,7 @@ class PicoEnv:
             except Exception:
                 pass
             raise
-        # Tell the HID appliance the ACTUAL capture resolution, so its pixel->wire-range
-        # scale factor (SCREEN_W/H in appliance/pi5/hid_bridge.py, a --screen-w/--screen-h
-        # launch default until now) matches reality instead of coincidentally agreeing with
-        # it. The legacy WiFi R4 client has no equivalent -- it doesn't do this scaling
-        # host-side at all (the Pico firmware does, via its own hardcoded SCREEN_W/H) -- so
-        # this is a no-op there, guarded rather than assumed.
-        set_screen = getattr(self.r4, "set_screen", None)
-        if set_screen is not None:
-            try:
-                set_screen(self.screen_width, self.screen_height)
-            except Exception as e:
-                print(f"[pico_env] WARNING: could not sync HID appliance to {self.screen_width}x"
-                      f"{self.screen_height}: {e} -- clicks may be miscalibrated if this "
-                      f"differs from the appliance's launch default")
+        self._sync_appliance_screen()
         self.controller = PicoController(self.cam, self.r4)
         self.controller.cam_w, self.controller.cam_h = self.screen_width, self.screen_height
         self.vm_ip = None
@@ -302,7 +331,43 @@ class PicoEnv:
         self.action_history = []
         self.show = show
         f = self.cam.read()
-        print(f"[pico_env] capture {f.shape[1]}x{f.shape[0]}  (HID appliance synced to this)")
+        print(f"[pico_env] capture {f.shape[1]}x{f.shape[0]} (fallback request, NOT verified "
+              f"against the guest -- call sync_to_guest_resolution() once known)")
+
+    def _sync_appliance_screen(self):
+        """Tell the HID appliance the resolution we're currently using, so its pixel->wire-
+        range scale factor (SCREEN_W/H in appliance/pi5/hid_bridge.py) matches. The legacy
+        WiFi R4 client has no equivalent (the Pico firmware does this scaling itself, via its
+        own hardcoded SCREEN_W/H) -- no-op there, guarded rather than assumed."""
+        set_screen = getattr(self.r4, "set_screen", None)
+        if set_screen is None:
+            return
+        try:
+            set_screen(self.screen_width, self.screen_height)
+        except Exception as e:
+            print(f"[pico_env] WARNING: could not sync HID appliance to {self.screen_width}x"
+                  f"{self.screen_height}: {e} -- clicks may be miscalibrated")
+
+    def sync_to_guest_resolution(self, w, h):
+        """Re-point the ENTIRE pipeline at the guest's TRUE, freshly-queried resolution
+        (2026-07-19) -- the fix for a real bug: two live validation runs today captured at a
+        stale 1920x1080 request while the guest was actually rendering at 1280x720 the whole
+        time (confirmed via pyautogui.size() run inside the VM), so every step silently paid
+        for an upscale-to-1080p-then-downscale-back-to-720p round trip for nothing. Call this
+        after the guest is in its final state for the session (post VM-revert, WAA server up)
+        and BEFORE running any task, so capture/HID math match what's actually on screen from
+        the very first frame -- not just eventually via Camera's own no-op negotiation echo.
+        Re-requests the capture resolution (Camera.set_resolution), updates
+        screen_width/height + controller.cam_w/h from what was ACTUALLY delivered after the
+        re-request, and re-syncs the HID appliance."""
+        actual_w, actual_h = self.cam.set_resolution(w, h)
+        if (actual_w, actual_h) != (w, h):
+            print(f"[pico_env] WARNING: requested capture at guest resolution {w}x{h} but "
+                  f"got {actual_w}x{actual_h} back -- using the actual delivered size")
+        self.screen_width, self.screen_height = actual_w, actual_h
+        self.controller.cam_w, self.controller.cam_h = actual_w, actual_h
+        self._sync_appliance_screen()
+        print(f"[pico_env] synced to guest's true resolution: {self.screen_width}x{self.screen_height}")
 
     def _settle(self, secs):
         # Smart settle (2026-07-18): return as soon as the UI stops changing instead of

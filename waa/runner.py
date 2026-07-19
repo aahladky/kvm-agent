@@ -17,6 +17,7 @@ conj/options), reusing WAA's own getter/metric functions unmodified.
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import traceback
@@ -110,6 +111,26 @@ def wait_shell_ready(env, timeout=180):
     raise TimeoutError("Windows shell not input-ready after {timeout}s")
 
 
+def query_guest_resolution(env):
+    """The ONLY reliable source of truth for what resolution the guest is actually
+    rendering at (2026-07-19). Not inferred from the capture card: tested directly and
+    confirmed the physical Macrosilicon capture chip has its own internal scaler and
+    complies with WHATEVER resolution cv2.VideoCapture.set() requests, regardless of the
+    true incoming HDMI signal -- so reading back the captured frame's shape can never
+    detect a mismatch (see kvm_agent.hardware.env.Camera.set_resolution's docstring).
+    This queries pyautogui.size() -- a real Win32 GetSystemMetrics call -- INSIDE the
+    guest via the WAA execute channel, which is ground truth. Two live validation runs
+    today captured at a stale 1920x1080 request while the guest was genuinely at 1280x720
+    the whole time, discovered only by asking the guest directly.
+    Returns (width, height); raises RuntimeError on an unparseable/failed response."""
+    r = env.controller.execute_python_command("print(pyautogui.size())")
+    out = (r or {}).get("output", "")
+    m = re.search(r"width=(\d+),\s*height=(\d+)", out)
+    if not m:
+        raise RuntimeError(f"could not parse guest resolution from: {r!r}")
+    return int(m.group(1)), int(m.group(2))
+
+
 def evaluate(env, task):
     """Mirror of DesktopEnv.evaluate() (desktop_env/envs/desktop_env.py), minus the
     action_history FAIL handling (our loop has no FAIL action; infeasible tasks are
@@ -167,6 +188,18 @@ def run_task(task, max_steps=40, reset=True, record=True):
     wait_for_server()
     env = WAAEnvShim()
     wait_shell_ready(env)
+    # Point capture + HID math at the guest's ACTUAL resolution (2026-07-19) -- boot()
+    # above opened the capture card at a best-effort fallback (CFG.screen_size) because no
+    # guest-query channel exists at that layer; now that the WAA server is up, ask the
+    # guest directly (ground truth, not inferred from the capture card -- see
+    # query_guest_resolution's docstring) and re-sync before running anything.
+    try:
+        gw, gh = query_guest_resolution(env)
+        loop.ENV.sync_to_guest_resolution(gw, gh)
+    except Exception as e:
+        print(f"[waa] WARNING: could not query/sync guest resolution ({e}) -- "
+              f"proceeding with the capture card's current {loop.ENV.screen_width}x"
+              f"{loop.ENV.screen_height}")
     if task.get("config"):
         env.setup_controller.setup(task["config"])
     t0 = time.time()
