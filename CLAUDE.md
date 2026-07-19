@@ -5,7 +5,56 @@ What this project is
 A KVM-over-IP-style computer-use agent where nothing is installed on the target machine. A vision model sees the target's screen via HDMI capture, decides actions, and a physical USB-HID device injects mouse/keyboard. Target sees only a monitor + a USB mouse/keyboard — undetectable, OS-agnostic. Pure curiosity project, no practical application.
 
 ═══════════════════════════════════════════════════════════════
-★★★ READ FIRST — 2026-06-22 (LATEST): PORT FIX + REASONING-BUDGET REALITY + FIRST ALL-LOCAL PASS ON A NEW BENCHMARK — see docs/SESSION_2026-06-22_local_portfix_and_calc_benchmark.md ★★★
+★★★ READ FIRST — 2026-07-19 (LATEST): REAL WIN32 FOCUS-TRANSFER BUG FOUND + FIXED, 3-DEPTH
+SHAKEDOWN RUN, NATIVE HOLO-DESKTOP-CLI PROMPT PORTED — see
+docs/SESSION_2026-07-19_holo_focus_bug_and_native_prompt_port.md ★★★
+═══════════════════════════════════════════════════════════════
+★ Architecture has moved on since the notes below this block: the project now runs on
+Holo3.1 (H Company's model, native OpenAI tool-calling) driving the Pico/capture-card rig
+via agent_loop_holo.py, evaluated against WindowsAgentArena tasks (waa/runner.py) —
+NOT the old EvoCUA/UI-TARS/B580-planner stack the rest of this file describes. See
+docs/REPORT_2026-07-19_problems.md for the state that started this session (a skeptical
+review of the WAA-adoption arc) and the new session doc above for everything since.
+★ THE REAL BUG (root-caused, reproduced twice, not guessed): launching an app on the
+Windows target does NOT reliably transfer real Win32 keyboard focus to it.
+GetForegroundWindow() confirmed focus silently stayed on the desktop (Program
+Manager/FolderView) after Win+R-launching Notepad, even though Notepad rendered on top
+looking focused — every keystroke went to the desktop's search-jump, not the document.
+Documented, general Windows/RPA-industry gotcha (Microsoft's own Power Automate docs:
+"Focus window alone is not reliable, always click afterward"). FIXED in
+agent_loop_holo.py's _execute(): a `type` that produces no visible screen change now
+clicks screen-center to force real focus before retrying, instead of blindly resending
+into a window that was never focused. Verified by replay: two prior unguarded replays of
+the same failing action sequence produced ZERO typed characters; with the fix, the text
+landed correctly. This was chased down through ~40+ isolated mouse-reliability tests that
+all disproved "dead mouse" (47+ clean clicks) before the real cause was found — see the
+session doc's §2 for the full false-leads list, kept for honesty.
+★ 3-DEPTH SHAKEDOWN (17 tasks × HOLO_HISTORY_IMAGES∈{1,2,3}, ~6.1h overnight,
+tools/shakedown_ab.py): history=1 5/17, history=2 7/16, history=3 7/15 — see
+waa/shakedown_results/manifest.json. windows_calc went 0/9 across all three depths, but
+NOT for one reason: pulled H Company's own holo-desktop-cli, ran the identical failing
+calc task natively (no Pico, no capture card) and it PASSED — same model, different
+pipeline. Resolution and history-depth hypotheses for the gap were both directly tested
+and DISPROVEN. Root cause: a genuinely inconsistent WinUI3 date-picker widget (live
+double-reproduced) plus, in one run, a stuck-popup click bug structurally different from
+the Notepad focus bug (Calculator held real Win32 foreground focus throughout — see the
+session doc §4 for the full forensic trace).
+★ NATIVE PROMPT PORTED (kvm_agent/models/holo.py, agent_loop_holo.py): captured
+holo-desktop-cli's actual system prompt via a logging proxy (26,000 chars vs our ~700;
+JSON-schema-constrained output, not tool-calling). Ported 3 adoptable wins, adapted (not
+copied) for our one-tool-call-per-step architecture: an explicit loop-detection
+instruction, an optional `note` param on every action tool + a persistent notes block
+that survives goldfish-memory image eviction (native's actual fix for the same problem
+history-depth tuning was trying to solve), and a stricter termination checklist. Verified
+safe (self-tests pass); live-tested on the hardest calc task showed a real but partial
+effect (loop-detection changed failure shape, notes saw zero uptake) — NOT yet validated
+on the easier task class it's actually aimed at. See session doc §5, §7 for next steps.
+★ WORKING TREE HAS REAL, TESTED, UNCOMMITTED CHANGES as of this block (agent_loop_holo.py,
+kvm_agent/config.py, kvm_agent/hardware/env.py, kvm_agent/models/holo.py, waa/runner.py,
+new tools/shakedown_ab.py + tools/show_reasoning.py) — not committed per "only commit
+when explicitly asked"; see session doc §7.
+═══════════════════════════════════════════════════════════════
+★★★ READ FIRST — 2026-06-22: PORT FIX + REASONING-BUDGET REALITY + FIRST ALL-LOCAL PASS ON A NEW BENCHMARK — see docs/SESSION_2026-06-22_local_portfix_and_calc_benchmark.md ★★★
 ═══════════════════════════════════════════════════════════════
 ★ FIRST ALL-LOCAL END-TO-END PASS. The B580 9B (llama.cpp Vulkan, now on port 8090) planned + the executive
 ran the NEW benchmark "Compute 47×89 in Calculator, then type the result in Notepad" to `done` in 19.6s, 0
