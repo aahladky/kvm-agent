@@ -220,7 +220,7 @@ class PicoController:
         self._exec_globals = {"pyautogui": self.pg, "time": time}
 
     def get_screenshot(self):
-        return self.cam.png_bytes()
+        return self.cam.png_bytes(full_res=CFG.holo_model_input_full_res)
 
     def execute_python_command(self, command):
         exec(command, self._exec_globals)

@@ -31,11 +31,14 @@ everything else below was brought into line with the documented convention:
 
 Normalized action shapes (mirrors the prior EvoCUA-era agent loop's action dict, so an
 eventual loop is a drop-in):
-    {"action": "left_click", "coordinate": [x, y], "element": "..."}
-    {"action": "type", "text": "...", "press_enter": bool}
-    {"action": "scroll", "direction": "up"|"down"|"left"|"right"}
-    {"action": "drag", "start": [x1, y1], "coordinate": [x2, y2]}
+    {"action": "left_click", "coordinate": [x, y], "element": "...", "note": "..."?}
+    {"action": "type", "text": "...", "press_enter": bool, "note": "..."?}
+    {"action": "key", "key": "ctrl+a", "note": "..."?}   # single key or '+'-joined combo
+    {"action": "scroll", "direction": "up"|"down"|"left"|"right", "note": "..."?}
+    {"action": "drag", "start": [x1, y1], "coordinate": [x2, y2], "note": "..."?}
     {"action": "finished", "text": "..."}
+    # "note"? = present only when the model chose to persist something this step
+    # (ported from native holo-desktop-cli 2026-07-19; see NOTE_PARAM below).
 
 Format contract (verified empirically -- see docs/FORMAT_NOTES_holo.md, not assumed
 from vendor docs):
@@ -60,6 +63,30 @@ from kvm_agent.llm.ollama import openai_client
 
 logger = logging.getLogger("holo")
 
+# Ported 2026-07-19 from H Company's own holo-desktop-cli (hcompai/holo-desktop-cli),
+# captured live via a logging proxy between it and our local holo3.1 endpoint -- not
+# guessed. Native's system prompt runs ~26,000 chars vs. our ~700 and uses a completely
+# different mechanism (JSON-schema-constrained structured output, note+thought+tool_calls
+# as one object, tool_choice unset) with its own tool_calls array supporting MULTIPLE
+# calls per step. We keep native OpenAI function-calling (tool_choice="required", exactly
+# one call/step) rather than rearchitect around structured output -- too large a change
+# to make blind -- so native's standalone `note` tool (a whole step just to persist text)
+# doesn't fit: it would burn a step every time, worsening the exact step-budget-burn
+# problem (M4) this is meant to help with. Adapted instead as an optional `note` param on
+# every ACTION tool, so a step can act AND persist in one call. See NOTE_PARAM below.
+NOTE_PARAM = {
+    "note": {
+        "type": "string",
+        "description": (
+            "Optional: task-relevant information to persist before this screenshot is "
+            "gone from memory (only the last screenshot is kept -- see the system prompt). "
+            "Record values, short text, file paths, dialog messages, confirmations, "
+            "button/field states -- anything you'll need later but can't re-read once the "
+            "screen changes. Omit if there's nothing new worth persisting."
+        ),
+    },
+}
+
 TOOLS = [
     {
         "type": "function",
@@ -76,6 +103,7 @@ TOOLS = [
                     "element": {"type": "string", "description": "Detailed description of the target UI element"},
                     "x": {"type": "integer", "description": "X coordinate as integer in [0, 1000]"},
                     "y": {"type": "integer", "description": "Y coordinate as integer in [0, 1000]"},
+                    **NOTE_PARAM,
                 },
                 "required": ["element", "x", "y"],
             },
@@ -91,8 +119,36 @@ TOOLS = [
                 "properties": {
                     "content": {"type": "string", "description": "Content to write"},
                     "press_enter": {"type": "boolean", "default": False, "description": "Whether to press Enter after typing"},
+                    **NOTE_PARAM,
                 },
                 "required": ["content"],
+            },
+        },
+    },
+    {
+        # press_key: our own extension (not in any official H Company example), added
+        # 2026-07-19 after a WAA notepad run burned 15 click/drag steps (waa__366de66e
+        # …_205131 steps 25-39) trying to clear a Save-dialog filename field with the
+        # mouse -- the action space had no keyboard path besides write()'s press_enter.
+        # Backed by ENV.r4.key()/combo() (kvm_agent/hardware/pico_client.py), which already
+        # supports named keys + held combos; this just exposes it to the model.
+        "type": "function",
+        "function": {
+            "name": "press_key",
+            "description": (
+                "Press a key or key combination. Use for keyboard shortcuts and non-printable "
+                "keys the write() tool can't send: single keys like 'enter', 'esc', 'tab', "
+                "'backspace', 'delete', 'up'/'down'/'left'/'right', 'home', 'end'; or combos "
+                "like 'ctrl+a', 'ctrl+s', 'ctrl+shift+t', 'alt+F4' (keys joined with '+', held "
+                "together)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Key name or '+'-joined combo, e.g. 'ctrl+a'"},
+                    **NOTE_PARAM,
+                },
+                "required": ["key"],
             },
         },
     },
@@ -111,6 +167,7 @@ TOOLS = [
                     "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
                     "x": {"type": "integer", "description": "X coordinate of the point to scroll at, in [0, 1000]"},
                     "y": {"type": "integer", "description": "Y coordinate of the point to scroll at, in [0, 1000]"},
+                    **NOTE_PARAM,
                 },
                 "required": ["direction", "x", "y"],
             },
@@ -128,6 +185,7 @@ TOOLS = [
                     "y1": {"type": "integer"},
                     "x2": {"type": "integer"},
                     "y2": {"type": "integer"},
+                    **NOTE_PARAM,
                 },
                 "required": ["x1", "y1", "x2", "y2"],
             },
@@ -147,14 +205,33 @@ TOOLS = [
     },
 ]
 
+# Ported + condensed from H Company's own holo-desktop-cli system prompt (captured
+# 2026-07-19, see NOTE_PARAM comment above for the capture method and why we didn't
+# adopt its architecture wholesale). Three specific additions below are direct ports of
+# native wording, not guesses: the loop-detection line, the "only the last screenshot is
+# kept" framing for the note param, and the termination-criteria checklist. Native's
+# version of each ran hundreds of words with worked examples; these are compressed to fit
+# our single-tool-call-per-step budget (each extra system-prompt token is paid on EVERY
+# step here, unlike native which sends it once per session in some integrations).
 SYSTEM_PROMPT = (
     "You are a GUI agent. You control the computer shown in screenshots. "
     "Given a screenshot and an instruction, call exactly one tool to perform the next action. "
     "Coordinates x and y must be integers in [0, 1000], normalized to the screenshot dimensions. "
     "After each action you will be shown an updated screenshot. Look at it before deciding your "
     "next action -- if it already shows the instruction accomplished, call the `answer` tool "
-    "immediately with a brief confirmation instead of taking another action. Do not repeat an "
-    "action that has already succeeded."
+    "immediately with a brief confirmation instead of taking another action.\n\n"
+    "Detect loops: have you performed this same action before? If yes and it failed previously, "
+    "you MUST pivot to a different approach -- try a different coordinate, a different control, "
+    "a keyboard shortcut instead of a click, or back out (Escape) and re-enter the flow. Do not "
+    "repeat an action that already failed twice in a row.\n\n"
+    "Only the current screenshot is kept in memory -- earlier ones are gone and you cannot "
+    "re-check them. Every tool call accepts an optional `note` argument: use it to persist "
+    "values, text, file paths, dialog messages, or button/field states you will need later, "
+    "before the screen that shows them is gone. Notes accumulate and are always visible to you.\n\n"
+    "Before calling `answer`, confirm: the requested state is actually reached (not just "
+    "attempted), you have concrete on-screen evidence for it (not an assumption), and no cheaper "
+    "alternative action remains untried. Prefer 'I confirmed X because the screen showed Y' over "
+    "'I believe X should have worked.'"
 )
 
 
@@ -200,12 +277,23 @@ def _scalar(v):
     return v
 
 
-def observation_message(image_data_url: str, text: str = "") -> dict:
+def observation_message(image_data_url: str, text: str = "", notes: list[str] | None = None) -> dict:
     """One <observation> user turn, per hub.hcompany.ai/agent-loop's documented
     function-calling chat layout: every screenshot-bearing user turn is wrapped in
     <observation>...</observation>. `text` is normally the task instruction on the first
-    turn of a run and empty on later turns (the model already has it via history)."""
-    prefix = f"<observation>\n{text}\n" if text else "<observation>\n"
+    turn of a run and empty on later turns (the model already has it via history).
+
+    `notes` (ported from native holo-desktop-cli, 2026-07-19): accumulated text the model
+    chose to persist via the `note` param on prior actions (see NOTE_PARAM). Rendered on
+    EVERY turn, not just the first -- unlike the instruction, notes exist specifically to
+    survive trim_to_last_n_images() evicting old screenshots, so they must stay visible
+    for the life of the run, not just once."""
+    parts = []
+    if notes:
+        parts.append("<notes>\n" + "\n".join(f"- {n}" for n in notes) + "\n</notes>\n")
+    if text:
+        parts.append(text)
+    prefix = "<observation>\n" + "\n".join(parts) + "\n" if parts else "<observation>\n"
     return {
         "role": "user",
         "content": [
@@ -216,11 +304,12 @@ def observation_message(image_data_url: str, text: str = "") -> dict:
     }
 
 
-def build_messages(instruction: str, image_data_url: str, history: list[dict] | None = None) -> list[dict]:
+def build_messages(instruction: str, image_data_url: str, history: list[dict] | None = None,
+                    notes: list[str] | None = None) -> list[dict]:
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     if history:
         messages.extend(history)
-    messages.append(observation_message(image_data_url, instruction))
+    messages.append(observation_message(image_data_url, instruction, notes=notes))
     return messages
 
 
@@ -262,17 +351,37 @@ def parse_response(message: dict, image_w: int, image_h: int) -> dict:
         dropped_actions.bump(f"unparseable arguments: {e}", message)
         return {"action": "error", "reason": "bad_arguments_json", "raw": message}
 
+    # Ported from native holo-desktop-cli (see NOTE_PARAM above): every action can carry
+    # an optional persisted note. Only include the key when non-empty so downstream code
+    # (run()'s notes accumulator) can test with a plain truthiness check.
+    note = (args.get("note") or "").strip() or None
+
     if name == "click":
         if "x" not in args or "y" not in args:
             dropped_actions.bump("click missing x/y", message)
             return {"action": "error", "reason": "click_missing_xy", "raw": message}
-        return {
+        out = {
             "action": "left_click",
             "coordinate": project_point(_scalar(args["x"]), _scalar(args["y"]), image_w, image_h),
             "element": args.get("element"),
         }
+        if note:
+            out["note"] = note
+        return out
     if name == "write":
-        return {"action": "type", "text": args.get("content", ""), "press_enter": args.get("press_enter", False)}
+        out = {"action": "type", "text": args.get("content", ""), "press_enter": args.get("press_enter", False)}
+        if note:
+            out["note"] = note
+        return out
+    if name == "press_key":
+        key = args.get("key", "")
+        if not key:
+            dropped_actions.bump("press_key missing key", message)
+            return {"action": "error", "reason": "press_key_missing_key", "raw": message}
+        out = {"action": "key", "key": key}
+        if note:
+            out["note"] = note
+        return out
     if name == "scroll":
         out = {"action": "scroll", "direction": args.get("direction")}
         # Targeted scroll (flaw #10 fix, 2026-07-18): the wheel turns wherever the cursor
@@ -280,13 +389,18 @@ def parse_response(message: dict, image_w: int, image_h: int) -> dict:
         # nothing at all (11 zero-effect scrolls in the scroll_to_about battery task).
         if "x" in args and "y" in args:
             out["coordinate"] = project_point(_scalar(args["x"]), _scalar(args["y"]), image_w, image_h)
+        if note:
+            out["note"] = note
         return out
     if name == "drag_and_drop":
-        return {
+        out = {
             "action": "drag",
             "start": project_point(_scalar(args["x1"]), _scalar(args["y1"]), image_w, image_h),
             "coordinate": project_point(_scalar(args["x2"]), _scalar(args["y2"]), image_w, image_h),
         }
+        if note:
+            out["note"] = note
+        return out
     if name == "answer":
         return {"action": "finished", "text": args.get("content", "")}
 
@@ -305,7 +419,7 @@ def _target_config(target: str):
 def call_holo_full(instruction: str, image_data_url: str, image_w: int, image_h: int,
                     target: str = "local", history: list[dict] | None = None,
                     temperature: float = 0.8, enable_thinking: bool = True,
-                    max_history_images: int = 1) -> tuple[dict, dict, dict]:
+                    max_history_images: int = 1, notes: list[str] | None = None) -> tuple[dict, dict, dict]:
     """Like call_holo, but also returns the raw assistant message (dict, via model_dump())
     and token usage -- a multi-step loop needs the message to thread real history (the
     assistant tool-call + a tool-result message per step; see agent_loop_holo.py's run())
@@ -334,10 +448,14 @@ def call_holo_full(instruction: str, image_data_url: str, image_w: int, image_h:
     latency lever than image size/format. If tuning latency: downscaling resolution is a
     real (if modest) win with a grounding-accuracy tradeoff to weigh; re-encoding as JPEG
     is not worth doing.
+
+    `notes` (2026-07-19, ported from native holo-desktop-cli): accumulated persisted text
+    from prior steps' `note` args, rendered on every turn regardless of image eviction --
+    the caller (agent_loop_holo.py's run()) owns the growing list and passes it each call.
     """
     base_url, model, api_key = _target_config(target)
     client = openai_client(base_url=base_url, api_key=api_key or "unused")
-    messages = build_messages(instruction, image_data_url, history=history)
+    messages = build_messages(instruction, image_data_url, history=history, notes=notes)
     trim_to_last_n_images(messages, n=max_history_images)
     resp = client.chat.completions.create(
         model=model, messages=messages, tools=TOOLS, tool_choice="required",

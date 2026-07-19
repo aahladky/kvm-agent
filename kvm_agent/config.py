@@ -114,6 +114,20 @@ class Config:
     holo_model: str = _env("HOLO_MODEL", "holo3.1")
     holo_hosted_model: str = _env("HOLO_HOSTED_MODEL", "holo3-1-35b-a3b")
     hai_api_key: str = _env("HAI_API_KEY", "")   # hosted Holo API credential ("" -> unset)
+    # "goldfish memory" (2026-07-18): screenshots kept in the agent_loop_holo.py history, evicting
+    # older frames to text. Default 1 (current behavior, unchanged) -- REPORT_2026-07-19_problems.md
+    # flagged M3 (double-click/re-click on the same element) as plausibly a history-starvation
+    # artifact, matching the EvoCUA-era precedent where history depth 1->2 fixed an identical
+    # re-click pathology (SESSION notes, 2026-06-18 hard-ladder). Override for the A/B test.
+    holo_history_images: int = int(_env("HOLO_HISTORY_IMAGES", "1"))
+    # Model-input capture resolution. Default False = 720p downscale (2026-07-17: -35%
+    # prompt tokens, measured with no grounding cost -- but that A/B only tested LARGE,
+    # sparse targets (Start-menu icons). 2026-07-19: a calendar date-picker task showed
+    # real coordinate misses (clicked "1980", landed on 1976; clicked day 8, landed on
+    # day 21) that a native 1920x1080-fed run of the same model/task did not reproduce --
+    # a day-cell shrinks from ~25-35px to ~17-23px at 720p in a dense 7-column grid. Test
+    # via HOLO_MODEL_INPUT_FULL_RES=1 before making this the default (token-cost tradeoff).
+    holo_model_input_full_res: bool = _env("HOLO_MODEL_INPUT_FULL_RES", "0") != "0"
 
     # --- memory (Hindsight semantic memory server: vectorize-io/hindsight) ---
     hindsight_url: str = _env("HINDSIGHT_URL", "http://192.168.0.184:8888")

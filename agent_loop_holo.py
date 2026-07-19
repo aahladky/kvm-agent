@@ -37,9 +37,11 @@ from kvm_agent.models.holo import (
     call_holo, call_holo_full, observation_message, png_bytes_to_data_url, trim_to_last_n_images,
 )
 
-MAX_HISTORY_IMAGES = 1   # "goldfish memory" 2026-07-18: current frame only + text history.
-                         # Vendor docs suggest 3; each kept screenshot re-pays its vision
-                         # tokens on EVERY step, and text history already carries the narrative.
+MAX_HISTORY_IMAGES = CFG.holo_history_images   # "goldfish memory" 2026-07-18: current frame only
+                         # + text history by default. Vendor docs suggest 3; each kept screenshot
+                         # re-pays its vision tokens on EVERY step, and text history already
+                         # carries the narrative. Override via HOLO_HISTORY_IMAGES for the A/B test
+                         # (REPORT_2026-07-19_problems.md M3).
 
 DBG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_dbg")
 os.makedirs(DBG, exist_ok=True)
@@ -135,47 +137,119 @@ def mark(name="mark"):
     return p
 
 
-def _execute(action, settle_s=1.5):
+def _execute(action, settle_s=1.5, verify_retries=2):
     """Fire ONE normalized Holo action dict via the Pico. Maps directly onto env.r4 --
     NOT the pyautogui-code exec shim (that's the EvoCUA/UI-TARS action representation;
-    Holo's is a structured dict, see kvm_agent/models/holo.py's module docstring)."""
+    Holo's is a structured dict, see kvm_agent/models/holo.py's module docstring).
+
+    Verify-and-retry (2026-07-19, REPORT_2026-07-19_problems.md follow-up). Root-caused,
+    not guessed: replaying a real failing run's exact action prefix showed the VISUALLY
+    active Notepad window was NOT the real Win32 foreground window -- GetForegroundWindow()
+    returned Progman/"FolderView" (the desktop icon list), confirmed via GetGUIThreadInfo.
+    Launching an app via Win+R (or Start-search) does not reliably transfer real keyboard
+    focus to it: Windows restricts which processes may call SetForegroundWindow (MS Learn,
+    SetForegroundWindow docs), and on Windows 11 the classic ForegroundLockTimeout registry
+    workaround is documented as silently ignored. This is a known, general Windows
+    automation gotcha, not specific to our stack -- Microsoft's own Power Automate docs
+    ("Ensure that application windows become focused") and the RPA community's converged
+    fix are the same: a "Focus window" action alone is not reliable, always send a click
+    on the window afterward. So a "type" that produced no visible change is very likely a
+    stale-focus problem, not a dropped keystroke -- re-sending the identical text again
+    would just as likely land in the same wrong place (the desktop, per the reproduction).
+    Click near screen-center first (every tested app window this session was large enough
+    to have its content area cover that point) to force real focus via genuine input, THEN
+    retry the type. left_click and type are the two actions where "the screen is still
+    pixel-identical afterward" is reliably suspicious (unlike key/scroll, where a
+    no-visible-effect outcome is often legitimate) -- verify via the camera (this
+    project's actual source of truth, never self-report), never trust the Pico ACK alone
+    (see pico_passthrough_mouse_dead memory: "ACK only means the report left the Pico, not
+    that the guest accepted it")."""
     kind = action.get("action")
-    if kind == "left_click":
-        x, y = (int(v) for v in action["coordinate"])
-        ENV.r4.move(x, y)
-        ENV.r4.click()
-    elif kind == "type":
-        ENV.r4.type(action.get("text", ""))
-        if action.get("press_enter"):
-            ENV.r4.key("enter")
-    elif kind == "scroll":
-        direction = action.get("direction")
-        # Flaw #10: the wheel turns wherever the cursor last landed -- an untargeted
-        # scroll can no-op forever (scroll_to_about, 2026-07-18). If the model gave a
-        # target point, move there FIRST so the pane under it is what actually scrolls.
-        target = action.get("coordinate")
-        if target:
-            ENV.r4.move(int(target[0]), int(target[1]))
-            time.sleep(0.3)
-        if direction == "up":
-            ENV.r4.scroll(3)
-        elif direction == "down":
-            ENV.r4.scroll(-3)
+
+    def _fire():
+        if kind == "left_click":
+            x, y = (int(v) for v in action["coordinate"])
+            ENV.r4.move(x, y)
+            ENV.r4.click()
+        elif kind == "type":
+            ENV.r4.type(action.get("text", ""))
+            if action.get("press_enter"):
+                ENV.r4.key("enter")
+        elif kind == "key":
+            key = action.get("key", "")
+            if "+" in key:
+                ENV.r4.combo(key)
+            else:
+                ENV.r4.key(key)
+        elif kind == "scroll":
+            direction = action.get("direction")
+            # Flaw #10: the wheel turns wherever the cursor last landed -- an untargeted
+            # scroll can no-op forever (scroll_to_about, 2026-07-18). If the model gave a
+            # target point, move there FIRST so the pane under it is what actually scrolls.
+            target = action.get("coordinate")
+            if target:
+                ENV.r4.move(int(target[0]), int(target[1]))
+                time.sleep(0.3)
+            if direction == "up":
+                ENV.r4.scroll(3)
+            elif direction == "down":
+                ENV.r4.scroll(-3)
+            else:
+                # v5 firmware wheel is single-axis vertical only (see boot.py/code.py) --
+                # left/right have no real mapping. No-op, loud, rather than a wrong guess.
+                print(f"[execute] scroll direction={direction!r} not supported by current "
+                      f"firmware (vertical wheel only) -- no-op")
+        elif kind == "drag":
+            x1, y1 = (int(v) for v in action["start"])
+            x2, y2 = (int(v) for v in action["coordinate"])
+            ENV.r4.drag(x1, y1, x2, y2)
+        elif kind in ("finished", "error"):
+            pass    # nothing to execute; run() handles these as loop-terminal/stuck
         else:
-            # v5 firmware wheel is single-axis vertical only (see boot.py/code.py) --
-            # left/right have no real mapping. No-op, loud, rather than a wrong guess.
-            print(f"[execute] scroll direction={direction!r} not supported by current "
-                  f"firmware (vertical wheel only) -- no-op")
-    elif kind == "drag":
-        x1, y1 = (int(v) for v in action["start"])
-        x2, y2 = (int(v) for v in action["coordinate"])
-        ENV.r4.drag(x1, y1, x2, y2)
-    elif kind in ("finished", "error"):
-        pass    # nothing to execute; run() handles these as loop-terminal/stuck
-    else:
-        print(f"[execute] unknown action kind {kind!r} -- no-op")
+            print(f"[execute] unknown action kind {kind!r} -- no-op")
+
+    verifiable = kind in ("left_click", "type")
+    before = _frame_png() if verifiable else None
+
+    _fire()
     # Smart settle (2026-07-18): proceed the moment the UI stops changing, up to settle_s.
     wait_until_stable(ENV.cam.read, settle_s)
+
+    if verifiable:
+        attempt = 0
+        after = _frame_png()
+        diff = _frame_diff_score(before, after)
+        while diff <= FRAME_CHANGE_THRESHOLD and attempt < verify_retries:
+            attempt += 1
+            if kind == "type":
+                # MS Learn / Power Automate's documented fix ("Ensure that application
+                # windows become focused"): a launch/focus action alone is not reliable --
+                # send a click on the window first. Screen-center, not the coordinate the
+                # model gave (there wasn't one for "type"): every app window tested this
+                # session was large enough for its content area to cover that point.
+                cx, cy = CFG.screen_size[0] // 2, CFG.screen_size[1] // 2
+                print(f"[execute] WARNING: type produced no visible screen change "
+                      f"(diff={diff:.1f} <= {FRAME_CHANGE_THRESHOLD}) -- likely stale Win32 "
+                      f"focus (launching an app does not reliably transfer keyboard focus to "
+                      f"it, confirmed live via GetForegroundWindow), not a dropped keystroke "
+                      f"-- clicking screen-center ({cx},{cy}) to force real focus before "
+                      f"retrying (attempt {attempt}/{verify_retries})")
+                ENV.r4.move(cx, cy)
+                ENV.r4.click()
+                time.sleep(0.3)
+            else:
+                print(f"[execute] WARNING: {kind} produced no visible screen change "
+                      f"(diff={diff:.1f} <= {FRAME_CHANGE_THRESHOLD}) -- a Pico ACK does not "
+                      f"prove guest delivery -- retrying identical command "
+                      f"(attempt {attempt}/{verify_retries})")
+            _fire()
+            wait_until_stable(ENV.cam.read, settle_s)
+            after = _frame_png()
+            diff = _frame_diff_score(before, after)
+        if diff <= FRAME_CHANGE_THRESHOLD:
+            print(f"[execute] {kind} STILL produced no visible change after {verify_retries} "
+                  f"retries -- either a genuine no-op or a persistent delivery failure; "
+                  f"not silently swallowed, see run log")
 
 
 def _frame_diff_score(png_a, png_b, drop_bottom_row=False):
@@ -266,6 +340,11 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     confirm_first = CONFIRM_FIRST if confirm_first is None else confirm_first
     history = []
     LAST["history"] = history
+    # Persisted notes (2026-07-19, ported from native holo-desktop-cli): survive
+    # trim_to_last_n_images() evicting old screenshots, unlike the rest of history --
+    # see kvm_agent/models/holo.py's NOTE_PARAM/observation_message docstrings.
+    notes = []
+    LAST["notes"] = notes
     stuck = 0
     frozen = 0          # consecutive executed steps with no visible screen change
     click_repeat = 0    # consecutive left_clicks landing in ~the same spot
@@ -283,7 +362,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         step_instruction = instruction if step == 0 else ""
         t0 = time.time()
         action, message, usage = call_holo_full(step_instruction, data_url, w, h, target=target, history=history,
-                                                  max_history_images=MAX_HISTORY_IMAGES)
+                                                  max_history_images=MAX_HISTORY_IMAGES, notes=notes)
         dt = time.time() - t0
         LAST["action"] = action
         print(f"[run {dt:.1f}s] step {step}: {action}")
@@ -306,6 +385,10 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         _execute(action)
         if recorder:
             recorder.log_step(step, png, message, action, usage, dt, executed=True)
+
+        if action.get("note"):
+            notes.append(action["note"])
+            print(f"[run] note persisted ({len(notes)} total): {action['note']!r}")
 
         post_png = _frame_png()
         changed = _frame_changed(png, post_png)
