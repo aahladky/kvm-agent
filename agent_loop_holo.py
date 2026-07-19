@@ -140,119 +140,103 @@ def mark(name="mark"):
     return p
 
 
-def _execute(action, settle_s=1.5, verify_retries=2):
-    """Fire ONE normalized Holo action dict via the Pico. Maps directly onto env.r4 --
-    NOT the pyautogui-code exec shim (that's the EvoCUA/UI-TARS action representation;
-    Holo's is a structured dict, see kvm_agent/models/holo.py's module docstring).
+def _execute(action, settle_s=1.5):
+    """Fire ONE normalized Holo action dict via the Pico, EXACTLY as the model decided --
+    no injected extra inputs, no retries. Maps directly onto env.r4 -- NOT the
+    pyautogui-code exec shim (that's the EvoCUA/UI-TARS action representation; Holo's is a
+    structured dict, see kvm_agent/models/holo.py's module docstring).
 
-    Verify-and-retry (2026-07-19, REPORT_2026-07-19_problems.md follow-up). Root-caused,
-    not guessed: replaying a real failing run's exact action prefix showed the VISUALLY
-    active Notepad window was NOT the real Win32 foreground window -- GetForegroundWindow()
-    returned Progman/"FolderView" (the desktop icon list), confirmed via GetGUIThreadInfo.
-    Launching an app via Win+R (or Start-search) does not reliably transfer real keyboard
-    focus to it: Windows restricts which processes may call SetForegroundWindow (MS Learn,
-    SetForegroundWindow docs), and on Windows 11 the classic ForegroundLockTimeout registry
-    workaround is documented as silently ignored. This is a known, general Windows
-    automation gotcha, not specific to our stack -- Microsoft's own Power Automate docs
-    ("Ensure that application windows become focused") and the RPA community's converged
-    fix are the same: a "Focus window" action alone is not reliable, always send a click
-    on the window afterward. So a "type" that produced no visible change is very likely a
-    stale-focus problem, not a dropped keystroke -- re-sending the identical text again
-    would just as likely land in the same wrong place (the desktop, per the reproduction).
-    Click near screen-center first (every tested app window this session was large enough
-    to have its content area cover that point) to force real focus via genuine input, THEN
-    retry the type. left_click and type are the two actions where "the screen is still
-    pixel-identical afterward" is reliably suspicious (unlike key/scroll, where a
-    no-visible-effect outcome is often legitimate) -- verify via the camera (this
-    project's actual source of truth, never self-report), never trust the Pico ACK alone
-    (see pico_passthrough_mouse_dead memory: "ACK only means the report left the Pico, not
-    that the guest accepted it")."""
+    REMOVED 2026-07-19 (contamination audit): this used to auto-retry left_click/type up to
+    2x when a frame-diff showed "no visible change" -- and for `type`, injected an EXTRA
+    click at screen-center the model never decided on before retrying. Root-caused as the
+    ACTUAL cause of a real bug, not a fix for one: waa__366de66e..._100554's "draft.txt"
+    filename field showed a genuine, successfully-delivered `type` (diff=2.3, just under the
+    3.0 threshold -- a small-field edit, not a delivery failure) get RETYPED by this code's
+    own injected retry, producing "This is a draft.draft.txtdraft.txt". The model's own
+    "self-correction" (Ctrl+A + retype) that followed was cleaning up THIS code's side
+    effect, not recovering from its own mistake -- meaning every run measured with this
+    active was measuring "Holo + our injection," not Holo. Native's own agent loop has no
+    host-side execution-retry heuristic at all: the model sees the next screenshot and
+    judges success/failure itself via its own `thought` field ("Assess whether your past
+    tool call was successful... if it failed previously, you MUST pivot"). Live evidence
+    today (2026-07-19) that the model can and does do exactly this unassisted: multiple real
+    runs show it noticing "Notepad is open but still empty (0 characters)" from the next
+    screenshot and recovering on its own (Escape, re-click, retype) -- see
+    runs/waa__366de66e..._114041's steps 4-6. The original motivating bug (launching an app
+    doesn't reliably transfer Win32 keyboard focus, so an early `type` can go nowhere) is
+    real and documented at the top of CLAUDE.md -- but the fix belongs in the model's own
+    loop (it already demonstrably handles this), not in host code that sends inputs the
+    model never asked for.
+
+    CAVEAT added after the FIRST live run without retries (waa__366de66e..._145937,
+    2026-07-19, same task as the fix's own validation run): it FAILED, score=0.0, max_steps
+    exhausted -- the model got stuck re-clicking Notepad's File menu ~15 times, needing more
+    attempts than the 40-step budget allowed. This is NOT evidence the retry should come
+    back: cross-checked every click in that run against logs/appliance_client_commands.jsonl
+    (wire-level Pico ACKs) and ALL 81 commands show mouse_online=true / ok=true / wire_ms
+    ~1.7 -- zero transport failures. Every File-menu click was genuinely DELIVERED and
+    produced no dropdown anyway (a real, reproducible target-side UI-timing/focus flake, the
+    same family as the Win32-focus bug at the top of CLAUDE.md, just on click instead of
+    type). A frame-diff retry can't tell "not delivered" from "delivered but the target UI
+    didn't respond" -- it would have resent an already-landed click on pure luck, the exact
+    same false-remediation shape as the draft.txt corruption this removal fixed. So: run5
+    (retry present) passing and run6 (retry removed) failing is NOT a clean A/B of "retry
+    good" vs "retry bad" -- both hit the identical underlying flaky menu; run5 quietly
+    absorbed the cost in hidden retry attempts, run6 paid for it in visible step budget. The
+    flakiness itself is real and UNFIXED -- it now needs a principled fix (if any), not a
+    reflexive revert of this removal. N=1 pair, no generalization claimed either way.
+
+    The frame-diff "changed / did not visibly change" signal is NOT gone -- run() still
+    computes it independently (via _frame_changed) and folds it into the NEXT step's
+    <observation> as real information the model sees and reasons about, which is not input
+    injection, just telling the model what was observed."""
     kind = action.get("action")
 
-    def _fire():
-        if kind == "left_click":
-            x, y = (int(v) for v in action["coordinate"])
-            ENV.r4.move(x, y)
-            ENV.r4.click()
-        elif kind == "type":
-            ENV.r4.type(action.get("text", ""))
-            if action.get("press_enter"):
-                ENV.r4.key("enter")
-        elif kind == "key":
-            key = action.get("key", "")
-            if "+" in key:
-                ENV.r4.combo(key)
-            else:
-                ENV.r4.key(key)
-        elif kind == "scroll":
-            direction = action.get("direction")
-            # Flaw #10: the wheel turns wherever the cursor last landed -- an untargeted
-            # scroll can no-op forever (scroll_to_about, 2026-07-18). If the model gave a
-            # target point, move there FIRST so the pane under it is what actually scrolls.
-            target = action.get("coordinate")
-            if target:
-                ENV.r4.move(int(target[0]), int(target[1]))
-                time.sleep(0.3)
-            if direction == "up":
-                ENV.r4.scroll(3)
-            elif direction == "down":
-                ENV.r4.scroll(-3)
-            else:
-                # v5 firmware wheel is single-axis vertical only (see boot.py/code.py) --
-                # left/right have no real mapping. No-op, loud, rather than a wrong guess.
-                print(f"[execute] scroll direction={direction!r} not supported by current "
-                      f"firmware (vertical wheel only) -- no-op")
-        elif kind == "drag":
-            x1, y1 = (int(v) for v in action["start"])
-            x2, y2 = (int(v) for v in action["coordinate"])
-            ENV.r4.drag(x1, y1, x2, y2)
-        elif kind in ("finished", "error"):
-            pass    # nothing to execute; run() handles these as loop-terminal/stuck
+    if kind == "left_click":
+        x, y = (int(v) for v in action["coordinate"])
+        ENV.r4.move(x, y)
+        ENV.r4.click()
+    elif kind == "type":
+        ENV.r4.type(action.get("text", ""))
+        if action.get("press_enter"):
+            ENV.r4.key("enter")
+    elif kind == "key":
+        key = action.get("key", "")
+        if "+" in key:
+            ENV.r4.combo(key)
         else:
-            print(f"[execute] unknown action kind {kind!r} -- no-op")
+            ENV.r4.key(key)
+    elif kind == "scroll":
+        direction = action.get("direction")
+        # Flaw #10: the wheel turns wherever the cursor last landed -- an untargeted
+        # scroll can no-op forever (scroll_to_about, 2026-07-18). If the model gave a
+        # target point, move there FIRST so the pane under it is what actually scrolls.
+        # This is executing the SAME model-decided action, just correctly (moving to the
+        # coordinate the model itself specified) -- not an injected extra action.
+        target = action.get("coordinate")
+        if target:
+            ENV.r4.move(int(target[0]), int(target[1]))
+            time.sleep(0.3)
+        if direction == "up":
+            ENV.r4.scroll(3)
+        elif direction == "down":
+            ENV.r4.scroll(-3)
+        else:
+            # v5 firmware wheel is single-axis vertical only (see boot.py/code.py) --
+            # left/right have no real mapping. No-op, loud, rather than a wrong guess.
+            print(f"[execute] scroll direction={direction!r} not supported by current "
+                  f"firmware (vertical wheel only) -- no-op")
+    elif kind == "drag":
+        x1, y1 = (int(v) for v in action["start"])
+        x2, y2 = (int(v) for v in action["coordinate"])
+        ENV.r4.drag(x1, y1, x2, y2)
+    elif kind in ("finished", "error"):
+        pass    # nothing to execute; run() handles these as loop-terminal/stuck
+    else:
+        print(f"[execute] unknown action kind {kind!r} -- no-op")
 
-    verifiable = kind in ("left_click", "type")
-    before = _frame_png() if verifiable else None
-
-    _fire()
     # Smart settle (2026-07-18): proceed the moment the UI stops changing, up to settle_s.
     wait_until_stable(ENV.cam.read, settle_s)
-
-    if verifiable:
-        attempt = 0
-        after = _frame_png()
-        diff = _frame_diff_score(before, after)
-        while diff <= FRAME_CHANGE_THRESHOLD and attempt < verify_retries:
-            attempt += 1
-            if kind == "type":
-                # MS Learn / Power Automate's documented fix ("Ensure that application
-                # windows become focused"): a launch/focus action alone is not reliable --
-                # send a click on the window first. Screen-center, not the coordinate the
-                # model gave (there wasn't one for "type"): every app window tested this
-                # session was large enough for its content area to cover that point.
-                cx, cy = ENV.screen_width // 2, ENV.screen_height // 2
-                print(f"[execute] WARNING: type produced no visible screen change "
-                      f"(diff={diff:.1f} <= {FRAME_CHANGE_THRESHOLD}) -- likely stale Win32 "
-                      f"focus (launching an app does not reliably transfer keyboard focus to "
-                      f"it, confirmed live via GetForegroundWindow), not a dropped keystroke "
-                      f"-- clicking screen-center ({cx},{cy}) to force real focus before "
-                      f"retrying (attempt {attempt}/{verify_retries})")
-                ENV.r4.move(cx, cy)
-                ENV.r4.click()
-                time.sleep(0.3)
-            else:
-                print(f"[execute] WARNING: {kind} produced no visible screen change "
-                      f"(diff={diff:.1f} <= {FRAME_CHANGE_THRESHOLD}) -- a Pico ACK does not "
-                      f"prove guest delivery -- retrying identical command "
-                      f"(attempt {attempt}/{verify_retries})")
-            _fire()
-            wait_until_stable(ENV.cam.read, settle_s)
-            after = _frame_png()
-            diff = _frame_diff_score(before, after)
-        if diff <= FRAME_CHANGE_THRESHOLD:
-            print(f"[execute] {kind} STILL produced no visible change after {verify_retries} "
-                  f"retries -- either a genuine no-op or a persistent delivery failure; "
-                  f"not silently swallowed, see run log")
 
 
 def _frame_diff_score(png_a, png_b, drop_bottom_row=False):
