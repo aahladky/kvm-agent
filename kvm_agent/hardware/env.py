@@ -21,7 +21,6 @@ import threading
 import cv2
 import numpy as np
 from kvm_agent.config import CFG
-from kvm_agent.hardware.pico_client import R4
 from kvm_agent.hardware.appliance import ApplianceClient
 
 
@@ -50,10 +49,9 @@ def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=2.0, poll_s=0.05):
 
 
 def make_hid_client():
-    """Pick the action channel: the Pi 5 + Pico UART appliance (default) or the retired
-    WiFi Pico. Both expose the same R4 method surface, so the rest of PicoEnv is agnostic."""
-    if CFG.hid_kind == "wifi":
-        return R4()
+    """The action channel: the Pi 5 + Pico UART appliance (the retired WiFi Pico path
+    was archived 2026-07-20; see _archive/old-stack/kvm_agent/hardware/pico_client.py).
+    Same R4 method surface, so the rest of PicoEnv is agnostic."""
     return ApplianceClient()
 
 # Windows target: Media Foundation (MSMF), NOT DirectShow -- the Acer USB3 card delivers

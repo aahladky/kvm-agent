@@ -8,7 +8,8 @@ Usage:
 
 Requires on the TARGET: WoL enabled in BIOS, NIC power mgmt "Allow this device to wake the
 computer" + "Only allow a magic packet", and Fast Startup OFF (it breaks WoL-from-shutdown).
-After the packet, the machine boots, USB re-powers, and the Pico re-joins WiFi (~10-20s).
+After the packet, the machine boots and USB re-powers. (The Pico appliance is wired
+over UART to the Pi 5, so HID is back as soon as the target's USB stack is up.)
 """
 import socket, sys, os, re, time
 
