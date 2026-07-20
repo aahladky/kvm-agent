@@ -18,8 +18,12 @@ import argparse
 import glob
 import json
 import os
+import sys
 
-ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "runs")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from kvm_agent.config import CFG
+
+ROOT = CFG.runs_dir
 
 
 def _same_action(a, b, tol=25):

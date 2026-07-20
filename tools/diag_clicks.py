@@ -9,7 +9,10 @@ vs misground vs false change-detection) from real data, before we touch groundin
 """
 import os, sys, json, glob
 
-ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "runs")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from kvm_agent.config import CFG
+
+ROOT = CFG.runs_dir
 pref = sys.argv[1] if len(sys.argv) > 1 else "firefox"
 dirs = sorted(glob.glob(os.path.join(ROOT, pref + "*")), key=os.path.getmtime)
 

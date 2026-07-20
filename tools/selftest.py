@@ -27,12 +27,13 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from kvm_agent.config import CFG
 from kvm_agent.orchestration.executive import Executive, Verifier
 
 
 def main():
     tag = time.strftime("selftest_%Y%m%d_%H%M%S")
-    out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "runs", tag)
+    out = os.path.join(CFG.runs_dir, tag)
     os.makedirs(out, exist_ok=True)
     ex = Executive.open(executor_model="uitars-q4", verifier=Verifier())
     results = {}

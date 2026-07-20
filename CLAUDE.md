@@ -314,19 +314,15 @@ LAYOUT — canonical code now lives here:
   docs/ = all session/findings/plan notes (moved off root). tools/ = diagnostics. runs/ scratch/ models/
   = data (gitignored). The 55 MB upstream evocua/ clone was DELETED (vendored down to 3 files).
 
-★ WHERE TO SAVE NEW FILES GOING FORWARD — do NOT recreate the flat-root pattern:
-  - New LIBRARY code → kvm_agent/<area>/: hardware I/O → hardware/, model adapters → models/,
-    planner/executive/verifier → orchestration/, the server → server/, model-endpoint plumbing → llm/.
-  - Any IP / port / model name / path → add a field to kvm_agent/config.py (CFG). NEVER hardcode it
-    in a module again — that sprawl (same endpoint in 8 files, IPs in 10) was the whole reason for this.
-  - Import via the PACKAGE path, e.g. `from kvm_agent.orchestration.executive import Executive`.
-    The root shims are temporary back-compat — do NOT write new imports against them.
-  - Runnable ENTRY POINTS → repo root (or a cli/ folder). FIRMWARE stays boot.py/code.py at root
-    (deployed to the Pico's CIRCUITPY drive). DIAGNOSTICS/harnesses → tools/. TESTS → tests/.
-    NOTES/findings/plans → docs/. Throwaway / run logs → scratch/ or runs/ (both gitignored).
-  - It is a GIT REPO now (was not before): baseline → cutover → cleanup commits on branch
-    `refactor/packaging`. .gitignore excludes models/ (35 GB), runs/, scratch/, evocua/, __pycache__ —
-    keep it that way; never `git add` the model blobs.
+★ WHERE TO SAVE NEW FILES / OUTPUT — see docs/PROJECT_LAYOUT.md (canonical, kept current;
+  supersedes the file-by-file breakdown that used to be here, which went stale — it never
+  mentioned half of what the codebase actually did by 2026-07-19). Two rules that matter
+  most: (1) new LIBRARY code → kvm_agent/<area>/, import via the package path (the root
+  shims are back-compat only, do NOT write new imports against them); (2) generated/
+  runtime output of ANY kind → through kvm_agent.config.CFG (var_dir and its per-purpose
+  properties — runs_dir, logs_dir, waa_results_dir, etc.). NEVER hardcode a new
+  "runs"/"logs"/"scratch"-style path anywhere — add a CFG field instead.
+  tools/check_layout.py enforces this at commit time.
 
 ALSO CHANGED THIS SESSION (all in kvm_agent/, verified on the rig):
   - VERIFY hardened (orchestration/executive.py Verifier): tesseract is AUTO-DISCOVERED

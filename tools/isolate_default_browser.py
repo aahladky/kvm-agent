@@ -62,6 +62,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cv2
 import numpy as np
 
+from kvm_agent.config import CFG
+
 from kvm_agent.orchestration.executive import Executive, Verifier
 
 
@@ -88,8 +90,7 @@ def main():
                     help="skip the reset-to-clean-desktop sweep")
     ap.add_argument("--executor", default="uitars-q4")
     ap.add_argument("--vision", default="qwen2.5vl:7b")
-    ap.add_argument("--runs-dir", default=os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "runs"))
+    ap.add_argument("--runs-dir", default=CFG.runs_dir)
     args = ap.parse_args()
 
     tag = time.strftime("isolate_defbrowser_%Y%m%d_%H%M%S")

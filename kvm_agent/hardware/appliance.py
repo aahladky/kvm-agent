@@ -36,8 +36,7 @@ class _CommandLog:
     what the appliance did, and what the target (Windows guest) actually reported back,
     with no separate correlation step needed."""
 
-    _DEFAULT_PATH = os.path.join(os.path.dirname(CFG.runs_dir), "logs",
-                                  "appliance_client_commands.jsonl")
+    _DEFAULT_PATH = os.path.join(CFG.logs_dir, "appliance_client_commands.jsonl")
 
     def __init__(self, path=None):
         self.path = path or self._DEFAULT_PATH

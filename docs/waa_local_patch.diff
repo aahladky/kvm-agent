@@ -1,0 +1,76 @@
+diff --git a/src/win-arena-container/vm/setup/server/main.py b/src/win-arena-container/vm/setup/server/main.py
+index 8d218ff..2d2a284 100644
+--- a/src/win-arena-container/vm/setup/server/main.py
++++ b/src/win-arena-container/vm/setup/server/main.py
+@@ -27,9 +27,11 @@ class Logger(object):
+         else:
+             self.logger.info(self.msg)
+             self.msg = ""
+-        self.stdout.write(data)
++        if self.stdout is not None:   # pythonw (no console): sys.stdout is None
++            self.stdout.write(data)
+     def flush(self):
+-        self.stdout.flush()
++        if self.stdout is not None:
++            self.stdout.flush()
+ 
+     # catch exceptions and log to file
+     def excepthook(self, exctype, value, traceback):
+@@ -67,12 +69,27 @@ from pathlib import Path
+ from typing import Any, Optional
+ from typing import List, Dict, Tuple
+ 
+-import Xlib
++# 2026-07-19: every /execute and /setup/launch call spawns a console-subsystem child
++# (python.exe / cmd.exe) with no window-hiding flag. Windows 11's default terminal
++# handler for console apps is Windows Terminal, so each call was popping/reusing a
++# visible WindowsTerminal window on the guest desktop -- present in literally every
++# captured frame of every WAA task run (confirmed in both a 0.0-scored notepad run and
++# an unrelated 1.0-scored storage_sense run's step_00.png, so it predates and is
++# independent of any particular task's pass/fail). CREATE_NO_WINDOW suppresses it.
++_NO_WINDOW = subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
++
++try:
++    import Xlib
++    from Xlib import display, X
++    from pyxcursor import Xcursor
++except ImportError:
++    # Linux-only: every use below is inside a platform_name == "Linux" branch
++    # (get_window_size excepted -- that endpoint is X11-only by design).
++    Xlib = display = X = Xcursor = None
+ import lxml.etree
+ import pyautogui
+ import requests
+ from PIL import Image
+-from Xlib import display, X
+ from flask import Flask, request, jsonify, send_file, abort  # , send_from_directory
+ from lxml.etree import _Element
+ import traceback
+@@ -95,8 +112,6 @@ elif platform_name=="Windows":
+ 
+     Accessible = Any
+ 
+-from pyxcursor import Xcursor
+-
+ 
+ from computer import Computer, WindowManager
+ # global computer
+@@ -214,7 +229,8 @@ def execute_command():
+ 
+     # Execute the command without any safety checks.
+     try:
+-        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=shell, text=True, timeout=120)
++        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=shell,
++                                 text=True, timeout=120, creationflags=_NO_WINDOW)
+         return jsonify({
+             'status': 'success',
+             'output': result.stdout,
+@@ -290,7 +306,7 @@ def launch_app():
+         if 'google-chrome' in command and _get_machine_architecture() == 'arm':
+             index = command.index('google-chrome')
+             command[index] = 'chromium-browser' # arm64 chrome is not available yet, can only use chromium
+-        subprocess.Popen(command, shell=shell)
++        subprocess.Popen(command, shell=shell, creationflags=_NO_WINDOW)
+         return "{:} launched successfully".format(command if shell else " ".join(command))
+     except Exception as e:
+         

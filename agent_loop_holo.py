@@ -43,7 +43,7 @@ MAX_HISTORY_IMAGES = CFG.holo_history_images   # "goldfish memory" 2026-07-18: c
                          # carries the narrative. Override via HOLO_HISTORY_IMAGES for the A/B test
                          # (REPORT_2026-07-19_problems.md M3).
 
-DBG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_dbg")
+DBG = CFG.dbg_dir
 os.makedirs(DBG, exist_ok=True)
 
 CONFIRM_FIRST = 5   # gate the first N steps of run() with a keypress preview

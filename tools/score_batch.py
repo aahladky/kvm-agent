@@ -24,6 +24,9 @@ import json
 import cv2
 import numpy as np
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from kvm_agent.config import CFG
+
 try:
     import pytesseract
 except ImportError:
@@ -34,7 +37,7 @@ RESULT_BBOX = (510, 560, 705, 608)   # calibrated against a real 1920x1080 end_f
 
 
 def newest_batch():
-    cands = sorted(glob.glob(os.path.join("runs", "batch_*")))
+    cands = sorted(glob.glob(os.path.join(CFG.runs_dir, "batch_*")))
     return cands[-1] if cands else None
 
 

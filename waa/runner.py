@@ -33,13 +33,15 @@ from desktop_env.controllers.setup import SetupController  # noqa: E402
 from desktop_env.controllers.python import PythonController  # noqa: E402
 from desktop_env.evaluators import metrics, getters  # noqa: E402
 
+from kvm_agent.config import CFG  # noqa: E402
+
 VM_IP = os.environ.get("WAA_VM_IP", "192.168.122.12")
 # WAA tasks are written for their golden image, whose user is "Docker"; ours is "sandbox".
 # Setup paths and evaluator file getters both reference the user profile, so rewrite the
 # user-profile prefix at load time.
 WIN_USER = os.environ.get("WAA_WIN_USER", "sandbox")
-CACHE_DIR = os.path.join(REPO_ROOT, "waa", "cache")
-RESULTS_DIR = os.path.join(REPO_ROOT, "waa", "results")
+CACHE_DIR = CFG.waa_cache_dir
+RESULTS_DIR = CFG.waa_results_dir
 
 
 class WAAEnvShim:

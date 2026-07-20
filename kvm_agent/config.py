@@ -109,9 +109,12 @@ class Config:
     closed_loop_max_steps: int = int(_env("AGENT_CLOSED_LOOP_MAX_STEPS", "16"))
 
     # --- orchestration / IO ---
-    # was a Windows path (r"C:\Dev\vllm\runs") from the pre-Holo topology where the rig
-    # ran on the Windows target box; the rig is Linux-hosted now (see FINDINGS_integration.md)
-    runs_dir: str = _env("RUNS_DIR", str(Path(__file__).resolve().parent.parent / "runs"))
+    # var_dir is the ONE root for every generated/runtime output this project produces --
+    # see docs/PROJECT_LAYOUT.md. Was scattered across 4 independently-invented schemes
+    # (runs/, logs/, waa/results+cache, agent_loop_holo.py's own _dbg/) until 2026-07-19's
+    # consolidation. NEVER hardcode a new "runs"/"logs"/"scratch"-style path anywhere else
+    # in the codebase -- add a property here instead; tools/check_layout.py enforces this.
+    var_dir: str = _env("VAR_DIR", str(Path(__file__).resolve().parent.parent / "var"))
 
     # --- verify ---
     tesseract_cmd: str = _env("TESSERACT_CMD", "")  # explicit tesseract.exe path; "" -> auto-discover
@@ -147,6 +150,38 @@ class Config:
     @property
     def screen_size(self):
         return (self.screen_w, self.screen_h)
+
+    # --- var_dir-derived output paths (2026-07-19 consolidation) -- properties, not plain
+    #     fields, so each reads self.var_dir LIVE rather than baking in whatever var_dir
+    #     happened to be at class-definition time (matters if anything ever constructs a
+    #     Config(var_dir=...) override). Each still individually env-overridable. ---
+    @property
+    def runs_dir(self) -> str:
+        return _env("RUNS_DIR", os.path.join(self.var_dir, "runs"))
+
+    @property
+    def logs_dir(self) -> str:
+        return _env("LOGS_DIR", os.path.join(self.var_dir, "logs"))
+
+    @property
+    def waa_results_dir(self) -> str:
+        return _env("WAA_RESULTS_DIR", os.path.join(self.var_dir, "waa_results"))
+
+    @property
+    def waa_cache_dir(self) -> str:
+        return _env("WAA_CACHE_DIR", os.path.join(self.var_dir, "waa_cache"))
+
+    @property
+    def waa_shakedown_dir(self) -> str:
+        return _env("WAA_SHAKEDOWN_DIR", os.path.join(self.var_dir, "waa_shakedown"))
+
+    @property
+    def dbg_dir(self) -> str:
+        return _env("DBG_DIR", os.path.join(self.var_dir, "dbg"))
+
+    @property
+    def scratch_dir(self) -> str:
+        return _env("SCRATCH_DIR", os.path.join(self.var_dir, "scratch"))
 
     @property
     def planner_effective_max_tokens(self) -> int:

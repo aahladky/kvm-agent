@@ -1,13 +1,13 @@
-# regenerable data / heavy blobs - never in git
-runs/
-logs/
-scratch/
+# generated/runtime output — single root, see docs/PROJECT_LAYOUT.md
+var/
 /models/
-_dbg/
 *.gguf
-waa/cache/
-waa/results/
-waa/shakedown_results/
+
+# legacy scattered paths some untouched shim-era tools still emit to directly
+# (live_ctl.py, tools/{operate,run_probe,eval_harness}.py — see PROJECT_LAYOUT.md
+# "known exceptions"); delete this block once those tools are migrated or retired
+runs/
+_dbg/
 
 # secrets - never in git
 .env.local

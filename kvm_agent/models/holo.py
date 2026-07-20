@@ -112,7 +112,7 @@ class _RequestLog:
     prompt" actually needs, and none of that is touched by the redaction."""
 
     def __init__(self, path=None):
-        self.path = path or os.path.join(os.path.dirname(CFG.runs_dir), "logs", "holo_requests.jsonl")
+        self.path = path or os.path.join(CFG.logs_dir, "holo_requests.jsonl")
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         self.lock = threading.Lock()
 

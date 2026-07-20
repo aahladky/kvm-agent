@@ -223,8 +223,7 @@ class Executive:
         # instead of being soft-ignored. Empty by default -> a pure no-op (benchmark unaffected).
         self.hard_constraints = []
         self.last_ground = None      # raw grounding attempts of the most recent ground() call
-        self.runs_root = log_dir or os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "runs")
+        self.runs_root = log_dir or CFG.runs_dir
 
     # -- construction for standalone use (opens the camera + Pico itself) --
     @classmethod

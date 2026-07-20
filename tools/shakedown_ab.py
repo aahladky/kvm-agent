@@ -17,13 +17,17 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO)
+from kvm_agent.config import CFG  # noqa: E402
+
 PY = "/home/aaron/workspace/WindowsAgentArena/.venv/bin/python3"
 CATEGORIES = ["notepad", "windows_calc", "microsoft_paint", "clock", "settings"]
-RESULTS_DIR = os.path.join(REPO, "waa", "results")
-OUT_DIR = os.path.join(REPO, "waa", "shakedown_results")
+RESULTS_DIR = CFG.waa_results_dir
+OUT_DIR = CFG.waa_shakedown_dir
 MANIFEST_PATH = os.path.join(OUT_DIR, "manifest.json")
 
 
