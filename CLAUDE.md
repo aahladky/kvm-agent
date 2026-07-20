@@ -5,7 +5,60 @@ What this project is
 A KVM-over-IP-style computer-use agent where nothing is installed on the target machine. A vision model sees the target's screen via HDMI capture, decides actions, and a physical USB-HID device injects mouse/keyboard. Target sees only a monitor + a USB mouse/keyboard — undetectable, OS-agnostic. Pure curiosity project, no practical application.
 
 ═══════════════════════════════════════════════════════════════
-★★★ READ FIRST — 2026-07-19 (LATEST): REAL WIN32 FOCUS-TRANSFER BUG FOUND + FIXED, 3-DEPTH
+★★★ READ FIRST — 2026-07-19 (LATEST, supersedes the block below for anything about VM
+targeting, output/log paths, or click reliability): STRUCTURED-OUTPUT + NOTE-REQUIRED FIX
+SHIPPED, A REAL WINUI3 FLYOUT-CLICK BUG CONFIRMED LIVE (near-deterministic on the first
+menu interaction of every fresh VM session, not occasional noise), DECISION TO ABANDON THE
+QEMU VM TARGET FOR A PHYSICAL DEVICE, FULL OUTPUT-LAYOUT CONSOLIDATION — see
+docs/SESSION_2026-07-19_flyout_bug_vm_pivot_and_layout.md ★★★
+═══════════════════════════════════════════════════════════════
+★ THE HEADLINE FINDING: a genuine, independently-documented Microsoft WinUI3 bug
+(microsoft-ui-xaml#10481 — a MenuFlyout ignores hover/click on first open when input
+arrives via a remote/synthetic path, works fine on subsequent opens) reproduces live and
+near-deterministically on this rig: 4/4 trials failed when tested properly (a REAL VM
+snapshot-revert + cold reboot per trial, then the very first click on an already-open File
+menu's "Save as" item — wire-clean delivery confirmed, pixel-perfect targeting confirmed,
+zero effect anyway). Since every real WAA task starts from a cold VM revert, this hits
+EVERY task's first flyout use. A pervasiveness audit found 49-63% of every left_click
+across every wire-log-covered run that day hit this exact signature, and the OLD
+verify-and-retry logic in agent_loop_holo.py's _execute() (now REMOVED as contamination --
+see below) was silently absorbing it, not fixing it — a "passing" run was often propped up
+by 2-3 burned retries on this exact bug, not evidence it was solved. Two earlier, WRONG
+readings of this data got corrected mid-session (both worth remembering as a pattern, not
+just a result): first, a 12-trial A/B test reading "settle delay barely matters" was wrong
+because only 1 of 12 trials was a genuine first-open (the other 11 reused an
+already-warmed control); second, a 6-trial "fresh process" test reading "process-level
+freshness doesn't reproduce it" was ALSO testing the wrong thing (the Windows SESSION was
+already warm from earlier trials, even though each Notepad process was new) -- only a
+genuine VM-revert-per-trial test was faithful, and that's the one that found 4/4. UNTESTED:
+whether this is a VM/SPICE-synthetic-input artifact or also hits genuine physical HID
+injection -- top priority once the physical-device migration (below) lands.
+★ agent_loop_holo.py's _execute() no longer auto-retries left_click/type on a "no visible
+change" frame-diff heuristic (used to also inject an unrequested screen-center click before
+retrying a `type`). Root-caused as the ACTUAL cause of a real corruption bug (a genuinely-
+delivered "draft.txt" type got retyped by the injection, producing
+"This is a draft.draft.txtdraft.txt"), and it's what was masking the WinUI3 bug above. The
+governing principle for this and future sessions: "if anything is sending inputs to the vm
+outside of anything from holo reference implementation it is contamination."
+★ DECIDED, NOT YET EXECUTED: abandoning the QEMU VM target (win11-agent) for a physical
+device -- the MacBook Pro from early project history, now dual-booted to Windows 10. Two
+VM-layer bugs found chasing the flyout issue justified the move: a QEMU-emulated
+usb-tablet virtual input device (separate from the Pico's own verified-clean hostdev
+passthrough) was letting the user's REAL mouse bleed into the guest via normal SPICE
+focus-capture behavior; and HDMI-7 (the physical output feeding the capture card, EDID
+name "HDMI TO USB") was being driven at 2560x1440 by X11 despite its own EDID declaring a
+native/preferred 1920x1080 -- a real, never-isolated extra scaling step in the capture
+chain. Needs physical wiring changes only the user can do (move the Pico's USB + the
+capture card's HDMI input from the Linux host to the Mac) before anything else.
+★ Generated/runtime output is now consolidated under one gitignored var/ root, reached
+ONLY via kvm_agent.config.CFG's var_dir-derived properties (runs_dir, logs_dir,
+waa_results_dir, waa_cache_dir, waa_shakedown_dir, dbg_dir, scratch_dir) -- see
+docs/PROJECT_LAYOUT.md (canonical, not this file) for the full rule and
+docs/EXTERNAL_DEPS.md for the Pi 5 + external WindowsAgentArena clone. NEVER hardcode a
+new "runs"/"logs"/"scratch"-style path anywhere -- tools/check_layout.py enforces this at
+commit time via a committed .claude/settings.json hook, ships in the tree, no install step.
+═══════════════════════════════════════════════════════════════
+★★★ READ FIRST — 2026-07-19 (earlier the same day): REAL WIN32 FOCUS-TRANSFER BUG FOUND + FIXED, 3-DEPTH
 SHAKEDOWN RUN, NATIVE HOLO-DESKTOP-CLI PROMPT PORTED — see
 docs/SESSION_2026-07-19_holo_focus_bug_and_native_prompt_port.md ★★★
 ═══════════════════════════════════════════════════════════════
