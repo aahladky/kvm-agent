@@ -1,8 +1,30 @@
 Hardware Computer-Use Agent — Session Handoff
 
+★★★ ALL AGENTS: read and follow AGENTS.md (Agent Working Agreement) in this repo
+before touching anything. Output goes in runs/ and nowhere else; nothing
+project-related in hidden dirs; the model is the last suspect. ★★★
+
 What this project is
 
 A KVM-over-IP-style computer-use agent where nothing is installed on the target machine. A vision model sees the target's screen via HDMI capture, decides actions, and a physical USB-HID device injects mouse/keyboard. Target sees only a monitor + a USB mouse/keyboard — undetectable, OS-agnostic. Pure curiosity project, no practical application.
+
+Repo layout (cleaned 2026-07-20)
+
+Code (~120M, tracked):
+- kvm_agent/          — canonical package (models, hardware, orchestration, server). Active.
+- agent_loop_holo.py  — CURRENT agent loop (Holo3.1 + WAA). Where new work happens.
+- appliance/, waa/, tools/, tests/, docs/ — current-gen support: appliance code,
+  WindowsAgentArena runner + shakedown results, harnesses/probes, unit tests, session reports.
+- boot.py, code.py    — Pico firmware; stay at root (deployed to CIRCUITPY).
+- cua_agent.py, evocua_agent.py, uitars_agent.py, executive.py, planner.py, pico_env.py,
+  r4_client.py — BACK-COMPAT SHIMS (5-line re-exports into kvm_agent/). tools/ still
+  imports them; delete only after tools/ is updated to import from kvm_agent.* directly.
+- _archive/           — dead generations, kept for reference. Do not extend; add only.
+
+Data (untracked, gitignored, moved out of the repo 2026-07-20):
+- runs    -> ~/data/kvm-agent/runs      (symlink; benchmark evidence, 4.8G)
+- scratch -> ~/tmp/kvm-agent-scratch    (symlink; auto-deleted after 14 days —
+  nothing you want to keep goes here; use runs/ or _archive/ instead)
 
 ═══════════════════════════════════════════════════════════════
 ★★★ READ FIRST — 2026-07-19 (LATEST): REAL WIN32 FOCUS-TRANSFER BUG FOUND + FIXED, 3-DEPTH

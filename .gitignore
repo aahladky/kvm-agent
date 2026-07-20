@@ -1,6 +1,8 @@
 # regenerable data / heavy blobs - never in git
 runs/
+runs
 scratch/
+scratch
 /models/
 _dbg/
 *.gguf
@@ -20,3 +22,6 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+
+# agent session storage (nothing project-related lives here - see AGENTS.md)
+.claude/
