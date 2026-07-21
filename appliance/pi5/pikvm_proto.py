@@ -67,6 +67,7 @@ KEYCODES = {
     "alt": 0xE2, "leftalt": 0xE2,
     "gui": 0xE3, "cmd": 0xE3, "win": 0xE3, "leftgui": 0xE3,
     "winkey": 0xE3, "windows": 0xE3, "super": 0xE3, "meta": 0xE3,
+    "winleft": 0xE3, "leftwin": 0xE3, "winright": 0xE7, "rightwin": 0xE7,
     "rightcontrol": 0xE4, "rightshift": 0xE5, "rightalt": 0xE6, "rightgui": 0xE7,
 }
 MOD_MIN, MOD_MAX = 0xE0, 0xE7  # matches firmware's ph_usb_kbd_send_key modifier range
