@@ -62,7 +62,9 @@ def write_results(path, payload):
 
 
 def main():
-    tasks_path = sys.argv[1] if len(sys.argv) > 1 else "tools/battery_tasks_shakedown.json"
+    tasks_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "tools", "battery_tasks_shakedown.json")  # repo-root-anchored: runs from any CWD
     tasks = load_tasks(tasks_path)
     ts = time.strftime("%Y%m%d_%H%M%S")
     print(f"[battery] {len(tasks)} tasks from {tasks_path}")
