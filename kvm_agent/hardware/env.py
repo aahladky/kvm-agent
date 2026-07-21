@@ -213,6 +213,12 @@ class PicoEnv:
             # Start every session from all-keys-up: a combo interrupted mid-fault leaves the
             # modifier latched on the target, silently corrupting every later step.
             self.r4.clear_hid()
+            # Sync the bridge's pixel->wire-range scale factor to the screen size the
+            # loop projects coordinates against (2026-07-21 review P0-1: set_screen
+            # existed on both ends but was called by neither, so the bridge stayed on
+            # its hardcoded fallback and a non-1080p target would take silently
+            # stretched clicks). Bridge-side: hid_bridge.py /hid/set_screen.
+            self.r4.set_screen(self.screen_width, self.screen_height)
         except Exception:
             try:
                 self.cam.release()   # don't orphan the capture device if HID setup fails

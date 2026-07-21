@@ -44,6 +44,13 @@ OS-agnostic, undetectable. Pure curiosity project.
 - Harness trust (2026-07-20): tile-max settle metric, frame-seq before/after pairing
   (finding #6 closed), `clear_hid` wiring.
 - Blame ledger: **model 0, our code 3** (`AGENTS.md` §5).
+- Review batch-1 fixes (2026-07-21, from the full-scope repo review): bridge
+  screen-size sync at env bring-up (`set_screen` — existed on both ends, called by
+  neither; closes the silent click-stretch hole), model-call exceptions contained as
+  dropped steps (`run()` always finishes the recorder; one API error no longer kills
+  a battery), planning-only steps exempt from the frozen-screen abort, `drag_to`
+  re-asserts the tracked start before button-down, `jinja2` declared / `requests`
+  dropped in `pyproject.toml`. Coverage: `tests/test_agent_loop.py` (offline, 12 checks).
 
 ## 4. Open problems
 

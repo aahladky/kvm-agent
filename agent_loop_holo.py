@@ -196,6 +196,11 @@ def _execute(action, settle_s=1.5):
         else:
             x1, y1 = CURSOR["pos"]
             x2, y2 = (int(v) for v in action["coordinate"])
+            # Re-assert the start before button-down (2026-07-21 review P1-8): the
+            # tracked position can be stale if the pointer moved target-side since the
+            # last action. Absolute pointing makes the correction free (same shape as
+            # ApplianceClient.drag).
+            ENV.r4.move(x1, y1)
             ENV.r4.down()
             ENV.r4.move(x2, y2)
             ENV.r4.up()
@@ -353,8 +358,18 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         data_url = _model_input_data_url()
         step_instruction = instruction if step_i == 0 else ""
         t0 = time.time()
-        step, message, usage = call_holo_full(step_instruction, data_url, w, h, target=target,
-                                              history=history, max_history_images=MAX_HISTORY_IMAGES)
+        try:
+            step, message, usage = call_holo_full(step_instruction, data_url, w, h, target=target,
+                                                  history=history, max_history_images=MAX_HISTORY_IMAGES)
+        except Exception as e:
+            # A model-call failure (API error, 180s timeout) must NOT propagate: an
+            # unguarded raise skips recorder.finish() (no summary.json) and, via the
+            # battery's bare try/finally, kills every remaining task (2026-07-21 review
+            # P0-2). Treat it exactly like a dropped step -- it counts against
+            # STUCK_LIMIT, gets logged, and the recorder still finishes.
+            step = {"actions": [], "note": None, "thought": None,
+                    "error": f"model call failed: {e}"}
+            message, usage = {}, {}
         dt = time.time() - t0
         LAST["step"] = step
         print(f"[run {dt:.1f}s] step {step_i}: {step.get('note')!r} | {step.get('actions')}")
@@ -450,7 +465,12 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         # repeated clicks -- consecutive steps whose last click landed within ~25px (the
         # small_target_tray case, where clicks toggled a flyout so 'changed' was True but
         # nothing advanced).
-        frozen = frozen + 1 if not step_changed else 0
+        # Planning-only batches are exempt from (a) (2026-07-21 review P1-7): a step with
+        # no screen-affecting action can never produce a frame change, so counting it as
+        # "frozen" aborted legitimate planning runs 4 steps in.
+        screen_actions = [a for a in actions if a.get("action") not in ("update_plan", "finished")]
+        if screen_actions:
+            frozen = frozen + 1 if not step_changed else 0
         step_clicks = [a for a in actions if a.get("action") in ("left_click", "double_click") and a.get("coordinate")]
         if step_clicks:
             c = step_clicks[-1]["coordinate"]
