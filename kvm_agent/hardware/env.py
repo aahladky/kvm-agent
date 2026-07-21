@@ -171,6 +171,22 @@ class Camera:
         ok, buf = cv2.imencode(".png", frame)
         return buf.tobytes()
 
+    def model_input_jpeg(self):
+        """MODEL-INPUT frame, native-style (2026-07-21, feature/native-verbatim): JPEG at
+        CFG.holo_model_input_res height (1080 = native holo-desktop-cli behavior: full-res
+        JPEG; 720 = the token-saving downscale, A/B-measured 2026-07-21 -- see config).
+        Native transcodes screenshots to JPEG before upload (screenshot_media_type:
+        image/jpeg in docs/native/*.yaml); quality 90 (native's exact quality isn't
+        recoverable -- flagged in kvm_agent/models/holo.py). Aspect ratio is preserved, so
+        the model's [0,1000] normalized coordinates still project against the real screen.
+        NOT for evidence/grading frames (those stay full-res PNG via png_bytes)."""
+        frame, _ = self._fb.get()
+        h, w = frame.shape[:2]
+        target_h = CFG.holo_model_input_res
+        frame = frame if target_h >= h else cv2.resize(frame, (int(w * target_h / h), target_h))
+        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        return buf.tobytes()
+
     def release(self):
         self.run = False
         # Join the capture thread BEFORE releasing the device. Releasing cap while _loop is
@@ -222,9 +238,11 @@ class PicoEnv:
                 time.sleep(0.01)
 
     def observe(self):
-        """Current screen as model-input PNG bytes (720p downscale unless
-        CFG.holo_model_input_full_res), WITHOUT any physical action."""
-        return {"screenshot": self.cam.png_bytes(full_res=CFG.holo_model_input_full_res)}
+        """Current screen as full-res PNG bytes for diffing/evidence, WITHOUT any physical
+        action. Model input has its own dedicated path (Camera.model_input_jpeg, JPEG at
+        CFG.holo_model_input_res) since 2026-07-21 -- this no longer doubles as the
+        model-input source."""
+        return {"screenshot": self.cam.png_bytes(full_res=True)}
 
     def close(self):
         try:

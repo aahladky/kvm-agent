@@ -1,0 +1,58 @@
+[
+  {
+    "_comment": "Synthetic parser fixtures for the native-verbatim line (2026-07-21): hand-written to the exact RESPONSE_SCHEMA shape, covering all 10 tools + one multi-call batch. NOT live captures -- replace with genuinely captured examples from logs/holo_requests.jsonl after the first real runs (the prior line's discipline: fixtures are captured, not authored). image_w/h are the PROJECTION BASIS (real screen pixels), not the model-input image.",
+    "instruction": "Click the 'Save' button in the toolbar.",
+    "image_w": 1920, "image_h": 1080,
+    "message": {"role": "assistant", "content": "{\"note\": \"Notepad is open with unsaved changes; the toolbar Save button is visible at top-left.\", \"thought\": \"Saving is the requested action; click the Save button.\", \"tool_calls\": [{\"tool_name\": \"click_desktop\", \"element\": \"Save button in the toolbar\", \"x\": 45, \"y\": 28}]}"}
+  },
+  {
+    "instruction": "Double-click the 'draft.txt' file icon on the desktop.",
+    "image_w": 1920, "image_h": 1080,
+    "message": {"role": "assistant", "content": "{\"note\": null, \"thought\": \"The file must be opened; double-click its desktop icon.\", \"tool_calls\": [{\"tool_name\": \"double_click_desktop\", \"element\": \"draft.txt file icon on the desktop\", \"x\": 120, \"y\": 240}]}"}
+  },
+  {
+    "instruction": "Type 'hello world' into the focused document.",
+    "image_w": 1920, "image_h": 1080,
+    "message": {"role": "assistant", "content": "{\"note\": \"Document currently contains no text.\", \"thought\": \"The document area is focused; type the requested text.\", \"tool_calls\": [{\"tool_name\": \"write_desktop\", \"content\": \"hello world\", \"press_enter\": false}]}"}
+  },
+  {
+    "instruction": "Scroll down a lot over the document list.",
+    "image_w": 1920, "image_h": 1080,
+    "message": {"role": "assistant", "content": "{\"note\": null, \"thought\": \"More entries exist below the fold; scroll the list by a large amount.\", \"tool_calls\": [{\"tool_name\": \"scroll_desktop\", \"element\": \"document list pane\", \"direction\": \"down\", \"scroll_size\": 15, \"x\": 500, \"y\": 400}]}"}
+  },
+  {
+    "instruction": "Drag the volume slider to the right end.",
+    "image_w": 1920, "image_h": 1080,
+    "message": {"role": "assistant", "content": "{\"note\": \"Cursor is already on the slider handle.\", \"thought\": \"Drag from the current handle position to the right end of the slider track.\", \"tool_calls\": [{\"tool_name\": \"drag_to_desktop\", \"element\": \"right end of the volume slider track\", \"x\": 880, \"y\": 512}]}"}
+  },
+  {
+    "instruction": "Move the mouse over the 'Help' menu without clicking.",
+    "image_w": 1920, "image_h": 1080,
+    "message": {"role": "assistant", "content": "{\"note\": null, \"thought\": \"Hover the Help menu to reveal its tooltip before deciding.\", \"tool_calls\": [{\"tool_name\": \"move_to_desktop\", \"element\": \"Help menu in the menu bar\", \"x\": 310, \"y\": 12}]}"}
+  },
+  {
+    "instruction": "Select all text, then delete it.",
+    "image_w": 1920, "image_h": 1080,
+    "message": {"role": "assistant", "content": "{\"note\": \"Document contains 'hello world' typed earlier.\", \"thought\": \"Batch: select all with Ctrl+A, then press Delete -- deterministic keyboard path, safe to batch.\", \"tool_calls\": [{\"tool_name\": \"hotkey_desktop\", \"keys\": [\"ctrl\", \"a\"], \"repeat_count\": 1}, {\"tool_name\": \"hotkey_desktop\", \"keys\": [\"delete\"], \"repeat_count\": 1}]}"}
+  },
+  {
+    "instruction": "Hold shift and tap the down arrow twice to extend the selection.",
+    "image_w": 1920, "image_h": 1080,
+    "message": {"role": "assistant", "content": "{\"note\": null, \"thought\": \"Extend the selection downward by two lines using shift+down twice.\", \"tool_calls\": [{\"tool_name\": \"hold_and_tap_key_desktop\", \"hold_keys\": [\"shift\"], \"tap_keys\": [\"down\", \"down\"]}]}"}
+  },
+  {
+    "instruction": "Open Notepad, type 'draft', and save with ctrl+s. Plan your work first.",
+    "image_w": 1920, "image_h": 1080,
+    "message": {"role": "assistant", "content": "{\"note\": null, \"thought\": \"Non-trivial multi-step task; create a plan first, then start executing.\", \"tool_calls\": [{\"tool_name\": \"update_plan\", \"updates\": [{\"title\": \"Open Notepad\", \"status\": \"running\"}, {\"title\": \"Type draft text\", \"status\": \"todo\"}, {\"title\": \"Save the file\", \"status\": \"todo\"}]}]}"}
+  },
+  {
+    "instruction": "What year is currently selected in the year picker? Answer with just the year.",
+    "image_w": 1920, "image_h": 1080,
+    "message": {"role": "assistant", "content": "{\"note\": \"Year picker shows 2017-2032 with 2026 highlighted.\", \"thought\": \"The requested fact is visible and recorded; terminate with the answer.\", \"tool_calls\": [{\"tool_name\": \"answer\", \"content\": \"2026\"}]}"}
+  },
+  {
+    "instruction": "Open the Run dialog and launch notepad.",
+    "image_w": 1920, "image_h": 1080,
+    "message": {"role": "assistant", "content": "{\"note\": \"Desktop is idle, no windows open.\", \"thought\": \"Batch the deterministic launch sequence: Win+R, type notepad, Enter -- the focus path is known.\", \"tool_calls\": [{\"tool_name\": \"hotkey_desktop\", \"keys\": [\"win\", \"r\"], \"repeat_count\": 1}, {\"tool_name\": \"write_desktop\", \"content\": \"notepad\", \"press_enter\": true}]}"}
+  }
+]

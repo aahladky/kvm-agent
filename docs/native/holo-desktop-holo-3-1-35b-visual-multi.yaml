@@ -1,0 +1,123 @@
+# Forest Local Desktop Agent - Structured Output, Multiple Tool Calls
+
+agp-deploy:
+  publish_identifier: holo_desktop_holo3_1_35b_multi_2026_06_12
+  name: "Holo Desktop Holo3.1 35B Multi"
+  description: "Holo desktop agent powered by Holo3.1 35B, batching multiple tool calls per step."
+  extras: []
+
+# Served from the production gateway (api.hcompany.ai) — the runtime entrypoint
+# defaults HAI_BASE_URL there; the hai_adapters fallback (api.training) does not
+# serve this model.
+model: holo3-1-35b-a3b
+max_steps: 200
+max_time_s: 3600
+max_images: 3
+# PARITY (legacy holo-desktop `Holo` / cua_visual): no LLM memory compressor.
+# The local desktop path keeps only the last `max_images` screenshots; adding a
+# summarization LLM call here creates intermittent multi-second stalls.
+# max_context_tokens: 50000  # memory compressor triggers summarization above this
+default_timeout: 120 # LLM policy timeout
+wait_after_s: 0.3
+
+desktop:
+  _target_: hai_drivers.desktop.local.driver.LocalDesktopDriver
+  # pyautogui captures native HiDPI screenshots on macOS (~3400 px wide on MBP);
+  # clamp before upload. JPEG transcoding happens downstream via the agent's
+  # `screenshot_media_type` (same chain HoloTab/OSWorld use).
+  screenshot_max_width: 1920
+
+# memory_compressor:
+#   _target_: sagent.lib.callbacks.MemoryCompressorCallback
+#   max_context_tokens: ${max_context_tokens}
+#   max_images: ${max_images}
+#   skill:
+#     _target_: sagent.lib.skills.interface.ChatMapperSkill
+#     chat_mapper:
+#       _target_: sagent.lib.skills.memory_summarizer.chat_mapper.MemorySummarizerChatMapper
+#       prompt_path: lib/skills/memory_summarizer/prompts/memory_summarizer-2025-10-19.j2
+#       events_mapper:
+#         _target_: sagent.core.events.mappers.StructuredEventMapperRegistry
+#     llm:
+#       _target_: hai_adapters.llm.LanguageModel
+#       default_timeout: ${default_timeout}
+#       chat_provider:
+#         _target_: hai_adapters.chat_provider_builder.build_chat_provider
+#         name: ${model}
+#       base_request:
+#         _target_: hai_protocols.base.BaseRequest
+#         temperature: 0.6
+
+tools:
+  - _target_: sagent.lib.tools.planning.UpdatePlan
+  - _target_: sagent.lib.tools.desktop.WriteDesktop
+    wait_after_s: ${wait_after_s}
+  - _target_: sagent.lib.tools.desktop.ClickDesktop
+    wait_after_s: ${wait_after_s}
+  - _target_: sagent.lib.tools.desktop.DoubleClickDesktop
+    wait_after_s: ${wait_after_s}
+  - _target_: sagent.lib.tools.desktop.DragToDesktop
+    wait_after_s: ${wait_after_s}
+  - _target_: sagent.lib.tools.desktop.ScrollDesktop
+    wait_after_s: ${wait_after_s}
+  - _target_: sagent.lib.tools.desktop.MoveToDesktop
+    wait_after_s: ${wait_after_s}
+  - _target_: sagent.lib.tools.desktop.KeyDownDesktop
+    wait_after_s: ${wait_after_s}
+  - _target_: sagent.lib.tools.desktop.KeyUpDesktop
+    wait_after_s: ${wait_after_s}
+  - _target_: sagent.lib.tools.desktop.HotkeyDesktop
+    wait_after_s: ${wait_after_s}
+  - _target_: sagent.lib.tools.desktop.HoldAndTapKeyDesktop
+    wait_after_s: ${wait_after_s}
+  - _target_: sagent.lib.tools.communication.Answer
+  - _target_: sagent.lib.tools.skill.LoadSkill
+
+llm:
+  _target_: hai_adapters.llm.LanguageModel
+  default_timeout: ${default_timeout}
+  chat_provider:
+    _target_: hai_adapters.chat_provider_builder.build_chat_provider
+    name: ${model}
+    # Match cua_visual: this serial desktop loop gets no concurrency benefit
+    # from the default sync->async bridge.
+    max_parallel_requests: 1
+  base_request:
+    _target_: hai_protocols.base.BaseRequest
+    temperature: 0.8
+    reasoning_effort: medium
+    max_completion_tokens: 2048
+
+chat_mapper:
+  _target_: sagent.lib.policy_chat_mappers.registry.build_chat_mapper
+  coordinate_system: 0-1000
+  mode: structured_note_multi
+  prompt_path: "lib/agents/forest/prompts/structured_multi/local-desktop-2026-06-12.j2"
+  events_mapper:
+    _target_: sagent.core.events.mappers.StructuredEventMapperRegistry
+    overrides:
+      - _target_: sagent.core.events.mappers.ObservationEventMapper
+        cursor_size: 40
+
+agent:
+  _target_: sagent.lib.agents.forest.forest.Forest
+  name: Holo-Desktop-Holo3-1-35B-Multi
+  max_steps: ${max_steps}
+  max_time_s: ${max_time_s}
+  max_images: ${max_images}
+  policy_llm: ${llm}
+  policy_chat_mapper: ${chat_mapper}
+  tools: ${tools}
+  callbacks: []
+  services:
+    desktop: ${desktop}
+    # Client-supplied skills (~/.holo) are stocked here at session build time;
+    # advertised as <available_skills> hints and loaded on demand via load_skill.
+    skills:
+      _target_: sagent.lib.services.skill_catalog.SkillCatalog
+  # Model-facing transcode target: the driver always emits PNG; sagent's
+  # media-type contextvar converts observations to this format before upload
+  # (same chain HoloTab/OSWorld use).
+  screenshot_media_type:
+    _target_: hai_protocols.image.encoding.MediaType
+    _args_: [image/jpeg]

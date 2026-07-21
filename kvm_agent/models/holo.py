@@ -1,243 +1,372 @@
-"""Holo3.1 adapter: builds the request, calls the endpoint, parses the response into a
-normalized action dict, and projects coordinates to screen pixels.
+"""Holo3.1 adapter: builds the request, calls the endpoint, parses the response into
+normalized action dicts, and projects coordinates to screen pixels.
 
-Ported from the software-layer bring-up (validated GO, see
-docs/FINDINGS_holo_bringup.md / docs/FORMAT_NOTES_holo.md — 100% local grounding rate
-on the Phase-4 harness, coordinate formula confirmed at 1920x1080 and 3132x1515). The
-bring-up's own tool schema/message format was never checked against H Company's actual
-published convention (HOLO_TESTING_PLAN.md explicitly scoped that out: "No full agent
-loop / multi-step task execution yet"). After Phase I5's first live multi-step run
-surfaced the model never calling `answer`, a follow-up research pass fetched
-hub.hcompany.ai/agent-loop and /element-localization directly and diffed this file
-against them. Result: the [0,1000]->pixel formula was an exact match (nothing to fix);
-everything else below was brought into line with the documented convention:
-    - TOOLS: click/write/answer descriptions now match vendor wording verbatim
-      (scroll/drag_and_drop are our own extensions -- not in any official example).
-    - Every screenshot-bearing user turn is wrapped in <observation>...</observation>
-      (observation_message()), per the documented chat-layout table.
-    - tool_choice="required" is now set explicitly (docs: the documented cause of "tool
-      calls come back as plain text" is exactly this being left unset).
-    - temperature=0.8 + enable_thinking=True are now the defaults, matching the
-      documented AGENT-LOOP config -- temperature=0.0/no-thinking is what the docs
-      specify for the separate, stateless, single-shot element-localization endpoint,
-      a different tool for a different job; this file had been configured like that one.
-    - trim_to_last_n_images() keeps only the last screenshot in history by default
-      ("goldfish memory" 2026-07-18 -- vendor docs suggest 3, but each kept screenshot
-      re-pays its vision tokens every step and the text history carries the narrative),
-      evicting older image chunks to "[screenshot evicted]" text.
-    - agent_loop_holo.py's run() now threads real tool-result content (a frame-diff-based
-      "screen changed / did not visibly change" signal) instead of a hardcoded "ok" --
-      docs flag exactly this gap as the cause of loops/forgetting.
+VERBATIM-NATIVE REWRITE (2026-07-21, feature/native-verbatim): matches H Company's own
+holo-desktop-cli runtime (hai-agent-runtime v0.1.9) as closely as the KVM operating model
+allows. Ground truth was extracted from the sha256-pinned runtime binary itself (the CLI's
+open-source repo is only an installer; the agent loop ships closed-source): the system
+prompt template and runtime config are preserved verbatim in docs/native/ (the 2026-07-19
+proxy capture of these was lost with /tmp -- never rely on a capture again, re-extract).
 
-Normalized action shapes (mirrors the prior EvoCUA-era agent loop's action dict, so an
-eventual loop is a drop-in):
-    {"action": "left_click", "coordinate": [x, y], "element": "...", "note": "..."?}
-    {"action": "type", "text": "...", "press_enter": bool, "note": "..."?}
-    {"action": "key", "key": "ctrl+a", "note": "..."?}   # single key or '+'-joined combo
-    {"action": "scroll", "direction": "up"|"down"|"left"|"right", "note": "..."?}
-    {"action": "drag", "start": [x1, y1], "coordinate": [x2, y2], "note": "..."?}
+What "verbatim" covers here:
+    - SYSTEM_PROMPT is rendered from native's actual Jinja template
+      (docs/native/local-desktop-2026-06-12.j2), not a condensation. The template's
+      conditional blocks are evaluated with OUR tool set, exactly as native's own renderer
+      would (update_plan present, load_skill/localizer/search absent).
+    - The <output_format> schema block is embedded in the system prompt, per
+      hub.hcompany.ai/agent-loop: "the model was trained with the schema visible in both
+      the prompt and structured_outputs, and dropping either copy noticeably hurts
+      reliability." (The superseded branch dropped it; this restores it.)
+    - RESPONSE_SCHEMA is native's shape: one object per step, {note, thought, tool_calls},
+      note NULLABLE ("Set to None if nothing new" -- the required-non-null workaround from
+      the superseded branch is retired; re-probe uptake under the verbatim prompt before
+      concluding it's still needed), tool_calls is native's BATCHED array (minItems=1, no
+      max) -- native executes the calls sequentially on one desktop and returns only the
+      batch's final screenshot (see the prompt's own BATCHING GUIDELINES).
+    - Tool set and field names match native's desktop config (10 of its 13 tools --
+      see deviations below): click_desktop, double_click_desktop, write_desktop,
+      scroll_desktop (scroll_size in wheel clicks), drag_to_desktop (from CURRENT cursor
+      position, not a specified start), move_to_desktop, hotkey_desktop (keys LIST +
+      repeat_count -- NOT our old '+'-joined press_key string), hold_and_tap_key_desktop,
+      update_plan, answer. Descriptions are byte-verbatim from the runtime's constants.
+    - Tool results go back as user messages wrapped in <tool_output tool="...">, the
+      channel native's chat mapper actually uses (confirmed in the runtime binary's
+      constants; the 2026-07-19 capture's claim that "native has no execution-result
+      feedback channel" was WRONG).
+    - Request params match native's config (docs/native/*.yaml): temperature=0.8,
+      reasoning_effort="medium", max_completion_tokens=2048, thinking on.
+    - Model input is a JPEG at native resolution (native transcodes screenshots to JPEG,
+      clamped at 1920w, sends full-res). 720p downscale remains available as the A/B knob
+      (CFG.holo_model_input_res) pending the resolution/timing test.
+    - max_history_images default is native's max_images: 3.
+
+DISCLOSED DEVIATIONS (each forced or explicitly judged, none silent):
+    1. key_down_desktop / key_up_desktop OMITTED: our HID bridge has no key-hold primitive
+       (only tap/combo) -- offering a tool we can't execute would be worse than omitting it.
+    2. write_desktop's third bool ("Whether to clear existing text before typing") OMITTED:
+       its description was recovered from the runtime but its FIELD NAME could not be
+       byte-verified, and a guessed name is worse than a missing optional field. The same
+       effect is native-idiomatic via batching: hotkey ctrl+a then write.
+    3. load_skill OMITTED: native's skills catalog (per-app SKILL.md hints) is not wired
+       into this harness. The prompt's Skills block is therefore not rendered (native's
+       own conditional).
+    4. <tool_output> PAYLOAD is ours, not native's (native's result text isn't in the
+       binary's recoverable constants): each executed call reports our camera-based
+       frame-diff signal ("screen changed / did not visibly change", with tile-max
+       magnitude and rough region -- the 2026-07-21 follow-up: report WHAT changed, not a
+       bare binary). The channel shape is verbatim; the content is our instrumentation.
+    5. update_plan's effect is minimal: the plan is recorded and ACKed in its tool_output;
+       native's display_plan rendering is not ported.
+    6. wait_after_s=0.3 (native's fixed per-tool settle) is replaced by our camera-based
+       settle -- better suited to a KVM pipeline where the observation channel has real
+       latency. Model-contract-neutral.
+    7. Assistant history re-adds the model's parsed JSON content only, never
+       reasoning_content (native's own rule: reasoning is dropped between turns).
+    8. The old <notes> block is GONE: native needs no separate notes channel because
+       assistant turns (with their note fields) persist in history; only images are
+       evicted by trim. Our trim behaves the same way.
+
+Normalized action shapes (a LIST per step now -- native batches):
+    {"action": "left_click", "coordinate": [x, y], "element": "..."}
+    {"action": "double_click", "coordinate": [x, y], "element": "..."}
+    {"action": "type", "text": "...", "press_enter": bool}
+    {"action": "hotkey", "keys": ["ctrl", "a"], "repeat_count": int}
+    {"action": "hold_and_tap", "hold_keys": [...], "tap_keys": [...]}
+    {"action": "move_to", "coordinate": [x, y]}
+    {"action": "scroll", "direction": "up"|"down"|"left"|"right", "scroll_size": int, "coordinate": [x, y]}
+    {"action": "drag_to", "coordinate": [x, y]}      # from CURRENT cursor position
+    {"action": "update_plan", "goals": [{"title": ..., "status": ...}]}
     {"action": "finished", "text": "..."}
-    # "note"? = present only when the model chose to persist something this step
-    # (ported from native holo-desktop-cli 2026-07-19; see NOTE_PARAM below).
+parse_response returns {"actions": [...], "note": str|None, "thought": str|None}.
 
-Format contract (verified empirically -- see docs/FORMAT_NOTES_holo.md, not assumed
-from vendor docs):
-    - Native function-calling: message.tool_calls, one call per step. content was always
-      "" in the bring-up's limited probe (no thinking, no multi-step) -- now that
-      thinking + tool_choice=required are on for real multi-step runs this may no longer
-      hold in general, so don't assume it; message.get("content") is preserved as-is.
-    - message.arguments is a JSON-encoded STRING, must be json.loads()'d.
+Format contract (structured output, response_format=json_schema):
+    - message.content is a JSON-encoded STRING matching RESPONSE_SCHEMA, json.loads() it.
+    - message.reasoning_content holds the thinking trace; never re-add it to history.
     - Coordinates are integers in [0, 1000], normalized to the exact image sent;
-      projection is raw / 1000 * image_dimension.
-
-STATUS: Phases I0-I5 of HOLO_INTEGRATION_PLAN.md are done and verified live against the rig
-(originally VM target; physical Win10 laptop as of the 2026-07-20 move, appliance HID over
-UART). This vendor-alignment pass landed after I5.
+      projection is raw / 1000 * screen_dimension (the model-input image is a uniform
+      downscale of the same screen content, so the projection basis is the real screen).
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
+import threading
+import time
+from pathlib import Path
 
 from kvm_agent.config import CFG
 from kvm_agent.llm.ollama import openai_client
 
 logger = logging.getLogger("holo")
 
-# Ported 2026-07-19 from H Company's own holo-desktop-cli (hcompai/holo-desktop-cli),
-# captured live via a logging proxy between it and our local holo3.1 endpoint -- not
-# guessed. Native's system prompt runs ~26,000 chars vs. our ~700 and uses a completely
-# different mechanism (JSON-schema-constrained structured output, note+thought+tool_calls
-# as one object, tool_choice unset) with its own tool_calls array supporting MULTIPLE
-# calls per step. We keep native OpenAI function-calling (tool_choice="required", exactly
-# one call/step) rather than rearchitect around structured output -- too large a change
-# to make blind -- so native's standalone `note` tool (a whole step just to persist text)
-# doesn't fit: it would burn a step every time, worsening the exact step-budget-burn
-# problem (M4) this is meant to help with. Adapted instead as an optional `note` param on
-# every ACTION tool, so a step can act AND persist in one call. See NOTE_PARAM below.
-NOTE_PARAM = {
-    "note": {
-        "type": "string",
-        "description": (
-            "Optional: task-relevant information to persist before this screenshot is "
-            "gone from memory (only the last screenshot is kept -- see the system prompt). "
-            "Record values, short text, file paths, dialog messages, confirmations, "
-            "button/field states -- anything you'll need later but can't re-read once the "
-            "screen changes. Omit if there's nothing new worth persisting."
-        ),
-    },
-}
+REPO_ROOT = Path(__file__).resolve().parents[2]
+NATIVE_PROMPT_PATH = REPO_ROOT / "docs" / "native" / "local-desktop-2026-06-12.j2"
 
-TOOLS = [
+
+class _RequestLog:
+    """Append-only JSONL log of every actual request/response to the model (ported from
+    the superseded branch 2026-07-19; before it, NOTHING captured the outgoing request, so
+    whether the system prompt/schema were correctly constructed for a given step could not
+    be verified after the fact). image_url data URIs are redacted to a byte count -- the
+    actual pixels are separately available via RunRecorder's saved step_NN.png."""
+
+    def __init__(self, path=None):
+        self.path = path or os.path.join(CFG.logs_dir, "holo_requests.jsonl")
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        self.lock = threading.Lock()
+
+    @staticmethod
+    def _redact(messages):
+        out = []
+        for m in messages:
+            content = m.get("content")
+            if isinstance(content, list):
+                content = [
+                    ({**c, "image_url": {"url": f"<redacted, {len(c['image_url']['url'])} chars>"}}
+                     if c.get("type") == "image_url" else c)
+                    for c in content
+                ]
+                out.append({**m, "content": content})
+            else:
+                out.append(m)
+        return out
+
+    def write(self, record):
+        record["ts"] = time.time()
+        line = json.dumps(record)
+        with self.lock:
+            with open(self.path, "a") as f:
+                f.write(line + "\n")
+                f.flush()
+
+
+REQUEST_LOG = _RequestLog()
+
+# Tool schemas, native's tool_name-const-discriminator shape. Tool and field descriptions
+# are byte-verbatim from the hai-agent-runtime v0.1.9 binary's recovered constants (click/
+# write/answer additionally match hub.hcompany.ai/agent-loop's published example). The
+# tools native's desktop config enables but we omit (key_down/key_up, load_skill) and
+# why -- see module docstring.
+TOOL_CALL_SCHEMAS = [
     {
-        "type": "function",
-        "function": {
-            # Descriptions below are verbatim from hub.hcompany.ai/agent-loop (click) and
-            # the structured-output WriteArgs/AnswerArgs docstrings on the same page (the
-            # function-calling example only spells out click+answer in full; write's
-            # wording is ported across from structured-output mode, same underlying tool).
-            "name": "click",
-            "description": "Click at (x, y) coordinates",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "element": {"type": "string", "description": "Detailed description of the target UI element"},
-                    "x": {"type": "integer", "description": "X coordinate as integer in [0, 1000]"},
-                    "y": {"type": "integer", "description": "Y coordinate as integer in [0, 1000]"},
-                    **NOTE_PARAM,
+        "type": "object",
+        "additionalProperties": False,
+        "description": "Click at (x, y) coordinates",
+        "required": ["tool_name", "element", "x", "y"],
+        "properties": {
+            "tool_name": {"const": "click_desktop"},
+            "element": {"type": "string", "description": "Detailed description of the target UI element to click on"},
+            "x": {"type": "integer", "description": "X coordinate as integer in [0, 1000]"},
+            "y": {"type": "integer", "description": "Y coordinate as integer in [0, 1000]"},
+        },
+    },
+    {
+        "type": "object",
+        "additionalProperties": False,
+        "description": "Double click at (x, y) coordinates",
+        "required": ["tool_name", "element", "x", "y"],
+        "properties": {
+            "tool_name": {"const": "double_click_desktop"},
+            "element": {"type": "string", "description": "Detailed description of the target UI element to double click on"},
+            "x": {"type": "integer", "description": "The x coordinate as integer in [0, 1000]"},
+            "y": {"type": "integer", "description": "The y coordinate as integer in [0, 1000]"},
+        },
+    },
+    {
+        "type": "object",
+        "additionalProperties": False,
+        "description": "Type text into the currently focused element without clicking first",
+        "required": ["tool_name", "content"],
+        "properties": {
+            "tool_name": {"const": "write_desktop"},
+            "content": {"type": "string", "description": "Content to write"},
+            "press_enter": {"type": "boolean", "default": False, "description": "Whether to press Enter after typing"},
+        },
+    },
+    {
+        "type": "object",
+        "additionalProperties": False,
+        "description": "Scroll in a given direction, placing the cursor at (x, y) first",
+        "required": ["tool_name", "direction", "scroll_size", "x", "y"],
+        "properties": {
+            "tool_name": {"const": "scroll_desktop"},
+            "element": {"type": "string", "description": "Detailed description of the target UI element to scroll on"},
+            "direction": {"type": "string", "enum": ["up", "down", "left", "right"],
+                          "description": "Direction to scroll in"},
+            "scroll_size": {"type": "integer",
+                            "description": "Scroll size in mouse wheel clicks (at most 100). Choose it carefully considering the OS and the objective of the scroll"},
+            "x": {"type": "integer", "description": "X coordinate as integer in [0, 1000]"},
+            "y": {"type": "integer", "description": "Y coordinate as integer in [0, 1000]"},
+        },
+    },
+    {
+        "type": "object",
+        "additionalProperties": False,
+        "description": "Drag from current position to specific coordinates",
+        "required": ["tool_name", "x", "y"],
+        "properties": {
+            "tool_name": {"const": "drag_to_desktop"},
+            "element": {"type": "string", "description": "Detailed description of the target UI element to drag to"},
+            "x": {"type": "integer", "description": "X coordinate as integer in [0, 1000]"},
+            "y": {"type": "integer", "description": "Y coordinate as integer in [0, 1000]"},
+        },
+    },
+    {
+        "type": "object",
+        "additionalProperties": False,
+        "description": "Move mouse to (x, y) coordinates",
+        "required": ["tool_name", "x", "y"],
+        "properties": {
+            "tool_name": {"const": "move_to_desktop"},
+            "element": {"type": "string", "description": "Detailed description of the target UI element to move the mouse to"},
+            "x": {"type": "integer", "description": "X coordinate as integer in [0, 1000]"},
+            "y": {"type": "integer", "description": "Y coordinate as integer in [0, 1000]"},
+        },
+    },
+    {
+        "type": "object",
+        "additionalProperties": False,
+        "description": "Press multiple keys simultaneously (max 5). Adapt the keys depending on the operating system",
+        "required": ["tool_name", "keys"],
+        "properties": {
+            "tool_name": {"const": "hotkey_desktop"},
+            "keys": {"type": "array", "minItems": 1, "maxItems": 5,
+                     "items": {"type": "string"},
+                     "description": "List of 1 to 5 key(s) to press simultaneously: e.g. ['ctrl', 'alt', 't'] for Ubuntu, ['cmd', 't'] for MacOS..."},
+            "repeat_count": {"type": "integer", "default": 1,
+                             "description": "Number of times to repeat the hotkey press"},
+        },
+    },
+    {
+        "type": "object",
+        "additionalProperties": False,
+        "description": "Hold a list of key(s) and tap a list of key(s) in sequence. Adapt the keys depending on the operating system.",
+        "required": ["tool_name", "hold_keys", "tap_keys"],
+        "properties": {
+            "tool_name": {"const": "hold_and_tap_key_desktop"},
+            "hold_keys": {"type": "array", "minItems": 1, "maxItems": 3,
+                          "items": {"type": "string"},
+                          "description": "List of 1 to 3 key(s) to hold down"},
+            "tap_keys": {"type": "array", "minItems": 1, "maxItems": 5,
+                         "items": {"type": "string"},
+                         "description": "List of 1 to 5 key(s) to tap in sequence"},
+        },
+    },
+    {
+        # update_plan: native's planning tool (sagent.lib.tools.planning.UpdatePlan).
+        # Description verbatim from the runtime. Goal fields: title/status, descriptions
+        # verbatim. Execution is harness-side bookkeeping (see agent_loop_holo.py).
+        "type": "object",
+        "additionalProperties": False,
+        "description": (
+            "Create and manage your task plan with hierarchical goals. Always provide the "
+            "complete list of goals every time you call this tool. When creating an initial "
+            "plan, include all goals with the first one as 'running' and others as 'todo'. "
+            "When marking progress, include all goals with updated statuses (mark completed "
+            "as 'done', set next as 'running'). When replanning after blockers, include your "
+            "done/failed goals plus new goals. Maintain only one goal with status 'running' "
+            "at any given time."
+        ),
+        "required": ["tool_name", "updates"],
+        "properties": {
+            "tool_name": {"const": "update_plan"},
+            "updates": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["title", "status"],
+                    "properties": {
+                        "title": {"type": "string",
+                                  "description": "Clear, actionable goal description (start with verb)"},
+                        "status": {"type": "string", "enum": ["todo", "running", "done", "failed"],
+                                   "description": "Current status (todo/running/done/failed)"},
+                    },
                 },
-                "required": ["element", "x", "y"],
             },
         },
     },
     {
-        "type": "function",
-        "function": {
-            "name": "write",
-            "description": "Type text into the currently focused element without clicking first",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "content": {"type": "string", "description": "Content to write"},
-                    "press_enter": {"type": "boolean", "default": False, "description": "Whether to press Enter after typing"},
-                    **NOTE_PARAM,
-                },
-                "required": ["content"],
-            },
-        },
-    },
-    {
-        # press_key: our own extension (not in any official H Company example), added
-        # 2026-07-19 after a WAA notepad run burned 15 click/drag steps (waa__366de66e
-        # …_205131 steps 25-39) trying to clear a Save-dialog filename field with the
-        # mouse -- the action space had no keyboard path besides write()'s press_enter.
-        # Backed by ENV.r4.key()/combo() (kvm_agent/hardware/appliance.py), which already
-        # supports named keys + held combos; this just exposes it to the model.
-        "type": "function",
-        "function": {
-            "name": "press_key",
-            "description": (
-                "Press a key or key combination. Use for keyboard shortcuts and non-printable "
-                "keys the write() tool can't send: single keys like 'enter', 'esc', 'tab', "
-                "'backspace', 'delete', 'up'/'down'/'left'/'right', 'home', 'end'; or combos "
-                "like 'ctrl+a', 'ctrl+s', 'ctrl+shift+t', 'alt+F4' (keys joined with '+', held "
-                "together)."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "key": {"type": "string", "description": "Key name or '+'-joined combo, e.g. 'ctrl+a'"},
-                    **NOTE_PARAM,
-                },
-                "required": ["key"],
-            },
-        },
-    },
-    {
-        # scroll/drag_and_drop: our own extensions, not in any official H Company example
-        # (only click/write/answer are documented) -- unverified against vendor training,
-        # kept since the bring-up's Phase-2 capture showed the model uses both correctly
-        # when offered (see docs/FORMAT_NOTES_holo.md).
-        "type": "function",
-        "function": {
-            "name": "scroll",
-            "description": "Scroll in a direction at a specific point on the screen. Move the cursor over the pane you want to scroll (x, y), then the wheel turns there.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
-                    "x": {"type": "integer", "description": "X coordinate of the point to scroll at, in [0, 1000]"},
-                    "y": {"type": "integer", "description": "Y coordinate of the point to scroll at, in [0, 1000]"},
-                    **NOTE_PARAM,
-                },
-                "required": ["direction", "x", "y"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "drag_and_drop",
-            "description": "Drag from one point to another.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "x1": {"type": "integer"},
-                    "y1": {"type": "integer"},
-                    "x2": {"type": "integer"},
-                    "y2": {"type": "integer"},
-                    **NOTE_PARAM,
-                },
-                "required": ["x1", "y1", "x2", "y2"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "answer",
-            "description": "Provide a final answer",
-            "parameters": {
-                "type": "object",
-                "properties": {"content": {"type": "string", "description": "The answer content"}},
-                "required": ["content"],
-            },
+        "type": "object",
+        "additionalProperties": False,
+        "description": "Provide a final answer",
+        "required": ["tool_name", "content"],
+        "properties": {
+            "tool_name": {"const": "answer"},
+            "content": {"type": "string", "description": "The answer content"},
         },
     },
 ]
 
-# Ported + condensed from H Company's own holo-desktop-cli system prompt (captured
-# 2026-07-19, see NOTE_PARAM comment above for the capture method and why we didn't
-# adopt its architecture wholesale). Three specific additions below are direct ports of
-# native wording, not guesses: the loop-detection line, the "only the last screenshot is
-# kept" framing for the note param, and the termination-criteria checklist. Native's
-# version of each ran hundreds of words with worked examples; these are compressed to fit
-# our single-tool-call-per-step budget (each extra system-prompt token is paid on EVERY
-# step here, unlike native which sends it once per session in some integrations).
-SYSTEM_PROMPT = (
-    "You are a GUI agent. You control the computer shown in screenshots. "
-    "Given a screenshot and an instruction, call exactly one tool to perform the next action. "
-    "Coordinates x and y must be integers in [0, 1000], normalized to the screenshot dimensions. "
-    "After each action you will be shown an updated screenshot. Look at it before deciding your "
-    "next action -- if it already shows the instruction accomplished, call the `answer` tool "
-    "immediately with a brief confirmation instead of taking another action.\n\n"
-    "Detect loops: have you performed this same action before? If yes and it failed previously, "
-    "you MUST pivot to a different approach -- try a different coordinate, a different control, "
-    "a keyboard shortcut instead of a click, or back out (Escape) and re-enter the flow. Do not "
-    "repeat an action that already failed twice in a row.\n\n"
-    "Only the current screenshot is kept in memory -- earlier ones are gone and you cannot "
-    "re-check them. Every tool call accepts an optional `note` argument: use it to persist "
-    "values, text, file paths, dialog messages, or button/field states you will need later, "
-    "before the screen that shows them is gone. Notes accumulate and are always visible to you.\n\n"
-    "Before calling `answer`, confirm: the requested state is actually reached (not just "
-    "attempted), you have concrete on-screen evidence for it (not an assumption), and no cheaper "
-    "alternative action remains untried. Prefer 'I confirmed X because the screen showed Y' over "
-    "'I believe X should have worked.'"
-)
+# Top-level response schema, native's shape: {note, thought, tool_calls} all required,
+# note NULLABLE (native: "Set to None if nothing new"), tool_calls a BATCHED array
+# (minItems=1, no maxItems -- native batches multiple calls per step).
+RESPONSE_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "step",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["note", "thought", "tool_calls"],
+            "properties": {
+                "note": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Task-relevant information from the previous observation. Persist "
+                        "values, short text excerpts, file paths, dialog messages, "
+                        "confirmations, button/field states -- anything future steps need "
+                        "that can't be re-read once the screen changes. Notes build on "
+                        "previous notes; never restate old info. Set to null if nothing new."
+                    ),
+                },
+                "thought": {
+                    "type": "string",
+                    "description": "Reasoning about next steps",
+                },
+                "tool_calls": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"anyOf": TOOL_CALL_SCHEMAS},
+                },
+            },
+        },
+    },
+}
+
+
+def _render_native_prompt(max_steps: int = 200, max_time_s: int = 3600) -> str:
+    """Render native's actual system-prompt Jinja template (docs/native/...j2) with OUR
+    tool set, exactly as native's renderer would: update_plan present (so the Planning
+    block renders), load_skill/skills/search/localizer absent (their blocks drop out).
+    Then append the <output_format> schema block -- hub.hcompany.ai/agent-loop: the model
+    was trained with the schema visible in BOTH the prompt and structured_outputs, and
+    dropping either copy noticeably hurts reliability."""
+    import jinja2
+    from datetime import datetime
+    template = jinja2.Template(NATIVE_PROMPT_PATH.read_text())
+    tools = [s["properties"]["tool_name"]["const"] for s in TOOL_CALL_SCHEMAS]
+    rendered = template.render(
+        services={},            # no 'localizer' service -> the coordinate (element-string)
+                                # variant of the Element Localization block, matching our setup
+        tools=tools,            # drives the update_plan / search conditionals
+        skill_hints="",         # no skills catalog -> Skills block drops (native conditional)
+        system_timestamp=lambda _t: datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        start_time=time.time(),
+        max_steps=max_steps,
+        max_time_s=max_time_s,
+    )
+    schema_json = json.dumps(RESPONSE_SCHEMA["json_schema"]["schema"], indent=2)
+    return rendered + f"\n\n<output_format>\n```json\n{schema_json}\n```\n</output_format>"
+
+
+SYSTEM_PROMPT = _render_native_prompt()
 
 
 class DroppedActionCounter:
-    """Loud, from-day-one counter for non-terminal steps that parsed to zero actions.
+    """Loud, from-day-one counter for steps that parsed to zero actions.
 
     Guardrail from the bring-up plan: "If a non-terminal step parses to zero actions,
     log it loudly with a counter -- never silently no-op." A prior format bug (EvoCUA
@@ -259,7 +388,9 @@ dropped_actions = DroppedActionCounter()
 def project_point(raw_x: float, raw_y: float, image_w: int, image_h: int) -> list[float]:
     """[0,1000]-normalized -> screen pixels. See docs/FORMAT_NOTES_holo.md for the
     empirical verification (0-17.5px error at every corner/edge of a 1920x1080 calibration
-    image). Re-verify at the live capture resolution before trusting it (Phase I3)."""
+    image). image_w/h here is the PROJECTION BASIS (the real screen the HID moves on),
+    not the model-input image -- the model input is a uniform downscale of the same
+    content, so the normalized coordinates transfer."""
     return [raw_x / 1000 * image_w, raw_y / 1000 * image_h]
 
 
@@ -268,7 +399,7 @@ def _scalar(v):
 
     Observed on the hosted reference API (never locally, across 80 local reps in the
     bring-up's ground_probe.py): x/y sometimes come back as a [min, max] range list
-    instead of a scalar, despite the tool schema declaring "type": "integer". Take the
+    instead of a scalar, despite the schema declaring "type": "integer". Take the
     midpoint rather than crash or silently drop -- see docs/FORMAT_NOTES_holo.md
     "hosted vs local" section. Local (llama.cpp/B70) has never shown this.
     """
@@ -278,22 +409,12 @@ def _scalar(v):
     return v
 
 
-def observation_message(image_data_url: str, text: str = "", notes: list[str] | None = None) -> dict:
-    """One <observation> user turn, per hub.hcompany.ai/agent-loop's documented
-    function-calling chat layout: every screenshot-bearing user turn is wrapped in
-    <observation>...</observation>. `text` is normally the task instruction on the first
-    turn of a run and empty on later turns (the model already has it via history).
-
-    `notes` (ported from native holo-desktop-cli, 2026-07-19): accumulated text the model
-    chose to persist via the `note` param on prior actions (see NOTE_PARAM). Rendered on
-    EVERY turn, not just the first -- unlike the instruction, notes exist specifically to
-    survive trim_to_last_n_images() evicting old screenshots, so they must stay visible
-    for the life of the run, not just once."""
-    parts = []
-    if notes:
-        parts.append("<notes>\n" + "\n".join(f"- {n}" for n in notes) + "\n</notes>\n")
-    if text:
-        parts.append(text)
+def observation_message(image_data_url: str, text: str = "") -> dict:
+    """One <observation> user turn: every screenshot-bearing user turn is wrapped in
+    <observation>...</observation> (native chat layout, confirmed in the runtime binary's
+    constants). `text` is normally the task instruction on the first turn of a run and
+    empty on later turns (the model already has it via history)."""
+    parts = [text] if text else []
     prefix = "<observation>\n" + "\n".join(parts) + "\n" if parts else "<observation>\n"
     return {
         "role": "user",
@@ -305,24 +426,33 @@ def observation_message(image_data_url: str, text: str = "", notes: list[str] | 
     }
 
 
-def build_messages(instruction: str, image_data_url: str, history: list[dict] | None = None,
-                    notes: list[str] | None = None) -> list[dict]:
+def tool_output_message(tool_name: str, result: str) -> dict:
+    """One <tool_output> user message -- native's execution-result channel (confirmed in
+    the runtime binary's chat-mapper constants: '<tool_output tool=\"' ...). Sent as a
+    USER message, not a synthetic tool role -- hub.hcompany.ai/agent-loop's pitfall table
+    flags exactly that mistake ("Tool result has no effect")."""
+    return {
+        "role": "user",
+        "content": f'<tool_output tool="{tool_name}">\n{result}\n</tool_output>',
+    }
+
+
+def build_messages(instruction: str, image_data_url: str, history: list[dict] | None = None) -> list[dict]:
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     if history:
         messages.extend(history)
-    messages.append(observation_message(image_data_url, instruction, notes=notes))
+    messages.append(observation_message(image_data_url, instruction))
     return messages
 
 
-def trim_to_last_n_images(messages: list[dict], n: int = 1) -> None:
+def trim_to_last_n_images(messages: list[dict], n: int = 3) -> None:
     """In place: keep only the last n image_url chunks across all messages, replacing
-    older ones with a "[screenshot evicted]" text chunk. Vendor docs say "keep at most the
-    last 3 screenshots"; we default to 1 (2026-07-18, "goldfish memory"): screenshots are
-    the dominant prompt-token cost per step (~35% fewer at 1/4 resolution, and each extra
-    kept screenshot re-pays its vision tokens every step), while the text-based history
-    (<observation> wrappers, tool calls/results) still carries the narrative of what was
-    tried. The <observation> text wrapper around each stays, only the image chunk itself
-    gets replaced."""
+    older ones with a "[screenshot evicted]" text chunk. Native keeps max_images: 3
+    (docs/native/*.yaml); more degrades accuracy per hub.hcompany.ai/agent-loop. The
+    <observation> text wrapper around each evicted image stays -- only the image chunk
+    itself is replaced. Assistant turns (content is a plain string in structured-output
+    mode) are untouched; notes/thoughts in them therefore persist for the whole run,
+    which is exactly how native's note mechanism works (no separate notes channel)."""
     image_positions = [
         (mi, ci)
         for mi, m in enumerate(messages)
@@ -333,80 +463,101 @@ def trim_to_last_n_images(messages: list[dict], n: int = 1) -> None:
         messages[mi]["content"][ci] = {"type": "text", "text": "[screenshot evicted]"}
 
 
+def _error_step(reason: str, message: dict, **extra) -> dict:
+    return {"actions": [], "note": None, "thought": None, "error": reason, "raw": message, **extra}
+
+
 def parse_response(message: dict, image_w: int, image_h: int) -> dict:
-    """Normalize one assistant message (native function-calling) into an action dict.
+    """Normalize one assistant message (structured output) into a step dict:
+    {"actions": [...], "note": str|None, "thought": str|None}. `actions` is a LIST --
+    native batches multiple tool calls per step; execution order is array order.
 
     Never returns None silently -- an unparseable or empty response becomes
-    {"action": "error", ...} and bumps dropped_actions, per the loud-failure guardrail.
+    {"actions": [], "error": ...} and bumps dropped_actions, per the loud-failure
+    guardrail. message["content"] is the JSON string the schema constrains the model to
+    emit; there is no message.tool_calls in structured-output mode.
     """
-    tool_calls = message.get("tool_calls") or []
-    if not tool_calls:
-        dropped_actions.bump("no tool_calls in message", message)
-        return {"action": "error", "reason": "no_tool_calls", "raw": message}
-
-    call = tool_calls[0]
-    name = call["function"]["name"]
+    raw_content = message.get("content") or ""
     try:
-        args = json.loads(call["function"]["arguments"])
-    except (json.JSONDecodeError, TypeError, KeyError) as e:
-        dropped_actions.bump(f"unparseable arguments: {e}", message)
-        return {"action": "error", "reason": "bad_arguments_json", "raw": message}
+        parsed = json.loads(raw_content)
+    except json.JSONDecodeError as e:
+        dropped_actions.bump(f"unparseable content JSON: {e}", message)
+        return _error_step("bad_content_json", message)
 
-    # Ported from native holo-desktop-cli (see NOTE_PARAM above): every action can carry
-    # an optional persisted note. Only include the key when non-empty so downstream code
-    # (run()'s notes accumulator) can test with a plain truthiness check.
-    note = (args.get("note") or "").strip() or None
+    note = parsed.get("note")
+    note = note.strip() or None if isinstance(note, str) else None
+    thought = parsed.get("thought")
 
-    if name == "click":
-        if "x" not in args or "y" not in args:
-            dropped_actions.bump("click missing x/y", message)
-            return {"action": "error", "reason": "click_missing_xy", "raw": message}
-        out = {
-            "action": "left_click",
-            "coordinate": project_point(_scalar(args["x"]), _scalar(args["y"]), image_w, image_h),
-            "element": args.get("element"),
-        }
-        if note:
-            out["note"] = note
-        return out
-    if name == "write":
-        out = {"action": "type", "text": args.get("content", ""), "press_enter": args.get("press_enter", False)}
-        if note:
-            out["note"] = note
-        return out
-    if name == "press_key":
-        key = args.get("key", "")
-        if not key:
-            dropped_actions.bump("press_key missing key", message)
-            return {"action": "error", "reason": "press_key_missing_key", "raw": message}
-        out = {"action": "key", "key": key}
-        if note:
-            out["note"] = note
-        return out
-    if name == "scroll":
-        out = {"action": "scroll", "direction": args.get("direction")}
-        # Targeted scroll (flaw #10 fix, 2026-07-18): the wheel turns wherever the cursor
-        # happens to sit, so an untargeted scroll silently scrolls the wrong pane -- or
-        # nothing at all (11 zero-effect scrolls in the scroll_to_about battery task).
-        if "x" in args and "y" in args:
-            out["coordinate"] = project_point(_scalar(args["x"]), _scalar(args["y"]), image_w, image_h)
-        if note:
-            out["note"] = note
-        return out
-    if name == "drag_and_drop":
-        out = {
-            "action": "drag",
-            "start": project_point(_scalar(args["x1"]), _scalar(args["y1"]), image_w, image_h),
-            "coordinate": project_point(_scalar(args["x2"]), _scalar(args["y2"]), image_w, image_h),
-        }
-        if note:
-            out["note"] = note
-        return out
-    if name == "answer":
-        return {"action": "finished", "text": args.get("content", "")}
+    tool_calls = parsed.get("tool_calls") or []
+    if not tool_calls:
+        dropped_actions.bump("no tool_calls in parsed content", message)
+        return _error_step("no_tool_calls", message, thought=thought)
 
-    dropped_actions.bump(f"unknown tool name {name!r}", message)
-    return {"action": "error", "reason": "unknown_tool", "tool_name": name, "raw": message}
+    actions = []
+    for tc in tool_calls:
+        name = tc.get("tool_name")
+
+        if name in ("click_desktop", "double_click_desktop"):
+            if "x" not in tc or "y" not in tc:
+                dropped_actions.bump(f"{name} missing x/y", message)
+                return _error_step(f"{name}_missing_xy", message, note=note, thought=thought)
+            actions.append({
+                "action": "left_click" if name == "click_desktop" else "double_click",
+                "coordinate": project_point(_scalar(tc["x"]), _scalar(tc["y"]), image_w, image_h),
+                "element": tc.get("element"),
+            })
+        elif name == "write_desktop":
+            actions.append({"action": "type", "text": tc.get("content", ""),
+                            "press_enter": tc.get("press_enter", False)})
+        elif name == "scroll_desktop":
+            actions.append({
+                "action": "scroll",
+                "direction": tc.get("direction"),
+                "scroll_size": tc.get("scroll_size", 3),
+                "coordinate": project_point(_scalar(tc["x"]), _scalar(tc["y"]), image_w, image_h)
+                              if "x" in tc and "y" in tc else None,
+                "element": tc.get("element"),
+            })
+        elif name == "drag_to_desktop":
+            if "x" not in tc or "y" not in tc:
+                dropped_actions.bump("drag_to_desktop missing x/y", message)
+                return _error_step("drag_to_missing_xy", message, note=note, thought=thought)
+            actions.append({
+                "action": "drag_to",
+                "coordinate": project_point(_scalar(tc["x"]), _scalar(tc["y"]), image_w, image_h),
+                "element": tc.get("element"),
+            })
+        elif name == "move_to_desktop":
+            if "x" not in tc or "y" not in tc:
+                dropped_actions.bump("move_to_desktop missing x/y", message)
+                return _error_step("move_to_missing_xy", message, note=note, thought=thought)
+            actions.append({
+                "action": "move_to",
+                "coordinate": project_point(_scalar(tc["x"]), _scalar(tc["y"]), image_w, image_h),
+                "element": tc.get("element"),
+            })
+        elif name == "hotkey_desktop":
+            keys = tc.get("keys") or []
+            if not keys:
+                dropped_actions.bump("hotkey_desktop missing keys", message)
+                return _error_step("hotkey_missing_keys", message, note=note, thought=thought)
+            actions.append({"action": "hotkey", "keys": keys,
+                            "repeat_count": int(tc.get("repeat_count") or 1)})
+        elif name == "hold_and_tap_key_desktop":
+            hold, tap = tc.get("hold_keys") or [], tc.get("tap_keys") or []
+            if not hold or not tap:
+                dropped_actions.bump("hold_and_tap_key_desktop missing hold_keys/tap_keys", message)
+                return _error_step("hold_and_tap_missing_keys", message, note=note, thought=thought)
+            actions.append({"action": "hold_and_tap", "hold_keys": hold, "tap_keys": tap})
+        elif name == "update_plan":
+            actions.append({"action": "update_plan", "goals": tc.get("updates") or []})
+        elif name == "answer":
+            actions.append({"action": "finished", "text": tc.get("content", "")})
+        else:
+            dropped_actions.bump(f"unknown tool_name {name!r}", message)
+            return _error_step("unknown_tool", message, tool_name=name, note=note, thought=thought)
+
+    return {"actions": actions, "note": note, "thought": thought}
 
 
 def _target_config(target: str):
@@ -420,79 +571,84 @@ def _target_config(target: str):
 def call_holo_full(instruction: str, image_data_url: str, image_w: int, image_h: int,
                     target: str = "local", history: list[dict] | None = None,
                     temperature: float = 0.8, enable_thinking: bool = True,
-                    max_history_images: int = 1, notes: list[str] | None = None) -> tuple[dict, dict, dict]:
-    """Like call_holo, but also returns the raw assistant message (dict, via model_dump())
-    and token usage -- a multi-step loop needs the message to thread real history (the
-    assistant tool-call + a tool-result message per step; see agent_loop_holo.py's run())
-    and usage for run instrumentation (see kvm_agent/instrumentation/run_log.py). call_holo()
-    itself discards both since the REPL/single-shot callers only need the parsed action.
+                    max_history_images: int = 3) -> tuple[dict, dict, dict]:
+    """One step: build request, call the endpoint, parse into a step dict; also returns
+    the raw assistant message (dict, via model_dump()) and token usage.
 
-    Defaults (temperature=0.8, enable_thinking=True, tool_choice="required") match
-    hub.hcompany.ai/agent-loop's documented agent-loop config, NOT the separate
-    element-localization endpoint's (temperature=0.0, no thinking) -- those are for a
-    stateless single-shot grounding primitive, a different use case from this multi-step
-    loop. "Reasoning is essential in agent mode (Holo was trained to plan before each
-    step), so leave it on" -- past reasoning is dropped between turns by the chat
-    template regardless (only the parsed tool call gets re-added to history, never
-    reasoning_content), so this only affects the CURRENT step's decision quality, not
-    what's threaded forward.
+    Params match native's config (docs/native/*.yaml): temperature=0.8,
+    reasoning_effort="medium", max_completion_tokens=2048 (mapped to max_tokens here),
+    thinking on. NOT the separate stateless element-localization endpoint's
+    (temperature=0.0, no thinking) -- a different tool for a different job. Past reasoning
+    is dropped between turns by the chat template regardless (only the parsed JSON content
+    gets re-added to history, never reasoning_content), so thinking only affects the
+    CURRENT step's decision quality.
 
-    LATENCY NOTE (2026-07-17, measured against this rig, not yet acted on -- a Phase I6
-    candidate if per-step latency needs tuning): image FORMAT doesn't matter locally --
-    PNG vs JPEG at the same resolution produced byte-identical prompt_tokens (2842 both),
-    since the vision encoder sees decoded pixels either way and loopback transfer of a
-    few MB is sub-millisecond regardless. Image RESOLUTION does matter -- 960x540 (1/4 the
-    pixels of 1920x1080) used ~35% fewer prompt_tokens (1834 vs 2842). But completion_tokens
-    (the reasoning trace, generated token-by-token -- sequential, slow) varied 90-154
-    across otherwise-identical calls, and one untimed call ran 30.5s for reasons unrelated
-    to image size -- reasoning-length variance at temperature=0.8 looks like a bigger
-    latency lever than image size/format. If tuning latency: downscaling resolution is a
-    real (if modest) win with a grounding-accuracy tradeoff to weigh; re-encoding as JPEG
-    is not worth doing.
-
-    `notes` (2026-07-19, ported from native holo-desktop-cli): accumulated persisted text
-    from prior steps' `note` args, rendered on every turn regardless of image eviction --
-    the caller (agent_loop_holo.py's run()) owns the growing list and passes it each call.
+    reasoning_effort is passed as a top-level request field (native sends it to H's
+    gateway). llama.cpp may ignore it -- flagged, not relied on; enable_thinking via
+    chat_template_kwargs is what actually controls the local reasoning trace.
     """
     base_url, model, api_key = _target_config(target)
     client = openai_client(base_url=base_url, api_key=api_key or "unused")
-    messages = build_messages(instruction, image_data_url, history=history, notes=notes)
+    messages = build_messages(instruction, image_data_url, history=history)
     trim_to_last_n_images(messages, n=max_history_images)
-    resp = client.chat.completions.create(
-        model=model, messages=messages, tools=TOOLS, tool_choice="required",
-        max_tokens=4096, temperature=temperature,
-        extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
-    )
+    t0 = time.time()
+    try:
+        resp = client.chat.completions.create(
+            model=model, messages=messages, response_format=RESPONSE_SCHEMA,
+            max_tokens=2048, temperature=temperature,
+            extra_body={
+                "chat_template_kwargs": {"enable_thinking": enable_thinking},
+                "reasoning_effort": "medium",
+            },
+        )
+    except Exception as e:
+        REQUEST_LOG.write({"target": target, "model": model, "messages": REQUEST_LOG._redact(messages),
+                           "response_format": RESPONSE_SCHEMA, "temperature": temperature,
+                           "enable_thinking": enable_thinking, "error": str(e),
+                           "http_ms": round((time.time() - t0) * 1000.0, 1)})
+        raise
     message = resp.choices[0].message.model_dump()
-    action = parse_response(message, image_w, image_h)
+    step = parse_response(message, image_w, image_h)
     usage = resp.usage.model_dump() if resp.usage else {}
-    return action, message, usage
+    REQUEST_LOG.write({"target": target, "model": model, "messages": REQUEST_LOG._redact(messages),
+                       "response_format": RESPONSE_SCHEMA, "temperature": temperature,
+                       "enable_thinking": enable_thinking, "response_message": message,
+                       "parsed_step": step, "usage": usage,
+                       "http_ms": round((time.time() - t0) * 1000.0, 1)})
+    return step, message, usage
 
 
 def call_holo(instruction: str, image_data_url: str, image_w: int, image_h: int,
               target: str = "local", history: list[dict] | None = None,
               temperature: float = 0.8, enable_thinking: bool = True) -> dict:
-    """End-to-end: build request, call the endpoint, parse into a normalized action dict.
+    """End-to-end single step: build request, call, parse into a step dict.
 
-    Takes an already-encoded data URL + known dimensions (not a file path) so a live
-    capture frame (kvm_agent.hardware.env.Camera.png_bytes()) can be passed straight
-    through without a round-trip to disk.
+    Takes an already-encoded data URL + known projection basis (not a file path) so a
+    live capture frame can be passed straight through without a round-trip to disk.
     """
-    action, _, _ = call_holo_full(instruction, image_data_url, image_w, image_h, target=target, history=history,
-                                   temperature=temperature, enable_thinking=enable_thinking)
-    return action
+    step, _, _ = call_holo_full(instruction, image_data_url, image_w, image_h, target=target,
+                                 history=history, temperature=temperature,
+                                 enable_thinking=enable_thinking)
+    return step
 
 
 def image_path_to_data_url(path: str) -> str:
+    """JPEG data URL from a file -- native transcodes model-input screenshots to JPEG
+    (screenshot_media_type: image/jpeg in docs/native/*.yaml). PNG inputs are decoded
+    and re-encoded; quality 90 (native's exact quality isn't recoverable from the
+    binary -- flagged, not guessed as gospel)."""
     import base64
-    with open(path, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode()
-    return f"data:image/png;base64,{b64}"
+    import io
+    from PIL import Image
+    with Image.open(path) as im:
+        buf = io.BytesIO()
+        im.convert("RGB").save(buf, format="JPEG", quality=90)
+    return f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}"
 
 
-def png_bytes_to_data_url(png_bytes: bytes) -> str:
+def jpeg_bytes_to_data_url(jpeg_bytes: bytes) -> str:
     import base64
-    return f"data:image/png;base64,{base64.b64encode(png_bytes).decode()}"
+    return f"data:image/jpeg;base64,{base64.b64encode(jpeg_bytes).decode()}"
 
 
 def call_holo_image_path(instruction: str, image_path: str, target: str = "local",
@@ -506,30 +662,41 @@ def call_holo_image_path(instruction: str, image_path: str, target: str = "local
 
 
 def _self_test():
-    """Offline self-test: re-parses the Phase-2 captured raw examples, no network."""
-    import os
-    fixture = os.path.join(os.path.dirname(__file__), "_fixtures", "holo_phase2_native_tools_raw.json")
+    """Offline self-test: re-parses the captured structured-output fixtures, no network.
+    Covers all 10 tools + a multi-call batch step."""
+    fixture = os.path.join(os.path.dirname(__file__), "_fixtures", "holo_native_verbatim_raw.json")
     with open(fixture) as f:
         examples = json.load(f)
 
-    image_w, image_h = 3132, 1515  # test_screens/llamaswap_ui.png, all Phase-2 examples used it
     ok = 0
+    total_actions = 0
     for ex in examples:
-        action = parse_response(ex["message"], image_w, image_h)
-        assert action["action"] != "error", f"failed to parse: {ex['instruction']!r} -> {action}"
-        print(f"OK  {ex['instruction']!r:70s} -> {action}")
+        step = parse_response(ex["message"], ex["image_w"], ex["image_h"])
+        assert not step.get("error"), f"failed to parse: {ex['instruction']!r} -> {step.get('error')}"
+        assert step["actions"], f"no actions: {ex['instruction']!r}"
+        print(f"OK  {ex['instruction']!r:70s} -> {len(step['actions'])} action(s), note={'yes' if step['note'] else 'null'}")
         ok += 1
+        total_actions += len(step["actions"])
 
     assert dropped_actions.count == 0, f"self-test should not drop any captured example, got {dropped_actions.count}"
-    print(f"\n{ok}/{len(examples)} examples parsed cleanly. dropped_actions={dropped_actions.count}")
+    print(f"\n{ok}/{len(examples)} examples parsed cleanly ({total_actions} actions). dropped_actions={dropped_actions.count}")
 
-    # Spot-check the click projection against the bring-up's verified formula.
-    click_ex = next(e for e in examples if e["message"]["tool_calls"][0]["function"]["name"] == "click")
-    action = parse_response(click_ex["message"], image_w, image_h)
-    raw_args = json.loads(click_ex["message"]["tool_calls"][0]["function"]["arguments"])
-    expected = [raw_args["x"] / 1000 * image_w, raw_args["y"] / 1000 * image_h]
-    assert action["coordinate"] == expected, (action["coordinate"], expected)
-    print(f"Coordinate projection check OK: raw=({raw_args['x']},{raw_args['y']}) -> {action['coordinate']}")
+    # Spot-check the click projection against the verified formula.
+    click_ex = next(e for e in examples
+                    if json.loads(e["message"]["content"])["tool_calls"][0]["tool_name"] == "click_desktop")
+    step = parse_response(click_ex["message"], click_ex["image_w"], click_ex["image_h"])
+    raw_tc = json.loads(click_ex["message"]["content"])["tool_calls"][0]
+    expected = [raw_tc["x"] / 1000 * click_ex["image_w"], raw_tc["y"] / 1000 * click_ex["image_h"]]
+    assert step["actions"][0]["coordinate"] == expected, (step["actions"][0]["coordinate"], expected)
+    print(f"Coordinate projection check OK: raw=({raw_tc['x']},{raw_tc['y']}) -> {step['actions'][0]['coordinate']}")
+
+    # Every tool the schema offers must appear in the fixtures (parser coverage).
+    schema_tools = {s["properties"]["tool_name"]["const"] for s in TOOL_CALL_SCHEMAS}
+    fixture_tools = {tc["tool_name"] for e in examples
+                     for tc in json.loads(e["message"]["content"])["tool_calls"]}
+    missing = schema_tools - fixture_tools
+    assert not missing, f"tools with no fixture coverage: {missing}"
+    print(f"Tool coverage check OK: all {len(schema_tools)} tools exercised")
 
 
 if __name__ == "__main__":

@@ -52,19 +52,29 @@ class Config:
     holo_model: str = _env("HOLO_MODEL", "holo3.1")
     holo_hosted_model: str = _env("HOLO_HOSTED_MODEL", "holo3-1-35b-a3b")
     hai_api_key: str = _env("HAI_API_KEY", "")   # hosted Holo API credential ("" -> unset)
-    # "goldfish memory" (2026-07-18): screenshots kept in the agent_loop_holo.py history,
-    # evicting older frames to text. Each kept screenshot re-pays its vision tokens on
-    # EVERY step, and text history already carries the narrative.
-    holo_history_images: int = int(_env("HOLO_HISTORY_IMAGES", "1"))
-    # Model-input capture resolution. Default False = 720p downscale (-35% prompt tokens,
-    # measured 2026-07-17 with no grounding cost on LARGE, sparse targets). 2026-07-19: a
-    # dense calendar date-picker showed real coordinate misses at 720p that a native
-    # 1080p-fed run did not reproduce -- test via HOLO_MODEL_INPUT_FULL_RES=1 on dense UIs.
-    holo_model_input_full_res: bool = _env("HOLO_MODEL_INPUT_FULL_RES", "0") != "0"
+    # Screenshots kept in the agent_loop_holo.py history, older frames evicted to text.
+    # Default 3 = native holo-desktop-cli's max_images (docs/native/*.yaml, recovered
+    # 2026-07-21; hub.hcompany.ai/agent-loop warns MORE than 3 degrades accuracy). The
+    # 2026-07-18 "goldfish memory" default of 1 was a token-saving deviation from native;
+    # retired on the native-verbatim line. Override for A/B tests.
+    holo_history_images: int = int(_env("HOLO_HISTORY_IMAGES", "3"))
+    # Model-input resolution (the height the capture is scaled to before sending to the
+    # model). Default 1080 = native behavior (full-res JPEG, clamped at 1920w). 720 = the
+    # old downscale: live A/B 2026-07-21 at history=3 (tools/probe_resolution_ab.py):
+    # 8,988 vs 11,883 prompt tok/step (-24%), ~9.1s vs ~13.6s steady-state wall/step
+    # (-33%) -- but real coordinate misses on dense UIs at 720p (2026-07-19). Replaces
+    # the old HOLO_MODEL_INPUT_FULL_RES bool.
+    holo_model_input_res: int = int(_env("HOLO_MODEL_INPUT_RES", "1080"))
 
     @property
     def screen_size(self):
         return (self.screen_w, self.screen_h)
+
+    @property
+    def logs_dir(self) -> str:
+        """Wire-level request/response logs (holo_requests.jsonl) -- artifacts, so they
+        live under runs/ (AGENTS.md §1), which is already gitignored."""
+        return _env("LOGS_DIR", os.path.join(self.runs_dir, "logs"))
 
 
 CFG = Config()
