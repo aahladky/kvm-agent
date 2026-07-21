@@ -30,11 +30,17 @@ FRAME = np.zeros((270, 480, 3), np.uint8)
 
 
 class FakeCam:
-    seq = 1
-    def read(self): return FRAME
-    def wait_newer(self, seq, timeout_s): return FRAME, seq + 1
+    def __init__(self, frame=None):
+        self._frame = frame if frame is not None else FRAME
+        self._seq = 0
+    @property
+    def seq(self):
+        self._seq += 1   # every access = a fresh capture (keeps seq-aware settle honest)
+        return self._seq
+    def read(self): return self._frame
+    def wait_newer(self, seq, timeout_s): return self._frame, seq + 1
     def model_input_jpeg(self):
-        ok, buf = cv2.imencode(".jpg", FRAME)
+        ok, buf = cv2.imencode(".jpg", self._frame)
         return buf.tobytes()
 
 
@@ -70,6 +76,7 @@ class FakeRecorder:
     instances = []
     def __init__(self, tag, goal, target=None, meta=None):
         self.tag = tag
+        self.meta = meta or {}
         self.steps = []
         self.finished = None
         FakeRecorder.instances.append(self)
@@ -288,6 +295,54 @@ def test_p1_9_camera_bringup_failure_is_catchable():
         assert "capture card" in str(raised), "error message says what to check"
     finally:
         env_mod.cv2 = real_cv2
+
+
+# --- second review #7: the evidence frame must BE the model's frame ---
+def test_r2_7_step_capture_single_read():
+    """The evidence PNG and the model-input JPEG derive from ONE buffer read (same
+    instant) -- previously two separate reads: different instants on a changing
+    screen, different resolutions, different encodings, while run_log.py's header
+    claims step_NN.png is the exact pre-decision frame."""
+    import base64
+    # Structured but unique frame (gradient + blocks): identity is verifiable and
+    # JPEG q90 stays faithful -- pure noise is JPEG's pathological worst case.
+    frame = np.zeros((270, 480, 3), np.uint8)
+    frame[:, :, 0] = np.linspace(0, 180, 480, dtype=np.uint8)[None, :]
+    frame[:, :, 1] = np.linspace(0, 160, 270, dtype=np.uint8)[:, None]
+    frame[40:120, 60:200] = (30, 200, 90)
+    frame[150:240, 300:450] = (220, 40, 120)
+    fake = FakeEnv()
+    fake.cam = FakeCam(frame)
+    saved_env = al.ENV
+    al.ENV = fake
+    try:
+        png, data_url = al._capture_step_frames()
+    finally:
+        al.ENV = saved_env
+    got = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)
+    assert np.array_equal(got, frame), "evidence PNG is the captured frame, full-res"
+    jpeg = base64.b64decode(data_url.split(",", 1)[1])
+    got_j = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+    assert got_j.shape[:2] == frame.shape[:2], "same frame, no resize below the input res"
+    assert np.abs(got_j.astype(int) - frame.astype(int)).mean() < 5, \
+        "model-input JPEG derives from the same instant (lossy, same pixels)"
+
+
+def test_r2_7_prompt_recorded_in_run_folder():
+    """The system prompt travels with the run's meta.json, not only in the global
+    holo_requests.jsonl correlated by timestamp."""
+    def finish_now(*a, **k):
+        return ({"actions": [{"action": "finished", "text": "done"}], "note": None},
+                {"content": "{}"}, {})
+    saved = _patch_run(finish_now)
+    try:
+        al.run("x", max_steps=1, confirm_first=0, tag="t_prompt")
+    finally:
+        _restore_run(saved)
+    rec = FakeRecorder.instances[-1]
+    assert isinstance(rec.meta.get("system_prompt"), str) \
+        and len(rec.meta["system_prompt"]) > 1000, \
+        "meta.json carries the full system prompt"
 
 
 if __name__ == "__main__":

@@ -57,6 +57,21 @@ def test_grade_task_input_handling():
     assert v == {"grade": "fail", "note": "fell over"}, "grade_task fail with note"
 
 
+def test_payload_score_is_fail_closed():
+    """Second review #8 (2026-07-21): an abandoned battery must not read as complete --
+    the score denominator is ALL tasks, not just the graded ones (a real Ctrl-C
+    battery recorded '1/1' before this)."""
+    tasks = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    results = [{"task_id": "a", "grade": "pass", "note": ""}]
+    p = battery.make_payload("20260721_000000", "tasks.json", False, tasks, results)
+    assert p["score"] == "1/3", f"score over total tasks, got {p['score']}"
+    assert p["total_tasks"] == 3 and p["graded"] == 1, "counts exposed"
+    assert p["complete"] is False, "partial battery is marked incomplete"
+    p2 = battery.make_payload("20260721_000000", "tasks.json", False, tasks[:1], results)
+    assert p2["score"] == "1/1" and p2["complete"] is True, \
+        "a fully-graded battery reads complete"
+
+
 if __name__ == "__main__":
     import sys, traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

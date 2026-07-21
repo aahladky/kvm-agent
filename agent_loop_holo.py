@@ -47,11 +47,13 @@ from PIL import Image
 
 from kvm_agent.config import CFG
 from kvm_agent.hardware.appliance import ApplianceError
-from kvm_agent.hardware.env import PicoEnv, tile_means_png, wait_until_stable
+from kvm_agent.hardware.env import (
+    PicoEnv, frame_png_bytes, model_input_jpeg, tile_means_png, wait_until_stable,
+)
 from kvm_agent.instrumentation import RunRecorder
 from kvm_agent.models.holo import (
-    call_holo, call_holo_full, jpeg_bytes_to_data_url, observation_message,
-    tool_output_message, trim_to_last_n_images,
+    SYSTEM_PROMPT, call_holo, call_holo_full, jpeg_bytes_to_data_url,
+    observation_message, tool_output_message, trim_to_last_n_images,
 )
 
 MAX_HISTORY_IMAGES = CFG.holo_history_images   # default 3 = native max_images (see config)
@@ -120,6 +122,18 @@ def _frame_png():
 def _model_input_data_url():
     """JPEG data URL at CFG.holo_model_input_res for the model (native-style input)."""
     return jpeg_bytes_to_data_url(ENV.cam.model_input_jpeg())
+
+
+def _capture_step_frames():
+    """ONE buffer read -> (evidence PNG, model-input data URL): both views of the
+    SAME frame at the SAME instant (2026-07-21 second review #7 -- previously the
+    evidence PNG and the model JPEG were two separate buffer reads: different
+    instants on a changing screen, different resolutions, different encodings,
+    while the recorder's header claims step_NN.png is the exact pre-decision
+    frame)."""
+    frame = ENV.cam.read()
+    return (frame_png_bytes(frame),
+            jpeg_bytes_to_data_url(model_input_jpeg(frame, CFG.holo_model_input_res)))
 
 
 def cap(name="live"):
@@ -363,12 +377,15 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                             meta={"max_steps": max_steps,
                                   "screen_size": (ENV.screen_width, ENV.screen_height),
                                   "model_input_res": CFG.holo_model_input_res,
-                                  "history_images": MAX_HISTORY_IMAGES}) if record else None
+                                  "history_images": MAX_HISTORY_IMAGES,
+                                  # The prompt the model ran under, kept WITH the run
+                                  # (second review #7): previously only in the global
+                                  # holo_requests.jsonl, correlated by timestamp.
+                                  "system_prompt": SYSTEM_PROMPT}) if record else None
     for step_i in range(max_steps):
-        png = _frame_png()
+        png, data_url = _capture_step_frames()
         LAST["png"] = png
         w, h = ENV.screen_width, ENV.screen_height
-        data_url = _model_input_data_url()
         step_instruction = instruction if step_i == 0 else ""
         t0 = time.time()
         try:

@@ -64,6 +64,14 @@ def model_input_jpeg(frame, target_h):
     return buf.tobytes()
 
 
+def frame_png_bytes(frame):
+    """Full-res PNG encode of a BGR frame — the evidence-frame counterpart of
+    model_input_jpeg, so a single buffer read can yield both views of the SAME
+    instant (second review #7)."""
+    ok, buf = cv2.imencode(".png", frame)
+    return buf.tobytes()
+
+
 def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=None, poll_s=0.05):
     """Wait up to max_s for the screen to STOP changing, returning as soon as
     `stable_frames` consecutive polls show a tile-max diff below `thresh`. Replaces

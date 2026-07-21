@@ -62,6 +62,18 @@ def write_results(path, payload):
     print(f"[battery] results -> {path}")
 
 
+def make_payload(ts, tasks_path, psr_active, tasks, results):
+    """Fail-closed scoring (2026-07-21 second review #8): the denominator is ALL
+    tasks, not just the graded ones -- an abandoned battery previously reported
+    '1/1', indistinguishable from a finished one (finding #8's fail-open class,
+    one level up)."""
+    return {"started": ts, "tasks_file": tasks_path, "psr_active": psr_active,
+            "total_tasks": len(tasks), "graded": len(results),
+            "complete": len(results) == len(tasks),
+            "results": results,
+            "score": f"{sum(r['grade'] == 'pass' for r in results)}/{len(tasks)}"}
+
+
 def main():
     tasks_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -81,9 +93,7 @@ def main():
     results_path = os.path.join(results_dir, "results.json")
 
     def payload():
-        return {"started": ts, "tasks_file": tasks_path, "psr_active": psr_active,
-                "results": results,
-                "score": f"{sum(r['grade'] == 'pass' for r in results)}/{len(results)}"}
+        return make_payload(ts, tasks_path, psr_active, tasks, results)
 
     # verify=False: the battery runs its OWN HID gate per task, post-reboot, with an
     # interactive replug loop (below) -- a boot-time gate raise here would kill the

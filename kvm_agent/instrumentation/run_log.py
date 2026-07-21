@@ -19,6 +19,20 @@ import time
 from kvm_agent.config import CFG
 
 
+def _step_action_kinds(step_record: dict) -> list:
+    """Action kinds for one logged step. Post-rearchitecture (2026-07-21) the logged
+    "action" field holds the whole parsed step dict (actions under "actions");
+    pre-batch records held a single action dict. Reading .get("action") off the
+    batched shape silently nulled every run's action list (second review #6)."""
+    step = step_record["action"]
+    if isinstance(step, dict):
+        if "actions" in step:
+            return [a.get("action") for a in step.get("actions") or []]
+        if step.get("action"):
+            return [step["action"]]
+    return []
+
+
 class RunRecorder:
     def __init__(self, tag: str, goal: str, target: str = "local", meta: dict | None = None):
         ts = time.strftime("%Y%m%d_%H%M%S")
@@ -60,8 +74,8 @@ class RunRecorder:
             "per_step_wall_time_s": [s["wall_time_s"] for s in self.steps],
             "per_step_prompt_tokens": [s["usage"].get("prompt_tokens") for s in self.steps],
             "per_step_completion_tokens": [s["usage"].get("completion_tokens") for s in self.steps],
-            "actions": [s["action"].get("action") for s in self.steps],
-            "final_action": self.steps[-1]["action"] if self.steps else None,
+            "actions": [_step_action_kinds(s) for s in self.steps],
+            "final_action": _step_action_kinds(self.steps[-1]) if self.steps else None,
         }
         self._write_json("summary.json", summary)
         print(f"[run_log] {'OK' if success else 'FAIL'} in {summary['steps_taken']} steps, "
