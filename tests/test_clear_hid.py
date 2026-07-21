@@ -83,6 +83,30 @@ def test_unknown_route_404_raises_with_detail():
         srv.shutdown()
 
 
+def test_type_scales_timeout_to_text_length():
+    """Second review #5 (2026-07-21): the bridge types at ~60-90ms/char, so the
+    default 5s timeout false-fires on ~65+ char segments (raising a 'transport
+    error' while the Pi types to completion -- false failure plus target-side
+    divergence). The timeout must scale with the text."""
+    import kvm_agent.hardware.appliance as appl
+    seen = []
+
+    class FakeResp:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def read(self): return b'{"ok": true}'
+
+    real = appl.urllib.request.urlopen
+    appl.urllib.request.urlopen = lambda req, timeout=None: seen.append(timeout) or FakeResp()
+    try:
+        ApplianceClient(base_url="http://x").type("a" * 200)
+    finally:
+        appl.urllib.request.urlopen = real
+    assert seen, "the type request was issued"
+    assert seen[0] >= 5.0 + 0.12 * 200, \
+        f"timeout scales with text length (200 chars), got {seen[0]}"
+
+
 if __name__ == "__main__":
     import sys, traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

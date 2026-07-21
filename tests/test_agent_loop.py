@@ -19,6 +19,7 @@ import numpy as np
 
 import agent_loop_holo as al
 import kvm_agent.hardware.env as env_mod
+from kvm_agent.hardware.appliance import ApplianceError
 
 
 def _png(v):
@@ -104,7 +105,7 @@ def _restore_run(saved):
 def test_p0_1_env_bringup_pushes_screen_size():
     r4 = FakeR4()
     real_camera, real_make = env_mod.Camera, env_mod.make_hid_client
-    env_mod.Camera = lambda *a, **k: FakeCam()
+    env_mod.Camera = lambda *a, **k: FakeCam(np.zeros((720, 1280, 3), np.uint8))
     env_mod.make_hid_client = lambda: r4
     try:
         env_mod.PicoEnv(cam_index=0, screen_size=(1280, 720), show=False)
@@ -343,6 +344,176 @@ def test_r2_7_prompt_recorded_in_run_folder():
     assert isinstance(rec.meta.get("system_prompt"), str) \
         and len(rec.meta["system_prompt"]) > 1000, \
         "meta.json carries the full system prompt"
+
+
+# --- second review #2: exec errors must count against STUCK_LIMIT and reach the model ---
+def test_r2_2_exec_errors_count_and_reach_the_model():
+    """The exec-error stuck-abort was dead code (stuck reset on every parsed step),
+    and the error tool_output was discarded before history threading -- the model
+    repeated the rejected action and burned the budget (the winleft class)."""
+    class FailR4(FakeR4):
+        def move(self, x, y):
+            raise ApplianceError("/hid/move not ok: unknown_key:winleft2")
+
+    def click_model(*a, **k):
+        return ({"actions": [{"action": "left_click", "coordinate": [10, 10]}], "note": None},
+                {"content": "{}"}, {})
+
+    fake = FakeEnv()
+    fake.r4 = FailR4()
+    saved = (al.ENV, al.call_holo_full, al.RunRecorder)
+    al.ENV = fake
+    al.call_holo_full = click_model
+    al.RunRecorder = FakeRecorder
+    FakeRecorder.instances.clear()
+    try:
+        al.run("click forever", max_steps=6, confirm_first=0, tag="t_execerr")
+    finally:
+        al.ENV, al.call_holo_full, al.RunRecorder = saved
+    rec = FakeRecorder.instances[-1]
+    assert rec.finished == (False, "stuck limit hit (exec errors)"), \
+        f"consecutive exec errors abort at STUCK_LIMIT, got {rec.finished}"
+    assert len(rec.steps) == 3, "aborts after STUCK_LIMIT steps, not the whole budget"
+    tool_outputs = [m["content"] for m in al.LAST["history"]
+                    if m.get("role") == "user" and isinstance(m.get("content"), str)
+                    and m["content"].startswith("<tool_output")]
+    assert any("Error:" in t and "unknown_key" in t for t in tool_outputs), \
+        "the model is told its action was rejected"
+
+
+# --- second review #9: screen size is measured after bring-up, not trusted ---
+def test_r2_9_screen_size_measured_not_trusted():
+    """cap.set(W/H) is a request; if V4L2 falls back to another mode the env must
+    adopt the ACTUAL frame size (projection + bridge scale both derive from it)."""
+    r4 = FakeR4()
+    real_camera, real_make = env_mod.Camera, env_mod.make_hid_client
+    env_mod.Camera = lambda *a, **k: FakeCam(np.zeros((720, 1280, 3), np.uint8))
+    env_mod.make_hid_client = lambda: r4
+    try:
+        e = env_mod.PicoEnv(cam_index=0, screen_size=(1920, 1080), show=False)
+    finally:
+        env_mod.Camera, env_mod.make_hid_client = real_camera, real_make
+    assert (e.screen_width, e.screen_height) == (1280, 720), \
+        "env adopts the ACTUAL negotiated capture size, not the configured fiction"
+    assert ("set_screen", 1280, 720) in r4.calls, \
+        "the bridge scale syncs to the measured size"
+
+
+# --- second review #10: the freshness floor starts AFTER the fire ---
+def test_r2_10_freshness_floor_starts_after_the_fire():
+    """seq0 was read at _execute entry, before the HID fire -- frames arriving during
+    the fire satisfied wait_newer while predating the effect."""
+    events = []
+
+    class OrdCam(FakeCam):
+        @property
+        def seq(self):
+            events.append("seq")
+            return 1
+        def wait_newer(self, seq, timeout_s):
+            return FRAME, 2
+
+    class OrdR4(FakeR4):
+        def move(self, x, y): events.append("move")
+        def click(self): events.append("click")
+
+    fake = FakeEnv()
+    fake.cam = OrdCam()
+    fake.r4 = OrdR4()
+    saved_env = al.ENV
+    al.ENV = fake
+    try:
+        al._execute({"action": "left_click", "coordinate": [1, 1]}, settle_s=0.1)
+    finally:
+        al.ENV = saved_env
+    assert events.index("seq") > events.index("click"), \
+        "seq0 is taken AFTER the last HID command returns"
+
+
+# --- second review #11: unsupported/no-op actions are reported as NOT executed ---
+def test_r2_11_unsupported_actions_report_not_executed():
+    fake = FakeEnv()
+    saved_env, saved_cur = al.ENV, al.CURSOR["pos"]
+    al.ENV = fake
+    al.CURSOR["pos"] = None
+    try:
+        info = al._execute({"action": "drag_to", "coordinate": [500, 500]}, settle_s=0.1)
+        assert info.get("noop"), "cursorless drag reports a no-op"
+        info = al._execute({"action": "scroll", "direction": "left", "scroll_size": 3},
+                           settle_s=0.1)
+        assert info.get("noop") and "vertical" in info["noop"], \
+            "left/right scroll reports a no-op (vertical-only firmware)"
+    finally:
+        al.ENV = saved_env
+        al.CURSOR["pos"] = saved_cur
+
+    def scroll_left_model(*a, **k):
+        return ({"actions": [{"action": "scroll", "direction": "left"},
+                             {"action": "finished", "text": "done"}], "note": None},
+                {"content": "{}"}, {})
+    saved = _patch_run(scroll_left_model)
+    try:
+        al.run("scroll left", max_steps=2, confirm_first=0, tag="t_noop")
+    finally:
+        _restore_run(saved)
+    tool_outputs = [m["content"] for m in al.LAST["history"]
+                    if m.get("role") == "user" and isinstance(m.get("content"), str)
+                    and m["content"].startswith("<tool_output")]
+    assert any("NOT executed" in t for t in tool_outputs), \
+        "the model is told the action was not performed"
+
+
+# --- second review #12: per-run state resets, blind-history guard, repeat clamp ---
+def test_r2_12_run_resets_cursor_and_plan():
+    """The battery reboots the target between tasks: a stale tracked cursor/plan
+    from the previous task is wrong by definition."""
+    al.CURSOR["pos"] = (5, 5)
+    al.PLAN["goals"] = [{"title": "stale", "status": "running"}]
+    def finish_now(*a, **k):
+        return ({"actions": [{"action": "finished", "text": "done"}], "note": None},
+                {"content": "{}"}, {})
+    saved = _patch_run(finish_now)
+    try:
+        al.run("x", max_steps=1, confirm_first=0, tag="t_reset")
+        assert al.CURSOR["pos"] is None, "CURSOR resets at run start"
+        assert al.PLAN["goals"] == [], "PLAN resets at run start"
+    finally:
+        _restore_run(saved)
+        al.CURSOR["pos"] = None
+        al.PLAN["goals"] = []
+
+
+def test_r2_12_zero_history_images_refused():
+    def finish_now(*a, **k):
+        return ({"actions": [{"action": "finished", "text": "done"}], "note": None},
+                {"content": "{}"}, {})
+    saved = _patch_run(finish_now)
+    real = al.MAX_HISTORY_IMAGES
+    al.MAX_HISTORY_IMAGES = 0
+    try:
+        raised = False
+        try:
+            al.run("x", max_steps=1, confirm_first=0, tag="t_blind")
+        except ValueError:
+            raised = True
+    finally:
+        al.MAX_HISTORY_IMAGES = real
+        _restore_run(saved)
+    assert raised, "HOLO_HISTORY_IMAGES=0 raises instead of silently blinding the model"
+
+
+def test_r2_12_hotkey_repeat_count_clamped():
+    fake = FakeEnv()
+    combos = []
+    fake.r4.combo = lambda spec: combos.append(spec)
+    saved_env = al.ENV
+    al.ENV = fake
+    try:
+        al._execute({"action": "hotkey", "keys": ["ctrl", "tab"], "repeat_count": 999},
+                    settle_s=0.1)
+    finally:
+        al.ENV = saved_env
+    assert 0 < len(combos) <= 10, f"repeat_count is clamped, fired {len(combos)}"
 
 
 if __name__ == "__main__":

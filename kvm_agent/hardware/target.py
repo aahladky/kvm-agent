@@ -46,6 +46,9 @@ def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0, attempts
     # also dragged the loop's import-time side effects (debug-dir makedirs) into
     # every verify_hid caller.
     from kvm_agent.hardware.env import tile_max_diff_png, wait_until_stable
+    # cam.seq is a property (an int), so wrap it -- and a wedged capture must not
+    # read as "stable" (second review #1).
+    seq_fn = (lambda: cam.seq) if hasattr(cam, "seq") else None
 
     def round_trip(fire):
         """esc -> settle -> before -> fire() -> settle -> diff -> esc -> settle.
@@ -53,13 +56,13 @@ def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0, attempts
         diff = 0.0
         for _ in range(attempts):
             r4.key("esc")
-            wait_until_stable(cam.read, 1.0)
+            wait_until_stable(cam.read, 1.0, seq_fn=seq_fn)
             before = cam.png_bytes()
             fire()
-            wait_until_stable(cam.read, settle_s)
+            wait_until_stable(cam.read, settle_s, seq_fn=seq_fn)
             diff = tile_max_diff_png(before, cam.png_bytes())
             r4.key("esc")
-            wait_until_stable(cam.read, 1.0)
+            wait_until_stable(cam.read, 1.0, seq_fn=seq_fn)
             if diff > thresh:
                 break
         return diff

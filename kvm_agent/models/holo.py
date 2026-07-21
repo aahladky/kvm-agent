@@ -620,6 +620,11 @@ def call_holo_full(instruction: str, image_data_url: str, image_w: int, image_h:
                            "http_ms": round((time.time() - t0) * 1000.0, 1)})
         raise
     message = resp.choices[0].message.model_dump()
+    if getattr(resp.choices[0], "finish_reason", None) == "length":
+        # A reasoning-truncated JSON parses as a format error otherwise, hiding the
+        # real cause (second review #12).
+        logger.warning("response hit the token cap (finish_reason='length') -- "
+                       "JSON likely truncated; will surface as a dropped step")
     step = parse_response(message, image_w, image_h)
     usage = resp.usage.model_dump() if resp.usage else {}
     REQUEST_LOG.write({"target": target, "model": model, "messages": REQUEST_LOG._redact(messages),

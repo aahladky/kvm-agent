@@ -53,15 +53,16 @@ OS-agnostic, undetectable. Pure curiosity project.
   re-asserts the tracked start before button-down, `jinja2` declared / `requests`
   dropped in `pyproject.toml`. Coverage: `tests/test_agent_loop.py` (offline, 12 checks).
 - Review batch-2 fixes (2026-07-21): `wait_until_stable` returns a status
-  ("stable"/"timeout"/"dead" — a dead capture no longer reads as instant stability);
-  capture stalls/dead-capture windows are surfaced into the step's `<tool_output>` and
-  the recorded step's `warnings` instead of a swallowed print; `boot()` runs the
-  camera-verified HID gate by default (`verify=False` to bypass — the battery keeps
-  its interactive per-task gate), so REPL sessions no longer click into a half-dead
-  HID silently.
+  ("stable"/"timeout"/"dead"); capture stalls/dead-capture windows are surfaced
+  into the step's `<tool_output>` and the recorded step's `warnings` instead of a
+  swallowed print; `boot()` runs the camera-verified HID gate by default
+  (`verify=False` to bypass — the battery keeps its interactive per-task gate), so
+  REPL sessions no longer click into a half-dead HID silently. (The "dead" status
+  initially covered only the never-delivered case; the wedged-capture case needed
+  the seq-aware fix in the second-review round below.)
 - Review batch-3 hygiene (2026-07-21): CLAUDE.md pruned to a corrected header +
   trust-ordered pointers (the ~80 KB retired-stack body survives in git history);
-  test suite is pytest-collectable (30 tests) while staying script-runnable, with a
+  test suite is pytest-collectable while staying script-runnable, with a
   declared `[test]` extra and new holo message-layer coverage
   (`tests/test_holo_messages.py`); the tile-max metric and its threshold have a
   single home (`kvm_agent.hardware.env` + `CFG.frame_change_threshold`);
@@ -75,6 +76,21 @@ OS-agnostic, undetectable. Pure curiosity project.
   hold_and_tap, `keys` field) and the batched step-record shape; battery summary is
   foldered (`runs/battery_<ts>/results.json`) and the resolution A/B probe writes
   its results to `runs/`.
+- Second-review fixes (2026-07-21, all 12 WRONG items; suite now 53 tests).
+  Evidence: `summary.json` action lists read the batched step shape; the evidence
+  PNG and model-input JPEG derive from ONE buffer read and the system prompt
+  travels in each run's `meta.json`; battery scoring is fail-closed over ALL tasks
+  (`total_tasks`/`graded`/`complete`). Feedback/robustness: exec-error steps count
+  against `STUCK_LIMIT` (the abort was dead code) and their error `<tool_output>`
+  reaches the model; `wait_until_stable` is seq-aware (a wedged capture reports
+  "dead", not "stable"); `combo()` fails closed on any unknown key; unsupported /
+  no-op actions report `NOT executed`; `type()`'s HTTP timeout scales with text
+  length; screen size is measured from the actual frame after bring-up (projection
+  AND the `set_screen` push); the freshness floor starts AFTER the HID fire;
+  `CURSOR`/`PLAN` reset per run; `repeat_count` clamped; `HOLO_HISTORY_IMAGES=0`
+  refused; `finish_reason='length'` logged. Firmware: `ph_usb_send_clear` no
+  longer injects a phantom wheel scroll (upstream PiKVM bug) — **needs a Pico
+  reflash**, and the `pikvm_proto.py` combo change **needs deploying to the Pi 5**.
 
 ## 4. Open problems
 

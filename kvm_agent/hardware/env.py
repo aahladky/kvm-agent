@@ -72,7 +72,8 @@ def frame_png_bytes(frame):
     return buf.tobytes()
 
 
-def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=None, poll_s=0.05):
+def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=None, poll_s=0.05,
+                      seq_fn=None):
     """Wait up to max_s for the screen to STOP changing, returning as soon as
     `stable_frames` consecutive polls show a tile-max diff below `thresh`. Replaces
     blind post-action sleeps: fast actions proceed immediately, slow-rendering apps
@@ -85,22 +86,45 @@ def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=None, poll_s=0.05)
     digit=5.7-17); RE-VALIDATE against the laptop panel's noise floor on the first
     physical run (Task 11) and adjust if the static floor differs.
 
+    seq_fn (2026-07-21 second review #1): a callable returning the capture's
+    monotonic frame seq (Camera.seq). When given, a poll whose seq hasn't advanced
+    counts as STALE, not as evidence of stability — a wedged capture returns the
+    same buffered frame forever (tile-diff 0), which without seq awareness reads as
+    an instantly "stable" UI.
+
     Returns a status string (2026-07-21 review P0-5 — previously every outcome
     returned None, so a dead capture was indistinguishable from instant stability):
         "stable"  — settled (stable_frames consecutive sub-thresh polls)
         "timeout" — still churning when the deadline hit
-        "dead"    — read_fn() returned None for the ENTIRE window (nothing was ever
-                    compared; the capture pipeline is not delivering)"""
+        "dead"    — no FRESH frame in the entire window (read_fn returned None
+                    throughout, or seq_fn never advanced: capture is not delivering)"""
     if thresh is None:
         thresh = CFG.frame_change_threshold
     end = time.time() + max_s
     prev = None
     stable = 0
-    saw_frame = False
+    baseline_seq = None
+    last_seq = None
+    saw_fresh = False
     while time.time() < end:
         f = read_fn()
         if f is not None:
-            saw_frame = True
+            if seq_fn is None:
+                saw_fresh = True
+            else:
+                s = seq_fn()
+                if baseline_seq is None:
+                    # First frame of the window: accepted as the diff baseline, but it
+                    # is NOT proof of liveness -- a wedged capture serves the same
+                    # buffered frame forever (second review #1).
+                    baseline_seq = s
+                    last_seq = s
+                elif s == last_seq:
+                    f = None        # stale: capture not advancing
+                else:
+                    last_seq = s
+                    saw_fresh = True
+        if f is not None:
             if prev is not None:
                 if _tile_max_diff(prev, f) < thresh:
                     stable += 1
@@ -110,7 +134,7 @@ def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=None, poll_s=0.05)
                     stable = 0
             prev = f
         time.sleep(poll_s)
-    return "dead" if not saw_frame else "timeout"
+    return "dead" if not saw_fresh else "timeout"
 
 
 def make_hid_client():
@@ -262,6 +286,16 @@ class PicoEnv:
     def __init__(self, cam_index=0, screen_size=(1920, 1080), show=False):
         self.screen_width, self.screen_height = screen_size
         self.cam = Camera(cam_index, *screen_size)
+        # cap.set(W/H) is a REQUEST -- V4L2 can silently fall back to a supported mode.
+        # Adopt the ACTUAL delivered frame size or every downstream layer (model
+        # projection, bridge pixel->wire scale via set_screen) runs on the configured
+        # fiction (2026-07-21 second review #9).
+        f = self.cam.read()
+        if f is not None and (f.shape[1], f.shape[0]) != (self.screen_width, self.screen_height):
+            print(f"[env] WARNING: capture negotiated {f.shape[1]}x{f.shape[0]}, config "
+                  f"said {self.screen_width}x{self.screen_height} -- using the actual size")
+            self.screen_width, self.screen_height = f.shape[1], f.shape[0]
+        print(f"[env] capture {self.screen_width}x{self.screen_height}")
         try:
             self.r4 = make_hid_client()
             # Start every session from all-keys-up: a combo interrupted mid-fault leaves the
@@ -280,14 +314,13 @@ class PicoEnv:
                 pass
             raise
         self.show = show
-        f = self.cam.read()
-        print(f"[env] capture {f.shape[1]}x{f.shape[0]}")
 
     def _settle(self, secs):
         # Smart settle (2026-07-18): return as soon as the UI stops changing instead of
-        # always burning the full blind wait.
+        # always burning the full blind wait. seq_fn: a wedged capture must not read
+        # as a settled UI (second review #1).
         if not self.show:
-            wait_until_stable(self.cam.read, secs)
+            wait_until_stable(self.cam.read, secs, seq_fn=lambda: self.cam.seq)
             return
         end = time.time() + secs
         while time.time() < end:

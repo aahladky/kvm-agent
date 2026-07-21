@@ -235,9 +235,13 @@ class PicoHidLink:
 
     def combo(self, spec):
         names = [p.strip().lower() for p in spec.split("+") if p.strip()]
-        codes = [KEYCODES[n] for n in names if n in KEYCODES]
-        if not codes:
-            raise ProtoError(f"unknown_combo:{spec}")
+        unknown = [n for n in names if n not in KEYCODES]
+        if unknown:
+            # Fail CLOSED on ANY unknown name (2026-07-21 second review #3): silently
+            # dropping it fired a DIFFERENT action than requested (["ctrl","winleft2"]
+            # -> a lone ctrl), acked OK.
+            raise ProtoError(f"unknown_combo:{spec} (unknown: {', '.join(unknown)})")
+        codes = [KEYCODES[n] for n in names]
         for kc in codes:
             self.kbd_key(kc, True)
         time.sleep(0.03)

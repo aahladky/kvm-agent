@@ -193,7 +193,12 @@ void ph_usb_send_clear(void) {
 	if (PH_O_IS_MOUSE_USB) {
 		_MOUSE_CLEAR;
 		if (PH_O_IS_MOUSE_USB_ABS) {
-			_mouse_abs_send_report(_mouse_abs_x, _mouse_abs_y);
+			// Pass (0, 0), NOT the cursor coords (2026-07-21, inherited upstream
+			// PiKVM bug): _mouse_abs_send_report's params are (s8 h, s8 v) scroll
+			// axes, so the s16 cursor coords were truncated into wheel events --
+			// every mid-fault clear injected a phantom scroll of dozens of notches
+			// into the focused window. Worth filing upstream (kvmd pico-hid).
+			_mouse_abs_send_report(0, 0);
 		} else { // PH_O_IS_MOUSE_USB_REL
 			_mouse_rel_send_report(0, 0, 0, 0);
 		}

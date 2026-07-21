@@ -29,13 +29,13 @@ class ApplianceClient:
         self.base = (base_url or CFG.appliance_url).rstrip("/")
         self.timeout = timeout
 
-    def _req(self, path, method="POST", **params):
+    def _req(self, path, method="POST", _timeout=None, **params):
         url = self.base + path
         if params:
             url += "?" + urllib.parse.urlencode(params)
         req = urllib.request.Request(url, method=method)
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            with urllib.request.urlopen(req, timeout=_timeout or self.timeout) as r:
                 data = json.load(r)
         except urllib.error.HTTPError as e:
             # The bridge answers failures with 502/404/400 + a JSON body carrying its
@@ -78,7 +78,12 @@ class ApplianceClient:
         last = None
         for i, seg in enumerate(parts):
             if seg:
-                last = self._req("/hid/type", text=seg)
+                # The bridge types at ~60-90ms/char (pikvm_proto pacing), so the default
+                # 5s timeout false-fires on ~65+ char segments -- a "transport error"
+                # while the Pi types to completion: false failure AND target-side
+                # divergence (2026-07-21 second review #5). Scale the budget to the text.
+                last = self._req("/hid/type", text=seg,
+                                 _timeout=max(self.timeout, 5.0 + 0.12 * len(seg)))
             if i < len(parts) - 1:
                 last = self._req("/hid/key", name="enter")
         return last

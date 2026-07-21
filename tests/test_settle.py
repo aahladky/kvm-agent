@@ -73,6 +73,38 @@ def test_status_return_values():
     assert s == "dead", "all-None window reports 'dead'"
 
 
+# (e) seq-aware dead-capture detection (2026-07-21 second review #1): a wedged
+#     capture returns the SAME buffered frame forever -- tile-diff 0 reads as
+#     "stable" unless the seq tells us nothing new is arriving.
+class SeqSource:
+    def __init__(self, frames, advance=True):
+        self.frames = frames
+        self.advance = advance
+        self.n = 0
+    def read(self):
+        f = self.frames[min(self.n, len(self.frames) - 1)]
+        if self.advance:
+            self.n += 1
+        return f
+    def seq(self):
+        return self.n if self.advance else 42   # frozen: capture thread wedged
+
+
+def test_frozen_seq_reports_dead_not_stable():
+    src = SeqSource([BASE.copy() for _ in range(50)], advance=False)
+    s = wait_until_stable(src.read, 0.3, poll_s=0.005, seq_fn=src.seq)
+    assert s == "dead", "frozen seq (wedged capture) reports 'dead', not 'stable'"
+
+
+def test_advancing_seq_stable_and_timeout():
+    src = SeqSource([BASE.copy() for _ in range(50)], advance=True)
+    s = wait_until_stable(src.read, 2.0, poll_s=0.005, seq_fn=src.seq)
+    assert s == "stable", "advancing seq on a static screen reports 'stable'"
+    src = SeqSource(_churn_frames(), advance=True)
+    s = wait_until_stable(src.read, 0.4, poll_s=0.005, seq_fn=src.seq)
+    assert s == "timeout", "advancing seq with churn reports 'timeout'"
+
+
 if __name__ == "__main__":
     import sys, traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

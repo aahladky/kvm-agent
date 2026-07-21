@@ -196,14 +196,19 @@ def _execute(action, settle_s=1.5):
     updated on every pointer action so drag_to can start from the true current position.
 
     Returns None for update_plan (no screen effect, early return) and otherwise a dict
-    {"stalled": str|None, "settle": str} — see the freshness-floor note below.
+    {"stalled": str|None, "settle": str|None, "noop": str|None} — `noop` is set when
+    the action was NOT performed (unsupported/no-op), so run() can say so in the
+    <tool_output> instead of reporting a misleading diff (2026-07-21 second review
+    #11). See the freshness-floor note below for `stalled`/`settle`.
 
     The wait_newer freshness floor (finding #6 pairing) is KEPT: the capture pipeline
     must advance PAST the fire before settling, so a later diff frame can never be one
     captured before the action landed. That is observation correctness, not injection.
+    seq0 is taken AFTER the last HID command returns (2026-07-21 second review #10):
+    read at entry, frames arriving DURING the fire satisfied wait_newer while
+    predating the effect.
     """
     kind = action.get("action")
-    seq0 = ENV.cam.seq
 
     if kind in ("left_click", "double_click"):
         x, y = (int(v) for v in action["coordinate"])
@@ -222,25 +227,28 @@ def _execute(action, settle_s=1.5):
         # rather than dragging from a guessed origin.
         if CURSOR["pos"] is None:
             print("[execute] drag_to with no tracked cursor position -- no-op")
-        else:
-            x1, y1 = CURSOR["pos"]
-            x2, y2 = (int(v) for v in action["coordinate"])
-            # Re-assert the start before button-down (2026-07-21 review P1-8): the
-            # tracked position can be stale if the pointer moved target-side since the
-            # last action. Absolute pointing makes the correction free (same shape as
-            # ApplianceClient.drag).
-            ENV.r4.move(x1, y1)
-            ENV.r4.down()
-            ENV.r4.move(x2, y2)
-            ENV.r4.up()
-            CURSOR["pos"] = (x2, y2)
+            return {"stalled": None, "settle": None,
+                    "noop": "drag_to had no tracked cursor position -- not performed"}
+        x1, y1 = CURSOR["pos"]
+        x2, y2 = (int(v) for v in action["coordinate"])
+        # Re-assert the start before button-down (2026-07-21 review P1-8): the
+        # tracked position can be stale if the pointer moved target-side since the
+        # last action. Absolute pointing makes the correction free (same shape as
+        # ApplianceClient.drag).
+        ENV.r4.move(x1, y1)
+        ENV.r4.down()
+        ENV.r4.move(x2, y2)
+        ENV.r4.up()
+        CURSOR["pos"] = (x2, y2)
     elif kind == "type":
         ENV.r4.type(action.get("text", ""))
         if action.get("press_enter"):
             ENV.r4.key("enter")
     elif kind == "hotkey":
         spec = "+".join(action.get("keys", []))
-        for _ in range(max(1, int(action.get("repeat_count", 1)))):
+        # repeat_count clamped (second review #12): an unclamped model-supplied count
+        # could fire hundreds of combos on one step.
+        for _ in range(min(10, max(1, int(action.get("repeat_count", 1))))):
             ENV.r4.combo(spec)
     elif kind == "hold_and_tap":
         # Our combo() holds all listed keys and taps the last; tapping each tap_key in
@@ -253,6 +261,15 @@ def _execute(action, settle_s=1.5):
     elif kind == "scroll":
         direction = action.get("direction")
         ticks = min(100, max(1, int(action.get("scroll_size", 3))))
+        if direction not in ("up", "down"):
+            # v5 firmware wheel is single-axis vertical only -- left/right have no real
+            # mapping. Report NOT-performed (second review #11) rather than letting the
+            # diff read as an executed action that failed.
+            print(f"[execute] scroll direction={direction!r} not supported by current "
+                  f"firmware (vertical wheel only) -- no-op")
+            return {"stalled": None, "settle": None,
+                    "noop": f"scroll direction={direction!r} is not supported by the "
+                            f"current firmware (vertical wheel only) -- not performed"}
         # Native places the cursor at (x, y) FIRST, then turns the wheel there -- the
         # wheel turns wherever the cursor sits, and an untargeted scroll can no-op
         # forever (flaw #10, scroll_to_about 2026-07-18).
@@ -263,13 +280,8 @@ def _execute(action, settle_s=1.5):
             time.sleep(0.3)
         if direction == "up":
             ENV.r4.scroll(ticks)
-        elif direction == "down":
-            ENV.r4.scroll(-ticks)
         else:
-            # v5 firmware wheel is single-axis vertical only -- left/right have no real
-            # mapping. No-op, loud, rather than a wrong guess.
-            print(f"[execute] scroll direction={direction!r} not supported by current "
-                  f"firmware (vertical wheel only) -- no-op")
+            ENV.r4.scroll(-ticks)
     elif kind == "update_plan":
         PLAN["goals"] = action.get("goals", [])
         running = [g.get("title") for g in PLAN["goals"] if g.get("status") == "running"]
@@ -279,6 +291,8 @@ def _execute(action, settle_s=1.5):
         pass    # nothing to execute; run() handles this as loop-terminal
     else:
         print(f"[execute] unknown action kind {kind!r} -- no-op")
+        return {"stalled": None, "settle": None,
+                "noop": f"unknown action kind {kind!r} -- not performed"}
 
     # Freshness floor: the capture pipeline must advance PAST the fire before settling.
     # A stall here means the post-action frame may PREDATE the action (finding #6's
@@ -286,6 +300,7 @@ def _execute(action, settle_s=1.5):
     # <tool_output> and the recorder instead of swallowing it as a print (2026-07-21
     # review P0-3). Not raised: the stall timeout shares the settle budget, so it can
     # fire on a merely slow render -- a warning, not a batch-killing error.
+    seq0 = ENV.cam.seq   # AFTER the fire (second review #10), not at entry
     stalled = None
     try:
         ENV.cam.wait_newer(seq0, timeout_s=settle_s)
@@ -293,8 +308,9 @@ def _execute(action, settle_s=1.5):
         stalled = f"capture stalled: no frame newer than seq={seq0} within {settle_s}s"
         print(f"[execute] WARNING: {stalled}")
     # Smart settle (2026-07-18): proceed the moment the UI stops changing, up to settle_s.
-    settle = wait_until_stable(ENV.cam.read, settle_s)
-    return {"stalled": stalled, "settle": settle}
+    # seq_fn: a wedged capture must not read as a settled UI (second review #1).
+    settle = wait_until_stable(ENV.cam.read, settle_s, seq_fn=lambda: ENV.cam.seq)
+    return {"stalled": stalled, "settle": settle, "noop": None}
 
 
 def _frame_diff_detail(png_a, png_b):
@@ -351,9 +367,12 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     then trims to the last MAX_HISTORY_IMAGES screenshots (default 3 = native). The task
     instruction is sent ONLY on step 0's observation turn -- later turns carry it via
     history. Only the batch's FINAL screenshot is re-observed by the model (native's own
-    batching rule). Steps that error (dropped/unparseable JSON) are NOT threaded into
-    history -- referencing a malformed turn back to the model would confuse it more than
-    a clean retry. The response_format schema constraint makes these rare.
+    batching rule). Steps whose JSON fails to PARSE (dropped steps) are NOT threaded
+    into history -- referencing a malformed turn back to the model would confuse it
+    more than a clean retry, and the response_format schema constraint makes these
+    rare. Steps whose actions fail at EXECUTION time (ApplianceError) ARE threaded,
+    error tool_output included -- the model must see the rejection to stop retrying
+    the invalid action (2026-07-21 second review #2).
 
     confirm_first defaults to CONFIRM_FIRST; pass 0 to run unattended.
 
@@ -367,12 +386,22 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     non-finished return (stuck limit / no-progress abort / max_steps).
     """
     confirm_first = CONFIRM_FIRST if confirm_first is None else confirm_first
+    if MAX_HISTORY_IMAGES < 1:
+        # 0 would evict EVERY screenshot (trim's n=0 contract) -- the model would run
+        # blind and every step would read as a model failure (second review #12).
+        raise ValueError(f"MAX_HISTORY_IMAGES={MAX_HISTORY_IMAGES} would blind the "
+                         f"model (HOLO_HISTORY_IMAGES must be >= 1)")
     history = []
     LAST["history"] = history
     stuck = 0
     frozen = 0          # consecutive executed steps with no visible screen change
     click_repeat = 0    # consecutive steps whose last click landed in ~the same spot
     last_click = None
+    # Fresh per-run state (second review #12): the battery reboots the target between
+    # tasks, so a tracked cursor/plan carried over from the previous run is wrong by
+    # definition.
+    CURSOR["pos"] = None
+    PLAN["goals"] = []
     recorder = RunRecorder(tag, instruction, target=target,
                             meta={"max_steps": max_steps,
                                   "screen_size": (ENV.screen_width, ENV.screen_height),
@@ -415,7 +444,9 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                     recorder.finish(False, note="stuck limit hit")
                 return {"finished": False, "answer_text": ""}
             continue
-        stuck = 0
+        # NOTE: no stuck reset here (second review #2): resetting before execution
+        # made the exec-error increment below dead code -- it could never reach
+        # STUCK_LIMIT. The reset now happens only after a step completes cleanly.
         actions = step["actions"]
 
         if step_i < confirm_first:
@@ -454,9 +485,17 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
             score, region = _frame_diff_detail(before, after)
             changed = score > FRAME_CHANGE_THRESHOLD
             step_changed = step_changed or changed
-            result = (f"Executed. Screen changed (max tile diff {score:.1f}, region {region})."
-                      if changed else
-                      f"Executed. Screen did not visibly change (max tile diff {score:.1f}).")
+            if exec_info and exec_info.get("noop"):
+                # The action was NOT performed (unsupported direction, no tracked
+                # cursor, unknown kind). Say so explicitly (second review #11) --
+                # otherwise "did not visibly change" reads as an executed action
+                # that merely failed, and the model retries it.
+                result = f"NOT executed: {exec_info['noop']}."
+                step.setdefault("warnings", []).append(exec_info["noop"])
+            else:
+                result = (f"Executed. Screen changed (max tile diff {score:.1f}, region {region})."
+                          if changed else
+                          f"Executed. Screen did not visibly change (max tile diff {score:.1f}).")
             if exec_info:
                 # Surface capture-health warnings to the model AND the recorder
                 # (2026-07-21 review P0-3): the diff above may have compared a stale
@@ -481,17 +520,13 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         if step.get("note"):
             print(f"[run] note: {step['note']!r}")
 
-        if exec_error:
-            stuck += 1
-            if stuck >= STUCK_LIMIT:
-                print("[run] stuck limit hit (exec errors) -- aborting")
-                if recorder:
-                    recorder.finish(False, note="stuck limit hit (exec errors)")
-                return {"finished": False, "answer_text": ""}
-            continue
-
         # Thread this step into history: own observation (without re-rendering the
         # instruction -- it appears on the live call only) + assistant JSON + tool_outputs.
+        # Exec-error steps are threaded TOO (second review #2): the error tool_output is
+        # the only way the model learns its action was rejected and which earlier batch
+        # calls DID execute -- discarding it made the model repeat the invalid action
+        # and burn the budget. Only PARSE failures stay unthreaded (a malformed turn
+        # would confuse the model more than a clean retry).
         history.append(observation_message(data_url, step_instruction))
         history.append({"role": "assistant", "content": message.get("content") or ""})
         history.extend(tool_outputs)
@@ -502,6 +537,16 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
             if recorder:
                 recorder.finish(True, note=answer_text)
             return {"finished": True, "answer_text": answer_text}
+
+        if exec_error:
+            stuck += 1
+            if stuck >= STUCK_LIMIT:
+                print("[run] stuck limit hit (exec errors) -- aborting")
+                if recorder:
+                    recorder.finish(False, note="stuck limit hit (exec errors)")
+                return {"finished": False, "answer_text": ""}
+            continue
+        stuck = 0   # a cleanly completed step is the ONLY thing that resets the counter
 
         # no-progress guards (flaw #9): abort instead of silently burning the budget.
         # (a) screen frozen -- consecutive executed steps with no visible change; (b) clustered
