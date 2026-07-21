@@ -130,7 +130,7 @@ TOOLS = [
         # 2026-07-19 after a WAA notepad run burned 15 click/drag steps (waa__366de66e
         # …_205131 steps 25-39) trying to clear a Save-dialog filename field with the
         # mouse -- the action space had no keyboard path besides write()'s press_enter.
-        # Backed by ENV.r4.key()/combo() (kvm_agent/hardware/pico_client.py), which already
+        # Backed by ENV.r4.key()/combo() (kvm_agent/hardware/appliance.py), which already
         # supports named keys + held combos; this just exposes it to the model.
         "type": "function",
         "function": {

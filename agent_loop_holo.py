@@ -2,10 +2,11 @@
 agent_loop_holo.py — REPL-driven capture->ground->act loop for Holo3.1, built around
 kvm_agent.models.holo (NOT the old EvoCUA/UI-TARS loop -- Holo emits a normalized
 action dict via native tool-calling, not pyautogui code strings, so execution here maps
-straight onto env.r4, bypassing the PicoPyAutoGUI exec-shim those older agents used).
+straight onto env.r4, bypassing the PicoPyAutoGUI exec-shim those older agents used, now archived).
 
-STATUS: Phases I0-I5 done (see HOLO_INTEGRATION_PLAN.md) -- verified live against the rig
-(VM target, SPICE-fullscreen capture, Pico HID over WiFi). ground()+do() (single action)
+STATUS: Phases I0-I5 done (see HOLO_INTEGRATION_PLAN.md -- SUPERSEDED) -- verified live
+against the rig (originally VM target; physical Win10 laptop as of the 2026-07-20 move,
+appliance HID over UART). ground()+do() (single action)
 and run() (multi-step with real history threading -- see run()'s docstring for the
 schema) have both landed a model-decided click correctly on a live target.
 

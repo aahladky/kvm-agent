@@ -11,7 +11,7 @@ A KVM-over-IP-style computer-use agent where nothing is installed on the target 
 Repo layout (cleaned 2026-07-20)
 
 Code (~120M, tracked):
-- kvm_agent/          — canonical package (models, hardware, orchestration, server). Active.
+- kvm_agent/          — canonical package (config, hardware, instrumentation, llm, models). Active.
 - agent_loop_holo.py  — CURRENT agent loop (Holo3.1 + WAA). Where new work happens.
 - appliance/, waa/, tools/, tests/, docs/ — current-gen support: appliance code,
   WindowsAgentArena runner + shakedown results, harnesses/probes, unit tests, session reports.
@@ -75,7 +75,9 @@ on the easier task class it's actually aimed at. See session doc §5, §7 for ne
 ★ WORKING TREE HAS REAL, TESTED, UNCOMMITTED CHANGES as of this block (agent_loop_holo.py,
 kvm_agent/config.py, kvm_agent/hardware/env.py, kvm_agent/models/holo.py, waa/runner.py,
 new tools/shakedown_ab.py + tools/show_reasoning.py) — not committed per "only commit
-when explicitly asked"; see session doc §7.
+when explicitly asked"; see session doc §7. UPDATE 2026-07-20: those changes were
+committed (00efc76, 61f0ca6, 69b603d); the tree is clean as of the 2026-07-20
+physical-move work.
 ═══════════════════════════════════════════════════════════════
 ★★★ READ FIRST — 2026-06-22: PORT FIX + REASONING-BUDGET REALITY + FIRST ALL-LOCAL PASS ON A NEW BENCHMARK — see docs/SESSION_2026-06-22_local_portfix_and_calc_benchmark.md ★★★
 ═══════════════════════════════════════════════════════════════

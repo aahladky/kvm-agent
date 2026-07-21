@@ -1,9 +1,7 @@
 # Project State — KVM-over-IP Computer-Use Agent
 
-_Snapshot: 2026-07-20 — post-sweep. Supersedes the 2026-06-21 snapshot (pre-Holo
-stack; preserved in git history). Authoritative session detail: CLAUDE.md banners +
-`docs/SESSION_2026-07-19_holo_focus_bug_and_native_prompt_port.md` +
-`docs/REPORT_2026-07-19_problems.md`._
+_Snapshot: 2026-07-20 — physical-target move. Supersedes the 2026-07-20 post-sweep
+snapshot (git history). Design: `docs/PLAN_2026-07-20_physical_target_move.md`._
 
 ## 1. What it is
 
@@ -15,55 +13,59 @@ OS-agnostic, undetectable. Pure curiosity project.
 ## 2. The live system (current iteration)
 
 - **LOOP** — `agent_loop_holo.py`: one tool-call per step, observe→act with
-  verify-and-retry. Model: **Holo3.1-35B** served locally via **llama-swap**
-  (`http://127.0.0.1:9292/v1`, SYCL llama-server on the Arc Pro B70, modelctl-managed).
+  verify-and-retry (paired to the action via frame seq numbers). Model: **Holo3.1-35B**
+  served locally via **llama-swap** (`http://127.0.0.1:9292/v1`, SYCL llama-server on
+  the Arc Pro B70, modelctl-managed).
 - **HID** — Pi 5 + Pico 2 W **appliance** (`appliance/`): Pico runs `pico_fw/`
-  (C/TinyUSB, ported from PiKVM 2026-07-18, CRC16 binary protocol over 3-wire UART);
-  Pi 5 runs `hid_bridge.py` (HTTP API, `http://192.168.0.29:8080`). Host client:
-  `kvm_agent/hardware/appliance.py` via `env.py`. The WiFi-Pico path is retired.
-- **CAPTURE** — HDMI capture card via cv2 (V4L2 on the Linux host).
-- **TARGET** — Win11 VM `win11-agent` (libvirt): reverted to the `clean-desktop`
-  snapshot + cold boot between WAA tasks (`kvm_agent/hardware/vm.py`).
-- **EVAL** — WindowsAgentArena via `waa/runner.py`. Verifier = **holo3.1
-  self-grade** (fresh prompt on the final frame; zero model swaps — the
-  gemma4-dense grader caused 16 evictions in 45 min on 2026-07-18).
+  (C/TinyUSB, PiKVM port, CRC16 binary protocol over 3-wire UART); Pi 5 runs
+  `hid_bridge.py` (HTTP API, `http://192.168.0.29:8080`). Host client:
+  `kvm_agent/hardware/appliance.py`. `clear_hid` (all-keys-up) runs on connect + close.
+- **CAPTURE** — HDMI capture card via cv2 (V4L2 on the Linux host), `Camera` +
+  `FrameBuffer` (monotonic frame seq) in `kvm_agent/hardware/env.py`.
+- **TARGET** — physical **Windows 10 spare laptop**, lid closed, HDMI out → capture
+  card → passthrough to the user's monitor. Power/reset seam:
+  `kvm_agent/hardware/target.py` (v1 MANUAL reboot; WoL/smart-plug backend deferred —
+  decide with hardware in front of us). Reset strategy: reboot between tasks; disk
+  image (Clonezilla) as the determinism backstop.
+- **EVAL** — human-graded battery: `tools/battery.py` + task JSON. The user grades
+  pass/fail per task from the recorded evidence; no automated grade exists and no
+  uncertain grade can masquerade as a pass (finding #8). Steps Recorder (psr.exe) on
+  the laptop is the independent ground-truth channel (what Windows actually received
+  vs what the capture card saw).
 - **EVIDENCE** — every run records per-step frames + raw model output +
   `reasoning_content` to `runs/<tag>_<time>/` (`RunRecorder`). First tool on any
-  failed run: `tools/show_reasoning.py`. A/B harness: `tools/shakedown_ab.py`.
+  failed run: `tools/show_reasoning.py`.
 
 ## 3. Solved (verified)
 
-- **Win32 focus-transfer bug** (2026-07-19): apps launched via Win+R don't reliably
-  receive real keyboard focus; keystrokes went to the desktop. Fix in `_execute()`:
-  a `type` with no visible screen change clicks to force focus before retrying.
-  Verified by replay; notepad task passes at history 1 and 2.
-- **WAA server terminal-window leak** (present in every WAA run since adoption):
-  patched + re-baked into the `clean-desktop` snapshot.
-- **Pico HID reliability**: CircuitPython firmware was structurally unsound;
-  replaced wholesale by the PiKVM port (`appliance/pico/` retired).
-- Blame ledger so far: **model 0, our code 3** (`AGENTS.md` §5).
+- Win32 focus-transfer bug (2026-07-19, click-to-focus retry in `_execute()`).
+- WAA server terminal-window leak (patched + re-baked; moot post-WAA).
+- Pico HID reliability (PiKVM firmware port; WiFi-Pico path retired).
+- Harness trust (2026-07-20): tile-max settle metric, frame-seq before/after pairing
+  (finding #6 closed), `clear_hid` wiring.
+- Blame ledger: **model 0, our code 3** (`AGENTS.md` §5).
 
 ## 4. Open problems
 
-- **windows_calc went 0/9** across history depths 1-3: inconsistent WinUI3
-  date-picker widget (live double-reproduced) + a stuck-popup click bug distinct
-  from the focus bug (session doc §4). Native holo-desktop-cli passes the same
-  task — same model, different pipeline.
-- **Native prompt port** (loop-detection instruction, `note` param + persistent
-  notes block, stricter termination checklist): real but partial effect; notes saw
-  zero uptake; not yet validated on the easier task class it targets (§5, §7).
-- **Store auto-update pause** on the target expires **~2026-08-23** — re-apply
-  (steps in memory `waa_store_autoupdate_pause.md`).
-- History-depth is not a dial that fixes the hard task class (3-depth shakedown:
-  5/17, 7/16, 7/15).
+- **First honest baseline**: the physical shakedown battery (5 tasks,
+  `tools/battery_tasks_shakedown.json`) has not yet run — all prior numbers came from
+  the VM stack and don't transfer.
+- windows_calc class: WinUI3 date-picker inconsistency + stuck-popup click bug
+  (2026-07-19 session doc §4). Win10's classic calc may not reproduce it — re-observe.
+- Settle threshold (3.0) is calibrated on the VM-era capture chain; re-validate on
+  the laptop panel's noise floor on the first physical run.
+- Store auto-update pause expiry (VM-era note; re-assess for the laptop).
+- Deferred: power-control backend, firmware HID watchdog, automated fail-closed
+  vision grading (schema slot exists: `grader` field in battery results).
 
-## 5. Retired (2026-07-20 sweep — `_archive/old-stack/`)
+## 5. Retired
 
-EvoCUA/UI-TARS/B580-planner stack, Open-WebUI server path, orchestration
-executive/planner, battery, hindsight memory, Ollama-based verifier
-(`qwen2.5vl:7b` via laptop — Ollama no longer installed), WiFi R4 Pico transport
-(`pico_client.py`), CircuitPython firmware (`boot.py`/`code.py`), `rig.py` +
-`preflight.py` (checked the dead stack). Nothing live imports from `_archive/`.
+2026-07-20 sweep: EvoCUA/UI-TARS/B580-planner stack, orchestration, battery-v1,
+hindsight, Ollama verifier, WiFi Pico, CircuitPython firmware, rig/preflight.
+2026-07-20 physical move: **libvirt VM stack (`vm.py`, win11-agent),
+WindowsAgentArena (`waa/`), the EvoCUA pyautogui exec-shim, `wol.py`,
+`shakedown_ab.py`, `appliance/pico/` + `send.py` + `stage2_verify.py`** — all in
+`_archive/`. Nothing live imports from `_archive/`.
 
 ## 6. House rules
 

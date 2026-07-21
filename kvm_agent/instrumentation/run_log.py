@@ -1,6 +1,6 @@
 """Per-run instrumentation for the Holo agent loop.
 
-PROJECT_GUIDANCE_holo.md §3.3: "record every battery run: each step's frame, the model's
+AGENTS.md §1 (all artifacts in runs/) and the 2026-07-18 harness review: "record every battery run: each step's frame, the model's
 raw response, token usage (prompt_tokens/completion_tokens), wall time, and the action
 dispatched... converts the battery into a permanent regression suite." This module is
 the write side of that; analysis (grounding rate, completion-signaling rate,
