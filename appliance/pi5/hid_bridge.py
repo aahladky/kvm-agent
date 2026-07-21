@@ -133,8 +133,9 @@ def _cmd_set_screen(q):
     capture card ever negotiated something other than 1920x1080 (cv2's `cap.set()` is a
     REQUEST, not a guarantee -- V4L2 can silently fall back to a supported mode). This
     endpoint lets the host tell the bridge what it ACTUALLY captured, once, right after
-    opening the capture device -- see kvm_agent/hardware/env.py PicoEnv.__init__ for the
-    caller. No Pico firmware involved: SCREEN_W/H is a plain Python global here, used only
+    opening the capture device -- see agent_loop_holo.boot() for the caller (wired
+    2026-07-21; nothing called this endpoint before that -- review P0-1). No Pico
+    firmware involved: SCREEN_W/H is a plain Python global here, used only
     to compute the wire-range scale in mouse_abs() -- changing it takes effect on the very
     next /hid/move call, no restart needed.
     """

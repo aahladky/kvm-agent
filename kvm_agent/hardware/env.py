@@ -222,6 +222,12 @@ class PicoEnv:
         self.show = show
         f = self.cam.read()
         print(f"[env] capture {f.shape[1]}x{f.shape[0]}")
+        if (f.shape[1], f.shape[0]) != tuple(screen_size):
+            # cap.set() is a REQUEST -- V4L2 can silently fall back to another mode.
+            # Coordinates project against the CONFIGURED size, so a mismatch here means
+            # every click is scaled wrong until the config matches the card's real mode.
+            print(f"[env] WARNING: captured {f.shape[1]}x{f.shape[0]} != configured "
+                  f"{screen_size[0]}x{screen_size[1]} -- fix CFG.screen_w/h or the card mode")
 
     def _settle(self, secs):
         # Smart settle (2026-07-18): return as soon as the UI stops changing instead of

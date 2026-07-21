@@ -50,7 +50,7 @@ from kvm_agent.hardware.appliance import ApplianceError
 from kvm_agent.hardware.env import PicoEnv, wait_until_stable
 from kvm_agent.instrumentation import RunRecorder
 from kvm_agent.models.holo import (
-    call_holo, call_holo_full, jpeg_bytes_to_data_url, observation_message,
+    _error_step, call_holo, call_holo_full, jpeg_bytes_to_data_url, observation_message,
     tool_output_message, trim_to_last_n_images,
 )
 
@@ -84,10 +84,15 @@ PLAN = {"goals": []}
 
 
 def boot():
-    """Open camera + appliance HID. Idempotent-ish; call once."""
+    """Open camera + appliance HID, and sync the bridge's click scale to the pixel
+    space this loop sends coordinates in. Idempotent-ish; call once."""
     global ENV
     if ENV is None:
         ENV = PicoEnv(cam_index=CFG.cam_index, screen_size=CFG.screen_size, show=False)
+        # Nothing else ever pushes /hid/set_screen (review 2026-07-21 P0-1), so without
+        # this the bridge scales clicks from its process-lifetime default and a
+        # resolution mismatch stretches every click silently.
+        ENV.r4.set_screen(ENV.screen_width, ENV.screen_height)
     print(f"[boot] ready. holo target=local ({CFG.holo_local_url}, model={CFG.holo_model})")
     return True
 
@@ -196,6 +201,9 @@ def _execute(action, settle_s=1.5):
         else:
             x1, y1 = CURSOR["pos"]
             x2, y2 = (int(v) for v in action["coordinate"])
+            # Re-assert the start before pressing: CURSOR tracks every pointer action we
+            # fire, but the PHYSICAL cursor can drift target-side (review 2026-07-21 P1-8).
+            ENV.r4.move(x1, y1)
             ENV.r4.down()
             ENV.r4.move(x2, y2)
             ENV.r4.up()
@@ -353,8 +361,16 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         data_url = _model_input_data_url()
         step_instruction = instruction if step_i == 0 else ""
         t0 = time.time()
-        step, message, usage = call_holo_full(step_instruction, data_url, w, h, target=target,
-                                              history=history, max_history_images=MAX_HISTORY_IMAGES)
+        try:
+            step, message, usage = call_holo_full(step_instruction, data_url, w, h, target=target,
+                                                  history=history, max_history_images=MAX_HISTORY_IMAGES)
+        except Exception as e:
+            # A transport/API failure (timeout, refused, 5xx) must end THIS TASK with a
+            # recorded verdict, not propagate and abort every remaining battery task
+            # (review 2026-07-21 P0-2; logs/holo_requests.jsonl still has the raw
+            # failure). Routed through the dropped-step path below: recorder logs it,
+            # stuck-limit finishes with summary.json.
+            step, message, usage = _error_step(f"model call failed: {e}", {}), {}, None
         dt = time.time() - t0
         LAST["step"] = step
         print(f"[run {dt:.1f}s] step {step_i}: {step.get('note')!r} | {step.get('actions')}")
@@ -450,7 +466,11 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         # repeated clicks -- consecutive steps whose last click landed within ~25px (the
         # small_target_tray case, where clicks toggled a flyout so 'changed' was True but
         # nothing advanced).
-        frozen = frozen + 1 if not step_changed else 0
+        # A plan-only batch has no screen effect by design: it neither proves progress
+        # nor indicates a freeze, so it leaves the counter untouched (review 2026-07-21
+        # P1-7: four planning-only steps used to trip the "screen frozen" abort).
+        if any(a.get("action") != "update_plan" for a in actions):
+            frozen = frozen + 1 if not step_changed else 0
         step_clicks = [a for a in actions if a.get("action") in ("left_click", "double_click") and a.get("coordinate")]
         if step_clicks:
             c = step_clicks[-1]["coordinate"]
