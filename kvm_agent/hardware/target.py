@@ -23,7 +23,7 @@ def is_up():
     return True
 
 
-def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0):
+def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0, attempts=2):
     """Functional HID gate: prove the keyboard AND mouse collections actually deliver
     to the target OS, camera-verified. The firmware's probe flags can LIE -- 2026-07-21:
     a post-reboot half-dead composite device reported mouse_online=true while every
@@ -33,29 +33,45 @@ def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0):
     Keyboard round-trip: Win+R must open the Run dialog; Esc closes it.
     Mouse round-trip: a Start-button click must open the Start menu; Esc closes it.
     thresh=20.0 sits far above taskbar widget churn (~5-12) and far below a real
-    dialog/menu appearing (measured 60-200+ on the laptop). Both tests leave the
-    desktop as they found it. Returns (ok: bool, detail: str)."""
+    dialog/menu appearing (measured 60-200+ on the laptop).
+
+    Contamination-hardened (same day, second bug): a leftover OPEN Run dialog makes
+    win+r a no-op (diff ~0) and an UNFOCUSED one ignores Esc -- reading falsely as
+    "keyboard dead". Each round-trip therefore runs up to `attempts` times: pre-Esc to
+    dismiss leftovers, and a small diff triggers a clean retry (the first attempt's
+    post-Esc closes a refocused leftover, so the retry measures a real open). Returns
+    (ok: bool, detail: str)."""
     # lazy: package -> script import (same pattern the archived vm.py used); keeps
     # target.py importable without dragging the loop's import-time side effects in.
     from agent_loop_holo import _frame_diff_score
     from kvm_agent.hardware.env import wait_until_stable
 
-    before = cam.png_bytes()
-    r4.combo("win+r")
-    wait_until_stable(cam.read, settle_s)
-    kbd_diff = _frame_diff_score(before, cam.png_bytes())
-    r4.key("esc")
+    def round_trip(fire):
+        """esc -> settle -> before -> fire() -> settle -> diff -> esc -> settle.
+        Returns the diff of the first attempt that beats thresh, else the last diff."""
+        diff = 0.0
+        for _ in range(attempts):
+            r4.key("esc")
+            wait_until_stable(cam.read, 1.0)
+            before = cam.png_bytes()
+            fire()
+            wait_until_stable(cam.read, settle_s)
+            diff = _frame_diff_score(before, cam.png_bytes())
+            r4.key("esc")
+            wait_until_stable(cam.read, 1.0)
+            if diff > thresh:
+                break
+        return diff
+
+    kbd_diff = round_trip(lambda: r4.combo("win+r"))
     if kbd_diff <= thresh:
         return False, f"keyboard NOT delivering (win+r diff {kbd_diff:.1f} <= {thresh})"
 
-    wait_until_stable(cam.read, 1.0)
-    before = cam.png_bytes()
-    r4.move(20, screen[1] - 25)   # Start button, bottom-left
-    r4.click()
-    wait_until_stable(cam.read, settle_s)
-    mouse_diff = _frame_diff_score(before, cam.png_bytes())
-    r4.key("esc")
-    wait_until_stable(cam.read, 1.0)
+    def start_click():
+        r4.move(20, screen[1] - 25)   # Start button, bottom-left
+        r4.click()
+
+    mouse_diff = round_trip(start_click)
     if mouse_diff <= thresh:
         return False, f"mouse NOT delivering (Start click diff {mouse_diff:.1f} <= {thresh})"
     return True, f"hid ok (kbd diff {kbd_diff:.1f}, mouse diff {mouse_diff:.1f})"
