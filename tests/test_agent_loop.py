@@ -48,6 +48,7 @@ class FakeR4:
     def __init__(self):
         self.calls = []
     def move(self, x, y): self.calls.append(("move", x, y))
+    def click(self): self.calls.append(("click",))
     def down(self): self.calls.append(("down",))
     def up(self): self.calls.append(("up",))
     def clear_hid(self): self.calls.append(("clear_hid",))
@@ -61,6 +62,14 @@ class FakeEnv:
         self.screen_width, self.screen_height = 1920, 1080
     def observe(self):
         return {"screenshot": _png(0)}
+    def close(self):
+        pass
+
+
+class StallCam(FakeCam):
+    """wait_newer always times out — the capture-stall class (review P0-3)."""
+    def wait_newer(self, seq, timeout_s):
+        raise TimeoutError(f"no frame newer than seq={seq} within {timeout_s}s")
 
 
 class FakeRecorder:
@@ -175,6 +184,79 @@ check("drag_to re-asserts the start position before button-down",
       fake.r4.calls[:2] == [("move", 100, 100), ("down",)])
 check("drag_to still ends at the target and releases",
       fake.r4.calls[-2:] == [("move", 500, 500), ("up",)])
+
+
+# --- P0-3: a capture stall is surfaced, not swallowed ---
+fake = FakeEnv()
+fake.cam = StallCam()
+saved_env = al.ENV
+al.ENV = fake
+try:
+    info = al._execute({"action": "move_to", "coordinate": [5, 5]}, settle_s=0.3)
+finally:
+    al.ENV = saved_env
+check("_execute reports the stall instead of only printing it",
+      info is not None and info.get("stalled") and "seq=" in info["stalled"])
+check("_execute reports the settle status", info.get("settle") == "stable")
+
+
+def click_then_finish(*a, **k):
+    return ({"actions": [{"action": "left_click", "coordinate": [10, 10]},
+                         {"action": "finished", "text": "done"}], "note": None},
+            {"content": "{}"}, {})
+
+fake = FakeEnv()
+fake.cam = StallCam()
+saved = (al.ENV, al.call_holo_full, al.RunRecorder)
+al.ENV = fake
+al.call_holo_full = click_then_finish
+al.RunRecorder = FakeRecorder
+FakeRecorder.instances.clear()
+try:
+    result = al.run("click and finish", max_steps=3, confirm_first=0, tag="t_stall")
+finally:
+    al.ENV, al.call_holo_full, al.RunRecorder = saved
+check("a stalled run still completes", result["finished"] is True)
+tool_outputs = [m["content"] for m in al.LAST["history"]
+                if m.get("role") == "user" and isinstance(m.get("content"), str)
+                and m["content"].startswith("<tool_output")]
+check("the stall reaches the model's <tool_output>",
+      any("WARNING" in t and "stale" in t for t in tool_outputs))
+rec = FakeRecorder.instances[-1]
+logged_step = rec.steps[0][0][3]   # log_step(step_i, png, message, step, ...)
+check("the stall reaches the recorder (step warnings)",
+      any("stalled" in w for w in logged_step.get("warnings", [])))
+
+
+# --- P0-4: boot() runs the camera-verified HID gate by default ---
+import kvm_agent.hardware.target as target_mod
+
+saved = (al.ENV, al.PicoEnv, target_mod.verify_hid)
+try:
+    al.PicoEnv = lambda *a, **k: FakeEnv()
+    target_mod.verify_hid = lambda r4, cam, **k: (False, "mouse NOT delivering (test)")
+    al.ENV = None
+    raised = False
+    try:
+        al.boot()
+    except RuntimeError:
+        raised = True
+    check("boot() fails closed when the HID gate fails", raised)
+    check("boot() tears down the env after a gate failure", al.ENV is None)
+
+    gate_calls = {"n": 0}
+    def passing_gate(r4, cam, **k):
+        gate_calls["n"] += 1
+        return True, "hid ok (test)"
+    target_mod.verify_hid = passing_gate
+    al.ENV = None
+    check("boot() returns True when the gate passes", al.boot() is True)
+    check("the gate actually ran", gate_calls["n"] == 1)
+    al.ENV = None
+    al.boot(verify=False)
+    check("boot(verify=False) skips the gate", gate_calls["n"] == 1)
+finally:
+    al.ENV, al.PicoEnv, target_mod.verify_hid = saved
 
 
 print("\n" + ("ALL PASS" if not _FAILS else f"{len(_FAILS)} FAILED: {_FAILS}"))

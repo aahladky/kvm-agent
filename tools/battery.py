@@ -81,7 +81,10 @@ def main():
                 "results": results,
                 "score": f"{sum(r['grade'] == 'pass' for r in results)}/{len(results)}"}
 
-    boot()
+    # verify=False: the battery runs its OWN HID gate per task, post-reboot, with an
+    # interactive replug loop (below) -- a boot-time gate raise here would kill the
+    # whole battery non-interactively instead.
+    boot(verify=False)
     results = []
     try:
         for i, task in enumerate(tasks):

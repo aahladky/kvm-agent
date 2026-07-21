@@ -83,11 +83,33 @@ CURSOR = {"pos": None}
 PLAN = {"goals": []}
 
 
-def boot():
-    """Open camera + appliance HID. Idempotent-ish; call once."""
+def boot(verify=True):
+    """Open camera + appliance HID. Idempotent-ish; call once.
+
+    verify (default True) runs the camera-verified HID gate (target.verify_hid) after
+    bring-up: the bridge probe's kbd/mouse online flags can LIE (the I2 half-dead-HID
+    class), so an unverified session clicks into the void silently. Previously only
+    the battery gated (2026-07-21 review P0-4); every REPL/non-battery session ran
+    unverified. On gate failure the env is torn down and boot raises. Pass
+    verify=False only where a caller runs its own gate (the battery's interactive
+    per-task replug loop)."""
     global ENV
     if ENV is None:
         ENV = PicoEnv(cam_index=CFG.cam_index, screen_size=CFG.screen_size, show=False)
+    if verify:
+        from kvm_agent.hardware.target import verify_hid
+        ok, detail = verify_hid(ENV.r4, ENV.cam, screen=CFG.screen_size)
+        print(f"[boot] hid gate: {detail}")
+        if not ok:
+            try:
+                ENV.close()
+            except Exception:
+                pass
+            ENV = None
+            raise RuntimeError(
+                f"[boot] HID gate failed: {detail} -- replug the Pico's USB at the "
+                f"target (or power-cycle it) and retry, or call boot(verify=False) "
+                f"to bypass the gate")
     print(f"[boot] ready. holo target=local ({CFG.holo_local_url}, model={CFG.holo_model})")
     return True
 
@@ -168,6 +190,9 @@ def _execute(action, settle_s=1.5):
     Holo. Native's loop has no host-side execution-retry heuristic: the model sees the
     next screenshot and judges via its own `thought`). Maps onto env.r4. CURSOR["pos"] is
     updated on every pointer action so drag_to can start from the true current position.
+
+    Returns None for update_plan (no screen effect, early return) and otherwise a dict
+    {"stalled": str|None, "settle": str} — see the freshness-floor note below.
 
     The wait_newer freshness floor (finding #6 pairing) is KEPT: the capture pipeline
     must advance PAST the fire before settling, so a later diff frame can never be one
@@ -252,13 +277,20 @@ def _execute(action, settle_s=1.5):
         print(f"[execute] unknown action kind {kind!r} -- no-op")
 
     # Freshness floor: the capture pipeline must advance PAST the fire before settling.
+    # A stall here means the post-action frame may PREDATE the action (finding #6's
+    # class) -- report it in the return value so run() can surface it to the model's
+    # <tool_output> and the recorder instead of swallowing it as a print (2026-07-21
+    # review P0-3). Not raised: the stall timeout shares the settle budget, so it can
+    # fire on a merely slow render -- a warning, not a batch-killing error.
+    stalled = None
     try:
         ENV.cam.wait_newer(seq0, timeout_s=settle_s)
     except TimeoutError:
-        print(f"[execute] WARNING: capture stalled — no frame newer than seq={seq0} "
-              f"within {settle_s}s")
+        stalled = f"capture stalled: no frame newer than seq={seq0} within {settle_s}s"
+        print(f"[execute] WARNING: {stalled}")
     # Smart settle (2026-07-18): proceed the moment the UI stops changing, up to settle_s.
-    wait_until_stable(ENV.cam.read, settle_s)
+    settle = wait_until_stable(ENV.cam.read, settle_s)
+    return {"stalled": stalled, "settle": settle}
 
 
 def _frame_diff_detail(png_a, png_b):
@@ -407,7 +439,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                          "update_plan": "update_plan", "finished": "answer"}.get(kind, str(kind))
             before = _frame_png()
             try:
-                _execute(action)
+                exec_info = _execute(action)
             except ApplianceError as e:
                 # A rejected/undeliverable action (e.g. a model-invented key name ->
                 # bridge 502) halts the batch (native semantics) but must not kill the
@@ -427,6 +459,19 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
             result = (f"Executed. Screen changed (max tile diff {score:.1f}, region {region})."
                       if changed else
                       f"Executed. Screen did not visibly change (max tile diff {score:.1f}).")
+            if exec_info:
+                # Surface capture-health warnings to the model AND the recorder
+                # (2026-07-21 review P0-3): the diff above may have compared a stale
+                # frame, and the model is the one judging success from it.
+                warns = []
+                if exec_info.get("stalled"):
+                    warns.append(exec_info["stalled"])
+                if exec_info.get("settle") == "dead":
+                    warns.append("capture dead: no frames delivered during the settle window")
+                if warns:
+                    result += " WARNING: " + "; ".join(warns) + \
+                              " — the post-action frame may be stale."
+                    step.setdefault("warnings", []).extend(warns)
             tool_outputs.append(tool_output_message(tool_name, result))
             if kind == "finished":
                 answer_text = action.get("text", "")

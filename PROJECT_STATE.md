@@ -51,6 +51,13 @@ OS-agnostic, undetectable. Pure curiosity project.
   a battery), planning-only steps exempt from the frozen-screen abort, `drag_to`
   re-asserts the tracked start before button-down, `jinja2` declared / `requests`
   dropped in `pyproject.toml`. Coverage: `tests/test_agent_loop.py` (offline, 12 checks).
+- Review batch-2 fixes (2026-07-21): `wait_until_stable` returns a status
+  ("stable"/"timeout"/"dead" — a dead capture no longer reads as instant stability);
+  capture stalls/dead-capture windows are surfaced into the step's `<tool_output>` and
+  the recorded step's `warnings` instead of a swallowed print; `boot()` runs the
+  camera-verified HID gate by default (`verify=False` to bypass — the battery keeps
+  its interactive per-task gate), so REPL sessions no longer click into a half-dead
+  HID silently.
 
 ## 4. Open problems
 

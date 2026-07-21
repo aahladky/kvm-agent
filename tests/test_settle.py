@@ -55,5 +55,15 @@ t0 = time.time()
 wait_until_stable(scripted(noise), max_s=2.0, poll_s=0.005)
 check("uniform low-level noise reads as stable", time.time() - t0 < 1.0)
 
+# (d) status return (2026-07-21 review P0-5): callers can distinguish "settled" from
+#     "still churning at the deadline" from "capture delivered nothing at all" --
+#     previously all three returned None, so a dead capture read as instant stability.
+s = wait_until_stable(scripted([BASE.copy() for _ in range(50)]), max_s=2.0, poll_s=0.005)
+check("settled window reports 'stable'", s == "stable")
+s = wait_until_stable(scripted(churn), max_s=0.4, poll_s=0.005)
+check("churn window reports 'timeout'", s == "timeout")
+s = wait_until_stable(lambda: None, max_s=0.2, poll_s=0.005)
+check("all-None window reports 'dead'", s == "dead")
+
 print("\n" + ("ALL PASS" if not _FAILS else f"{len(_FAILS)} FAILED: {_FAILS}"))
 sys.exit(1 if _FAILS else 0)
