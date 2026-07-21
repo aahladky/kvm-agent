@@ -252,7 +252,15 @@ def _execute(action, settle_s=1.5, verify_retries=2):
                       f"(diff={diff:.1f} <= {FRAME_CHANGE_THRESHOLD}) -- a Pico ACK does not "
                       f"prove guest delivery -- retrying identical command "
                       f"(attempt {attempt}/{verify_retries})")
+            seq_r = ENV.cam.seq
             _fire()
+            # Same freshness floor as the first fire: the verify `after` must be a frame
+            # captured after THIS retry landed, not one buffered before it.
+            try:
+                ENV.cam.wait_newer(seq_r, timeout_s=settle_s)
+            except TimeoutError:
+                print(f"[execute] WARNING: capture stalled — no frame newer than seq={seq_r} "
+                      f"within {settle_s}s")
             wait_until_stable(ENV.cam.read, settle_s)
             after = _frame_png()
             diff = _frame_diff_score(before, after)
