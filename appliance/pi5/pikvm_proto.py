@@ -4,8 +4,7 @@ pikvm_proto.py -- wire protocol client for the ported PiKVM Pico HID firmware
 
 Replaces the old ASCII "<seq> CMD arg\\n" protocol (appliance/pico/stage2_hid.py, now
 _archive/firmware_old/appliance_pico/stage2_hid.py, CircuitPython, retired 2026-07-18) with
-PiKVM's real binary framing: fixed 8-byte
-frames, CRC16/MODBUS-checked, over the same UART wiring (Pi5 GPIO14/15 <-> Pico
+PiKVM's real binary framing: fixed 8-byte frames, CRC16/MODBUS-checked, over the same UART wiring (Pi5 GPIO14/15 <-> Pico
 GP0/GP1, uart0 @ 115200 -- see appliance/README.md).
 
 Frame (host -> pico), 8 bytes:
@@ -117,6 +116,23 @@ _BTN_RIGHT_SEL, _BTN_RIGHT_ST = 0x40, 0x04
 _BTN_MIDDLE_SEL, _BTN_MIDDLE_ST = 0x20, 0x02
 
 
+def decode_code(code):
+    """Decode the Pico's response `code` byte into the target-side state it reports on
+    EVERY successful response, not just probe/ping (2026-07-19). kbd_online/mouse_online
+    reflect whether the USB HOST (the Windows guest) currently has each HID collection
+    enumerated -- this is the closest thing to a genuine "did the target receive this"
+    signal available without installing anything on the target. Previously only ping()/
+    probe() looked at this; every other command (_roundtrip via mouse_abs/kbd_key/etc.)
+    got it back too but hid_bridge.py discarded it. See hid_bridge.py's command logging."""
+    return {
+        "caps": 1 if code & PONG_CAPS else 0,
+        "num": 1 if code & PONG_NUM else 0,
+        "scroll": 1 if code & PONG_SCROLL else 0,
+        "kbd_online": not (code & PONG_KBD_OFFLINE),
+        "mouse_online": not (code & PONG_MOUSE_OFFLINE),
+    }
+
+
 def crc16(data):
     """CRC-16/MODBUS -- bit-for-bit port of the firmware's ph_crc16 (ph_tools.h)."""
     crc = 0xFFFF
@@ -195,16 +211,22 @@ class PicoHidLink:
         return self._roundtrip(CMD_MOUSE_WHEEL, bytes([0, v & 0xFF]))
 
     # -- higher-level actions (mirror the retired stage2_hid.py repertoire) --
+    # Each returns the _roundtrip() dict from its LAST/most-significant wire call
+    # (2026-07-19), not None -- hid_bridge.py logs this per command so "what did the
+    # target actually report" is captured for every command type, not just probe/ping.
+    # A multi-roundtrip action (combo, type_text) logging only its final state is a
+    # deliberate summary, not exhaustive per-keystroke wire logging -- proportionate to
+    # what a per-HTTP-request log entry can usefully carry.
     def tap_key(self, keycode, hold_s=0.02):
         self.kbd_key(keycode, True)
         time.sleep(hold_s)
-        self.kbd_key(keycode, False)
+        return self.kbd_key(keycode, False)
 
     def key_by_name(self, name):
         kc = KEYCODES.get(name.strip().lower())
         if kc is None:
             raise ProtoError(f"unknown_key:{name}")
-        self.tap_key(kc)
+        return self.tap_key(kc)
 
     def combo(self, spec):
         names = [p.strip().lower() for p in spec.split("+") if p.strip()]
@@ -214,13 +236,16 @@ class PicoHidLink:
         for kc in codes:
             self.kbd_key(kc, True)
         time.sleep(0.03)
+        r = None
         for kc in reversed(codes):
-            self.kbd_key(kc, False)
+            r = self.kbd_key(kc, False)
+        return r
 
     def type_text(self, text, hold_s=0.02, gap_s=0.03):
         # Pace every keystroke (hold + inter-key gap): with zero pacing, Windows drops
         # HID reports during focus transitions -- observed live 2026-07-18 as
         # "holo battery test" arriving as "holo bay te" (battery task notepad_type).
+        r = None
         for ch in text:
             name, needs_shift = key_for_char(ch)
             if name is None:
@@ -231,37 +256,30 @@ class PicoHidLink:
                 time.sleep(hold_s)
             self.kbd_key(kc, True)
             time.sleep(hold_s)
-            self.kbd_key(kc, False)
+            r = self.kbd_key(kc, False)
             if needs_shift:
                 self.kbd_key(KEYCODES["shift"], False)
             time.sleep(gap_s)
+        return r
 
     def click(self, screen_w=None, screen_h=None):
         self.mouse_button(_BTN_LEFT_SEL | _BTN_LEFT_ST)
         time.sleep(0.03)
-        self.mouse_button(_BTN_LEFT_SEL)
+        return self.mouse_button(_BTN_LEFT_SEL)
 
     def rclick(self):
         self.mouse_button(_BTN_RIGHT_SEL | _BTN_RIGHT_ST)
         time.sleep(0.03)
-        self.mouse_button(_BTN_RIGHT_SEL)
+        return self.mouse_button(_BTN_RIGHT_SEL)
 
     def button_down(self):
-        self.mouse_button(_BTN_LEFT_SEL | _BTN_LEFT_ST)
+        return self.mouse_button(_BTN_LEFT_SEL | _BTN_LEFT_ST)
 
     def button_up(self):
-        self.mouse_button(_BTN_LEFT_SEL)
+        return self.mouse_button(_BTN_LEFT_SEL)
 
     def probe(self):
-        r = self.ping()
-        code = r["code"]
-        return {
-            "caps": 1 if code & PONG_CAPS else 0,
-            "num": 1 if code & PONG_NUM else 0,
-            "scroll": 1 if code & PONG_SCROLL else 0,
-            "kbd_online": not (code & PONG_KBD_OFFLINE),
-            "mouse_online": not (code & PONG_MOUSE_OFFLINE),
-        }
+        return decode_code(self.ping()["code"])
 
 
 def _px_to_proto(px, screen_dim):
