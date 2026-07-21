@@ -1,0 +1,52 @@
+[
+  {
+    "id": "37e10fc4-b4c5-4b02-a65c-bfae8bc51d3f-wos",
+    "instruction": "I need to \"turn off\" notifications for my system in the settings.",
+    "finished": true,
+    "answer_text": "Notifications have been successfully turned off for the system. The main Notifications toggle in the Settings app shows \"Off\" status, indicating that system notifications are now disabled.",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 119.5,
+    "category": "settings"
+  },
+  {
+    "id": "46adf721-2949-4426-b069-010b7c128d8f-wos",
+    "instruction": "Enable the \"Night light\" feature and set it to turn on at 7:00 PM and off at 7:00 AM.",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 183.5,
+    "category": "settings"
+  },
+  {
+    "id": "9504989a-0d6e-4017-aefb-d359f6c752aa-wos",
+    "instruction": "I need to change my system time zone to 'Pacific (US & Canada)'. Can you help me do that?",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 239.8,
+    "category": "settings"
+  },
+  {
+    "id": "a659b26e-4e31-40c1-adaf-34742b6c44ac-wos",
+    "instruction": "Change my desktop background to a solid color.",
+    "finished": true,
+    "answer_text": "The desktop background has been successfully changed to a solid blue color. The Settings app shows the Personalization > Background page with \"Solid color\" selected as the background type, and the blue color has been applied as confirmed by the preview.",
+    "score": 1.0,
+    "eval_note": "ok",
+    "wall_s": 89.3,
+    "category": "settings"
+  },
+  {
+    "id": "e8f68f22-1f6a-4cba-a97a-ac611bb4c67b-wos",
+    "instruction": "Enable the \"Storage Sense\" feature and configure it to run every week.",
+    "finished": true,
+    "answer_text": "Storage Sense has been successfully enabled and configured to run every week. The toggle for \"Automatic User content cleanup\" is On, and the \"Run Storage Sense\" dropdown is set to \"Every week\".",
+    "score": 1.0,
+    "eval_note": "ok",
+    "wall_s": 68.8,
+    "category": "settings"
+  }
+]

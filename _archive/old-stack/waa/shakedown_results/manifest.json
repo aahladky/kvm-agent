@@ -1,0 +1,137 @@
+[
+  {
+    "history": 1,
+    "category": "notepad",
+    "wall_s": 521.2,
+    "returncode": 0,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h1_notepad_waa_20260718_232136.json",
+    "n_pass": 1,
+    "n_total": 2
+  },
+  {
+    "history": 1,
+    "category": "windows_calc",
+    "wall_s": 943.6,
+    "returncode": 0,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h1_windows_calc_waa_20260718_233017.json",
+    "n_pass": 0,
+    "n_total": 3
+  },
+  {
+    "history": 1,
+    "category": "microsoft_paint",
+    "wall_s": 697.1,
+    "returncode": 0,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h1_microsoft_paint_waa_20260718_234601.json",
+    "n_pass": 2,
+    "n_total": 3
+  },
+  {
+    "history": 1,
+    "category": "clock",
+    "wall_s": 1220.1,
+    "returncode": 0,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h1_clock_waa_20260718_235738.json",
+    "n_pass": 0,
+    "n_total": 4
+  },
+  {
+    "history": 1,
+    "category": "settings",
+    "wall_s": 1194.8,
+    "returncode": 0,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h1_settings_waa_20260719_001758.json",
+    "n_pass": 2,
+    "n_total": 5
+  },
+  {
+    "history": 2,
+    "category": "notepad",
+    "wall_s": 1080.0,
+    "returncode": 0,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h2_notepad_waa_20260719_003753.json",
+    "n_pass": 1,
+    "n_total": 2
+  },
+  {
+    "history": 2,
+    "category": "windows_calc",
+    "wall_s": 2041.2,
+    "returncode": 0,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h2_windows_calc_waa_20260719_005553.json",
+    "n_pass": 0,
+    "n_total": 3
+  },
+  {
+    "history": 2,
+    "category": "microsoft_paint",
+    "wall_s": 925.6,
+    "returncode": 1,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h2_microsoft_paint_waa_20260719_012954.json",
+    "n_pass": 2,
+    "n_total": 2
+  },
+  {
+    "history": 2,
+    "category": "clock",
+    "wall_s": 2697.2,
+    "returncode": 0,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h2_clock_waa_20260719_014520.json",
+    "n_pass": 1,
+    "n_total": 4
+  },
+  {
+    "history": 2,
+    "category": "settings",
+    "wall_s": 1971.9,
+    "returncode": 0,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h2_settings_waa_20260719_023017.json",
+    "n_pass": 3,
+    "n_total": 5
+  },
+  {
+    "history": 3,
+    "category": "notepad",
+    "wall_s": 880.9,
+    "returncode": 0,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h3_notepad_waa_20260719_030309.json",
+    "n_pass": 1,
+    "n_total": 2
+  },
+  {
+    "history": 3,
+    "category": "windows_calc",
+    "wall_s": 2355.1,
+    "returncode": 0,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h3_windows_calc_waa_20260719_031750.json",
+    "n_pass": 0,
+    "n_total": 3
+  },
+  {
+    "history": 3,
+    "category": "microsoft_paint",
+    "wall_s": 1424.8,
+    "returncode": 0,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h3_microsoft_paint_waa_20260719_035705.json",
+    "n_pass": 3,
+    "n_total": 3
+  },
+  {
+    "history": 3,
+    "category": "clock",
+    "wall_s": 1798.1,
+    "returncode": 1,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h3_clock_waa_20260719_042050.json",
+    "n_pass": 0,
+    "n_total": 2
+  },
+  {
+    "history": 3,
+    "category": "settings",
+    "wall_s": 2342.3,
+    "returncode": 0,
+    "result_file": "/home/aaron/workspace/vllm/waa/shakedown_results/h3_settings_waa_20260719_045048.json",
+    "n_pass": 3,
+    "n_total": 5
+  }
+]

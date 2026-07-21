@@ -48,7 +48,7 @@ class Config:
     # --- target VM reset (flaw #7): libvirt snapshot revert + a forced cold reboot between
     #     battery tasks so each task starts from a byte-identical clean desktop AND with USB
     #     HID passthrough guaranteed working (warm revert alone reliably breaks HID -- see
-    #     kvm_agent/hardware/vm.py's module docstring). ---
+    #     the retired vm.py module docstring, now under _archive/old-stack/). ---
     vm_domain: str = _env("VM_DOMAIN", "win11-agent")
     vm_reset: bool = _env("VM_RESET", "1") != "0"        # revert to the clean snapshot per task
     vm_snapshot: str = _env("VM_SNAPSHOT", "clean-desktop")  # baseline snapshot name

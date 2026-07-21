@@ -1,0 +1,22 @@
+[
+  {
+    "id": "02F10F89-7171-4D37-8550-A00BA8930CDF-WOS-2",
+    "instruction": "In the clock app, can you set a timer for half an hour? I need to wrap something up by then.",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 741.6,
+    "category": "clock"
+  },
+  {
+    "id": "02F10F89-7171-4D37-8550-A00BA8930CDF-WOS",
+    "instruction": "Start a 3 hour timer using the clock app.",
+    "finished": true,
+    "answer_text": "A 3-hour timer has been successfully created and started in the Clock app. The timer showing \"03:00:00\" is now running at the bottom of the timer interface.",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 267.2,
+    "category": "clock"
+  }
+]

@@ -1,0 +1,42 @@
+[
+  {
+    "id": "02F10F89-7171-4D37-8550-A00BA8930CDF-WOS-2",
+    "instruction": "In the clock app, can you set a timer for half an hour? I need to wrap something up by then.",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 48.4,
+    "category": "clock"
+  },
+  {
+    "id": "02F10F89-7171-4D37-8550-A00BA8930CDF-WOS",
+    "instruction": "Start a 3 hour timer using the clock app.",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 64.1,
+    "category": "clock"
+  },
+  {
+    "id": "91A30BE9-0E11-4374-8D43-41D4D097080A-WOS-2",
+    "instruction": "I am traveling to Kyoto, Japan tomorrow. Can you add a clock for that timezone to my list of world clocks in the Clock app?",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 48.7,
+    "category": "clock"
+  },
+  {
+    "id": "91A30BE9-0E11-4374-8D43-41D4D097080A-WOS",
+    "instruction": "Please add Munich, Germany to my list of world clocks in the Clock app.",
+    "finished": true,
+    "answer_text": "The Clock app is currently downloading an update (72% complete). Please wait for the update to finish before adding Munich, Germany to your world clocks list. Once the update completes, you'll be able to access the world clocks feature and add new cities.",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 13.7,
+    "category": "clock"
+  }
+]

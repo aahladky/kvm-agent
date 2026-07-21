@@ -1,0 +1,12 @@
+[
+  {
+    "id": "28b91a24-5d97-4c2a-891c-dccbd3820c62-WOS",
+    "instruction": "Calculate how many years, months, weeks and days are between 10/08/1980 (MM/DD/YYYY) and 8/2/2024 using the calculator app, and save the result in a file called 'Differences.txt' on the Desktop (e.g. X years, Y months, Z weeks, W days)",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 240.9,
+    "category": "windows_calc"
+  }
+]

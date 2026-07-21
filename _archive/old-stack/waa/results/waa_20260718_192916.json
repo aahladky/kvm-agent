@@ -1,0 +1,22 @@
+[
+  {
+    "id": "366de66e-cbae-4d72-b042-26390db2b145-WOS",
+    "instruction": "Please open Notepad, create a new file named \"draft.txt\", type \"This is a draft.\", and save it to the Documents folder.",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 26.1,
+    "category": "notepad"
+  },
+  {
+    "id": "a7d4b6c5-569b-452e-9e1d-ffdb3d431d15-WOS",
+    "instruction": "Please open Notepad, load the file \"largefile.txt\" from the Documents folder, and search for the word \"example\", count all instances. Store the number of \"example\" counts (and nothing else) in a file named \"example_count.txt\" under Documents folder",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 149.9,
+    "category": "notepad"
+  }
+]

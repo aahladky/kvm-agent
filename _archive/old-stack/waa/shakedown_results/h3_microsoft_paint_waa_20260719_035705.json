@@ -1,0 +1,32 @@
+[
+  {
+    "id": "15f8de6e-3d39-40e4-af17-bdbb2393c0d9-WOS",
+    "instruction": "Open Paint and draw a red circle.",
+    "finished": false,
+    "answer_text": "",
+    "score": 1.0,
+    "eval_note": "ok",
+    "wall_s": 714.2,
+    "category": "microsoft_paint"
+  },
+  {
+    "id": "3544ac9a-6aee-4a0b-a203-bc7b59b272b6-WOS",
+    "instruction": "Save the Paint image as \"circle.png\" in the downloads folder",
+    "finished": true,
+    "answer_text": "The Paint image has been successfully saved as \"circle.png\" in the Downloads folder. The window title now shows \"circle - Paint\" confirming the save operation completed.",
+    "score": 1.0,
+    "eval_note": "ok",
+    "wall_s": 319.1,
+    "category": "microsoft_paint"
+  },
+  {
+    "id": "44dbac63-32bf-4cd2-81b4-ad6803ec812d-WOS",
+    "instruction": "Change the canvas size to 800x600 pixels.",
+    "finished": true,
+    "answer_text": "Canvas size successfully changed to 800x600 pixels.",
+    "score": 1.0,
+    "eval_note": "ok",
+    "wall_s": 124.2,
+    "category": "microsoft_paint"
+  }
+]

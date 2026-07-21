@@ -1,3 +1,7 @@
+> **SUPERSEDED 2026-07-20.** Phases I0–I5 are done and the topology this plan describes
+> (WiFi Pico + r4_client, DSHOW-on-Windows capture) was retired in the 2026-07-20 sweep.
+> Current plan: docs/PLAN_2026-07-20_physical_target_move.md. Kept for history.
+
 # Holo3.1 Integration Plan — Closing the Loop
 
 **Scope:** take the validated Holo3.1 grounding model (software layer: GO) and connect it to

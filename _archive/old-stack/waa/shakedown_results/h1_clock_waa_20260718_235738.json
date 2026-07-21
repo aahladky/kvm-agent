@@ -1,0 +1,42 @@
+[
+  {
+    "id": "02F10F89-7171-4D37-8550-A00BA8930CDF-WOS-2",
+    "instruction": "In the clock app, can you set a timer for half an hour? I need to wrap something up by then.",
+    "finished": true,
+    "answer_text": "I've successfully set and started a 30-minute timer for you. The timer is now counting down and will alert you when it reaches zero, giving you exactly half an hour to wrap up your task.",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 104.1,
+    "category": "clock"
+  },
+  {
+    "id": "02F10F89-7171-4D37-8550-A00BA8930CDF-WOS",
+    "instruction": "Start a 3 hour timer using the clock app.",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 239.7,
+    "category": "clock"
+  },
+  {
+    "id": "91A30BE9-0E11-4374-8D43-41D4D097080A-WOS-2",
+    "instruction": "I am traveling to Kyoto, Japan tomorrow. Can you add a clock for that timezone to my list of world clocks in the Clock app?",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 266.1,
+    "category": "clock"
+  },
+  {
+    "id": "91A30BE9-0E11-4374-8D43-41D4D097080A-WOS",
+    "instruction": "Please add Munich, Germany to my list of world clocks in the Clock app.",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 279.0,
+    "category": "clock"
+  }
+]

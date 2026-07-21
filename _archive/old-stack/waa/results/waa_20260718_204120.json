@@ -1,0 +1,12 @@
+[
+  {
+    "id": "366de66e-cbae-4d72-b042-26390db2b145-WOS",
+    "instruction": "Please open Notepad, create a new file named \"draft.txt\", type \"This is a draft.\", and save it to the Documents folder.",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 156.8,
+    "category": "notepad"
+  }
+]

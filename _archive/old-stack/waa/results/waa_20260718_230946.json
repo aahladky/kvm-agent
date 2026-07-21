@@ -1,0 +1,12 @@
+[
+  {
+    "id": "366de66e-cbae-4d72-b042-26390db2b145-WOS",
+    "instruction": "Please open Notepad, create a new file named \"draft.txt\", type \"This is a draft.\", and save it to the Documents folder.",
+    "finished": true,
+    "answer_text": "Task completed successfully. Notepad was opened, a new file named \"draft.txt\" was created with the text \"This is a draft.\", and the file was saved to the Documents folder. The current screenshot confirms the file is open in Notepad with the correct filename and content.",
+    "score": 1.0,
+    "eval_note": "ok",
+    "wall_s": 179.9,
+    "category": "notepad"
+  }
+]

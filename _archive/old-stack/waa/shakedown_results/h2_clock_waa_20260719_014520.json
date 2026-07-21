@@ -1,0 +1,42 @@
+[
+  {
+    "id": "02F10F89-7171-4D37-8550-A00BA8930CDF-WOS-2",
+    "instruction": "In the clock app, can you set a timer for half an hour? I need to wrap something up by then.",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 655.0,
+    "category": "clock"
+  },
+  {
+    "id": "02F10F89-7171-4D37-8550-A00BA8930CDF-WOS",
+    "instruction": "Start a 3 hour timer using the clock app.",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 646.7,
+    "category": "clock"
+  },
+  {
+    "id": "91A30BE9-0E11-4374-8D43-41D4D097080A-WOS-2",
+    "instruction": "I am traveling to Kyoto, Japan tomorrow. Can you add a clock for that timezone to my list of world clocks in the Clock app?",
+    "finished": false,
+    "answer_text": "",
+    "score": 0.0,
+    "eval_note": "conjunct failed",
+    "wall_s": 666.8,
+    "category": "clock"
+  },
+  {
+    "id": "91A30BE9-0E11-4374-8D43-41D4D097080A-WOS",
+    "instruction": "Please add Munich, Germany to my list of world clocks in the Clock app.",
+    "finished": true,
+    "answer_text": "Munich, Germany has been successfully added to your world clocks list in the Clock app. The city now appears with a blue pin marker on the world map and displays the current time (12:29 PM, +6 hours from local time).",
+    "score": 1.0,
+    "eval_note": "ok",
+    "wall_s": 397.7,
+    "category": "clock"
+  }
+]

@@ -1,0 +1,606 @@
+
+=== history=1 category=notepad starting 23:21:34 ===
+t': 'Search results or count area in the find dialog'}
+[run 8.1s] step 31: {'action': 'left_click', 'coordinate': [1146.24, 298.08000000000004], 'element': 'Search icon or count display area in the find dialog'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.2 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 7.0s] step 32: {'action': 'key', 'key': 'enter'}
+[run 9.9s] step 33: {'action': 'left_click', 'coordinate': [1267.2, 302.40000000000003], 'element': 'Search options or dropdown in the find dialog'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.3 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=1.4 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 5.1s] step 34: {'action': 'left_click', 'coordinate': [768.0, 540.0], 'element': 'Empty area in the text editing region to close the dropdown'}
+[run 6.3s] step 35: {'action': 'left_click', 'coordinate': [491.52, 298.08000000000004], 'element': 'Dropdown arrow on the left side of the search field in the find dialog'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 5.4s] step 36: {'action': 'left_click', 'coordinate': [1056.0, 297.0], 'element': 'Search box area or results display in the find dialog near the search field'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.4 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=1.6 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[run 8.3s] step 37: {'action': 'left_click', 'coordinate': [1152.0, 298.08000000000004], 'element': 'Search icon (magnifying glass) in the search dialog'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.3 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 6.3s] step 38: {'action': 'left_click', 'coordinate': [1190.4, 298.08000000000004], 'element': 'Search results count display area in the find dialog, typically showing "X of Y matches"'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.4 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=1.8 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 5.9s] step 39: {'action': 'left_click', 'coordinate': [1257.6000000000001, 302.40000000000003], 'element': 'Find all button or search results count area in the search dialog'}
+[run] max_steps reached without finishing
+[run_log] FAIL in 40 steps, 253.3s -> /home/aaron/workspace/vllm/runs/waa__a7d4b6c5-569b-452e-9e1d-ffdb3d431d15-WOS_20260718_232553/summary.json
+--> score=0.0 finished=False (253.3s) conjunct failed
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+1/2 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260718_232136.json
+
+=== history=1 category=notepad done in 521.2s (1/2 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h1_notepad_waa_20260718_232136.json ===
+
+=== history=1 category=windows_calc starting 23:30:16 ===
+ 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 5.1s] step 35: {'action': 'left_click', 'coordinate': [192.0, 395.28], 'element': 'Oct month button in the third row, second column of the calendar month grid'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 5.1s] step 36: {'action': 'left_click', 'coordinate': [192.0, 395.28], 'element': 'Oct month button in the third row of the calendar month grid for 1980'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 5.0s] step 37: {'action': 'left_click', 'coordinate': [184.32, 395.28], 'element': 'Oct month button in the third row of the calendar month grid'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[run 5.5s] step 38: {'action': 'left_click', 'coordinate': [184.32, 395.28], 'element': 'Oct month button in the third row, second column of the calendar month grid'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 5.3s] step 39: {'action': 'left_click', 'coordinate': [184.32, 395.28], 'element': 'Oct month button in the third row, second column of the calendar month grid'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run] max_steps reached without finishing
+[run_log] FAIL in 40 steps, 229.8s -> /home/aaron/workspace/vllm/runs/waa__28b91a24-5d97-4c2a-891c-dccbd3820c62-WOS_20260718_234209/summary.json
+false true
+--> score=0.0 finished=False (229.8s) conjunct failed
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+0/3 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260718_233017.json
+
+=== history=1 category=windows_calc done in 943.6s (0/3 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h1_windows_calc_waa_20260718_233017.json ===
+
+=== history=1 category=microsoft_paint starting 23:45:59 ===
+ment': 'Image properties option in File menu'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.1 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.1 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 4.8s] step 6: {'action': 'left_click', 'coordinate': [336.0, 530.28], 'element': 'Image properties menu item in File dropdown'}
+[run 5.0s] step 7: {'action': 'left_click', 'coordinate': [224.64000000000001, 165.24], 'element': 'File menu in Paint menu bar'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 4.7s] step 8: {'action': 'left_click', 'coordinate': [798.7199999999999, 730.08], 'element': 'Width input field in Image Properties dialog'}
+[run 4.2s] step 9: {'action': 'type', 'text': '800', 'press_enter': False}
+[run 4.8s] step 10: {'action': 'left_click', 'coordinate': [971.52, 725.76], 'element': 'Height input field in Image Properties dialog'}
+[execute] WARNING: left_click produced no visible screen change (diff=2.5 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=2.5 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 4.9s] step 11: {'action': 'left_click', 'coordinate': [971.52, 725.76], 'element': 'Height input field showing 648 in Image Properties dialog'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 4.8s] step 12: {'action': 'left_click', 'coordinate': [948.48, 733.32], 'element': 'Height input field showing 648 in Image Properties dialog'}
+[run 4.0s] step 13: {'action': 'type', 'text': '600', 'press_enter': False}
+[run 4.5s] step 14: {'action': 'left_click', 'coordinate': [823.68, 813.24], 'element': 'OK button in Image Properties dialog'}
+[run 4.3s] step 15: {'action': 'finished', 'text': 'Canvas size changed to 800x600 pixels.'}
+[run] finished: 'Canvas size changed to 800x600 pixels.'
+[run_log] OK in 16 steps, 86.2s -> /home/aaron/workspace/vllm/runs/waa__44dbac63-32bf-4cd2-81b4-ad6803ec812d-WOS_20260718_235600/summary.json
+True True
+--> score=1.0 finished=True (86.2s) ok
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+2/3 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260718_234601.json
+
+=== history=1 category=microsoft_paint done in 697.1s (2/3 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h1_microsoft_paint_waa_20260718_234601.json ===
+
+=== history=1 category=clock starting 23:57:36 ===
+= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 7.0s] step 32: {'action': 'left_click', 'coordinate': [1282.5600000000002, 872.6400000000001], 'element': 'Plus (+) button at bottom right of Clock app to add the selected location'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.1 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 4.8s] step 33: {'action': 'type', 'text': 'Munich, Germany', 'press_enter': True}
+[execute] WARNING: type produced no visible screen change (diff=0.6 <= 3.0) -- likely stale Win32 focus (launching an app does not reliably transfer keyboard focus to it, confirmed live via GetForegroundWindow), not a dropped keystroke -- clicking screen-center (960,540) to force real focus before retrying (attempt 1/2)
+[run 7.1s] step 34: {'action': 'left_click', 'coordinate': [1282.5600000000002, 872.6400000000001], 'element': 'Plus (+) button in the bottom right corner of the Clock app to add a new city'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.7 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 6.5s] step 35: {'action': 'left_click', 'coordinate': [1276.8000000000002, 868.32], 'element': 'Plus (+) button in the bottom right corner of the Clock app to add a new city'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.3 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 8.3s] step 36: {'action': 'left_click', 'coordinate': [1282.5600000000002, 872.6400000000001], 'element': 'Plus (+) button at bottom right of Clock app to add new city'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.9 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=3.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 6.0s] step 37: {'action': 'left_click', 'coordinate': [1282.5600000000002, 872.6400000000001], 'element': 'Plus (+) button at bottom right of Clock app to add a new city to world clocks'}
+[run 6.3s] step 38: {'action': 'left_click', 'coordinate': [1282.5600000000002, 872.6400000000001], 'element': 'Plus button at bottom right of Clock app to add a new city'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.6 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 7.4s] step 39: {'action': 'left_click', 'coordinate': [988.8000000000001, 224.64], 'element': 'Map area in southern Germany where Munich is located'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.1 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run] max_steps reached without finishing
+[run_log] FAIL in 40 steps, 279.0s -> /home/aaron/workspace/vllm/runs/waa__91A30BE9-0E11-4374-8D43-41D4D097080A-WOS_20260719_001313/summary.json
+False True
+--> score=0.0 finished=False (279.0s) conjunct failed
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+0/4 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260718_235738.json
+
+=== history=1 category=clock done in 1220.1s (0/4 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h1_clock_waa_20260718_235738.json ===
+
+=== history=1 category=settings starting 00:17:56 ===
+ (NumLock toggled + read back correctly, both HID collections online)
+[waa] shell input-ready after 3s of probing
+[run_log] recording to /home/aaron/workspace/vllm/runs/waa__e8f68f22-1f6a-4cba-a97a-ac611bb4c67b-wos_20260719_003706
+[run 5.1s] step 0: {'action': 'left_click', 'coordinate': [727.6800000000001, 1033.56], 'element': 'Windows Start button in the taskbar'}
+[run 5.2s] step 1: {'action': 'left_click', 'coordinate': [1200.0, 434.16], 'element': 'Arrow/chevron next to Storage Sense toggle to access configuration options'}
+[run 4.7s] step 2: {'action': 'left_click', 'coordinate': [1196.16, 572.4], 'element': 'Arrow next to Storage Sense toggle to access configuration options'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.7 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.7 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 4.9s] step 3: {'action': 'left_click', 'coordinate': [71.03999999999999, 71.28], 'element': 'Back arrow button in the top-left corner of the Settings window'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.7 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 4.7s] step 4: {'action': 'left_click', 'coordinate': [1203.84, 570.24], 'element': 'Arrow button next to Storage Sense toggle to access configuration options'}
+[execute] WARNING: left_click produced no visible screen change (diff=2.1 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 5.1s] step 5: {'action': 'left_click', 'coordinate': [583.68, 489.24], 'element': 'Dropdown menu showing "During low free disk space (default)" under "Run Storage Sense"'}
+[execute] WARNING: left_click produced no visible screen change (diff=2.4 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.1 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[run 4.7s] step 6: {'action': 'left_click', 'coordinate': [420.48, 427.68], 'element': '"Every week" option in the dropdown menu under "Run Storage Sense"'}
+[run 6.1s] step 7: {'action': 'finished', 'text': 'Storage Sense has been successfully enabled and configured to run every week. The Settings page shows:\n\n1. Storage Sense is turned **On** (Automatic User content cleanup toggle)\n2. "Run Storage Sense" is set to **"Every week"**\n3. Additional configuration options are available for recycle bin cleanup (30 days) and Downloads folder cleanup\n\nThe task is complete.'}
+[run] finished: 'Storage Sense has been successfully enabled and configured to run every week. The Settings page shows:\n\n1. Storage Sense is turned **On** (Automatic User content cleanup toggle)\n2. "Run Storage Sense" is set to **"Every week"**\n3. Additional configuration options are available for recycle bin cleanup (30 days) and Downloads folder cleanup\n\nThe task is complete.'
+[run_log] OK in 8 steps, 44.4s -> /home/aaron/workspace/vllm/runs/waa__e8f68f22-1f6a-4cba-a97a-ac611bb4c67b-wos_20260719_003706/summary.json
+7 7
+--> score=1.0 finished=True (44.4s) ok
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+2/5 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260719_001758.json
+
+=== history=1 category=settings done in 1194.8s (2/5 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h1_settings_waa_20260719_001758.json ===
+
+=== history=2 category=notepad starting 00:37:51 ===
+est delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 12.0s] step 15: {'action': 'key', 'key': 'ctrl+o'}
+[run 12.3s] step 16: {'action': 'left_click', 'coordinate': [209.28, 249.48000000000002], 'element': 'File menu in Notepad'}
+[execute] WARNING: left_click produced no visible screen change (diff=2.8 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=2.8 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 12.3s] step 17: {'action': 'left_click', 'coordinate': [432.0, 349.92], 'element': 'largefile file in the file list'}
+[run 12.8s] step 18: {'action': 'left_click', 'coordinate': [975.36, 680.4], 'element': 'Open button in the file dialog'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.9 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=1.9 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[run 13.0s] step 19: {'action': 'key', 'key': 'ctrl+f'}
+[run 13.0s] step 20: {'action': 'type', 'text': 'example', 'press_enter': False}
+[run 18.1s] step 21: {'action': 'left_click', 'coordinate': [595.2, 297.0], 'element': 'Search bar containing the text "example"'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[run 14.4s] step 22: {'action': 'key', 'key': 'F3'}
+[run 13.9s] step 23: {'action': 'key', 'key': 'F3'}
+[run 14.2s] step 24: {'action': 'key', 'key': 'F3'}
+[run 14.3s] step 25: {'action': 'key', 'key': 'F3'}
+[run 15.2s] step 26: {'action': 'key', 'key': 'F3'}
+[run 15.4s] step 27: {'action': 'key', 'key': 'F3'}
+[run 15.9s] step 28: {'action': 'key', 'key': 'ctrl+n'}
+[run 16.0s] step 29: {'action': 'left_click', 'coordinate': [752.64, 212.76000000000002], 'element': 'largefile.txt tab in Notepad'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 17.0s] step 30: {'action': 'key', 'key': 'F3'}
+[run 17.0s] step 31: {'action': 'key', 'key': 'F3'}
+[run 21.4s] step 32: {'action': 'key', 'key': 'F3'}
+[run 17.4s] step 33: {'action': 'key', 'key': 'F3'}
+[run 17.5s] step 34: {'action': 'key', 'key': 'F3'}
+[run 17.8s] step 35: {'action': 'key', 'key': 'F3'}
+[run 19.9s] step 36: {'action': 'key', 'key': 'F3'}
+[run 18.7s] step 37: {'action': 'key', 'key': 'F3'}
+[run 19.7s] step 38: {'action': 'key', 'key': 'F3'}
+[run 19.6s] step 39: {'action': 'key', 'key': 'F3'}
+[run] max_steps reached without finishing
+[run_log] FAIL in 40 steps, 555.7s -> /home/aaron/workspace/vllm/runs/waa__a7d4b6c5-569b-452e-9e1d-ffdb3d431d15-WOS_20260719_004626/summary.json
+--> score=0.0 finished=False (555.7s) conjunct failed
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+1/2 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260719_003753.json
+
+=== history=2 category=notepad done in 1080.0s (1/2 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h2_notepad_waa_20260719_003753.json ===
+
+=== history=2 category=windows_calc starting 00:55:51 ===
+lick', 'coordinate': [113.28, 216.0], 'element': 'From date field showing October 21, 1980'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.3 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 18.4s] step 30: {'action': 'left_click', 'coordinate': [220.8, 315.35999999999996], 'element': 'Day 8 in the October 1980 calendar grid (Tuesday, second row)'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.2 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 18.5s] step 31: {'action': 'left_click', 'coordinate': [119.03999999999999, 292.68], 'element': 'To date field showing July 19, 2026'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.1 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 18.4s] step 32: {'action': 'left_click', 'coordinate': [147.84, 195.48], 'element': 'Month/year header showing July 2026 at the top of the calendar'}
+[execute] WARNING: left_click produced no visible screen change (diff=2.8 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 19.2s] step 33: {'action': 'left_click', 'coordinate': [103.67999999999999, 195.48], 'element': 'Year range header showing 2020-2029 at the top of the calendar'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 19.8s] step 34: {'action': 'left_click', 'coordinate': [351.36, 329.4], 'element': 'Year 2024 in the year selection grid'}
+[run 20.0s] step 35: {'action': 'left_click', 'coordinate': [192.0, 270.0], 'element': 'August or month 8 in the month selection grid for 2024'}
+[run 20.0s] step 36: {'action': 'left_click', 'coordinate': [351.36, 231.12], 'element': 'Aug (August) in the month selection grid for 2024'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=1.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 20.3s] step 37: {'action': 'left_click', 'coordinate': [147.84, 195.48], 'element': 'Month header showing February 2024 at the top of the calendar'}
+[run 20.6s] step 38: {'action': 'left_click', 'coordinate': [103.67999999999999, 195.48], 'element': 'Month selection button at the top of the calendar showing February'}
+[run 21.1s] step 39: {'action': 'left_click', 'coordinate': [336.0, 329.4], 'element': 'Aug (August) in the month selection grid'}
+[run] max_steps reached without finishing
+[run_log] FAIL in 40 steps, 587.2s -> /home/aaron/workspace/vllm/runs/waa__28b91a24-5d97-4c2a-891c-dccbd3820c62-WOS_20260719_012004/summary.json
+false true
+--> score=0.0 finished=False (587.2s) conjunct failed
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+0/3 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260719_005553.json
+
+=== history=2 category=windows_calc done in 2041.2s (0/3 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h2_windows_calc_waa_20260719_005553.json ===
+
+=== history=2 category=microsoft_paint starting 01:29:52 ===
+ck', 'coordinate': [226.56, 168.48], 'element': 'File menu button in the top-left corner of Paint window'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.6 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=2.5 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[run 7.2s] step 1: {'action': 'left_click', 'coordinate': [251.52, 311.03999999999996], 'element': 'Save as option in the File menu'}
+[run 9.2s] step 2: {'action': 'left_click', 'coordinate': [226.56, 168.48], 'element': 'File menu button in the top-left corner of Paint window'}
+[run 7.8s] step 3: {'action': 'left_click', 'coordinate': [297.6, 412.56], 'element': 'Downloads folder in the left navigation pane'}
+[run 8.5s] step 4: {'action': 'left_click', 'coordinate': [460.79999999999995, 543.24], 'element': 'Filename input field showing "Untitled"'}
+[run 8.2s] step 5: {'action': 'type', 'text': 'circle.png', 'press_enter': False}
+[execute] WARNING: type produced no visible screen change (diff=2.6 <= 3.0) -- likely stale Win32 focus (launching an app does not reliably transfer keyboard focus to it, confirmed live via GetForegroundWindow), not a dropped keystroke -- clicking screen-center (960,540) to force real focus before retrying (attempt 1/2)
+[run 9.0s] step 6: {'action': 'left_click', 'coordinate': [422.4, 543.24], 'element': 'Filename input field containing "circle.pngcircle.png"'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.5 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 9.1s] step 7: {'action': 'type', 'text': 'circle.png', 'press_enter': False}
+[run 9.6s] step 8: {'action': 'left_click', 'coordinate': [1002.24, 632.88], 'element': 'Save button in the bottom right of the dialog'}
+[execute] WARNING: left_click produced no visible screen change (diff=2.6 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 10.2s] step 9: {'action': 'finished', 'text': 'The Paint image has been successfully saved as "circle.png" in the Downloads folder. The window title changed to "circle - Paint", confirming the save operation completed.'}
+[run] finished: 'The Paint image has been successfully saved as "circle.png" in the Downloads folder. The window title changed to "circle - Paint", confirming the save operation completed.'
+[run_log] OK in 10 steps, 89.8s -> /home/aaron/workspace/vllm/runs/waa__3544ac9a-6aee-4a0b-a203-bc7b59b272b6-WOS_20260719_014219/summary.json
+1.0 True
+--> score=1.0 finished=True (89.8s) ok
+
+=== [microsoft_paint] 44dbac63-32bf-4cd2-81b4-ad6803ec812d-WOS
+Change the canvas size to 800x600 pixels.
+[boot] ready. holo target=local (http://127.0.0.1:9292/v1, model=holo3.1)
+[vm] cold-rebooted; waiting 35s for the desktop
+[vm] virt-viewer was down after revert -- relaunched for win11-agent
+[vm] post-revert verify failed (attempt 1/3); virt-viewer may not be fullscreen -- killing + relaunching
+[vm] virt-viewer was down after revert -- relaunched for win11-agent
+[vm] post-revert verify failed (attempt 2/3); virt-viewer may not be fullscreen -- killing + relaunching
+[vm] virt-viewer was down after revert -- relaunched for win11-agent
+[vm] post-revert verify failed (attempt 3/3); virt-viewer may not be fullscreen -- killing + relaunching
+[vm] virt-viewer was down after revert -- relaunched for win11-agent
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+2/2 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260719_012954.json
+
+!!! history=2 category=microsoft_paint nonzero exit 1:
+Failed to activate window Untitled - Paint. Status code: Window Untitled - Paint not found (empty results)
+Traceback (most recent call last):
+  File "/home/aaron/workspace/vllm/waa/runner.py", line 270, in <module>
+    main()
+  File "/home/aaron/workspace/vllm/waa/runner.py", line 254, in main
+    r = run_task(t, max_steps=args.max_steps,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/aaron/workspace/vllm/waa/runner.py", line 166, in run_task
+    VMController().revert_clean(capture_fn=loop._frame_png_full)
+  File "/home/aaron/workspace/vllm/kvm_agent/hardware/vm.py", line 159, in revert_clean
+    raise VMError(
+kvm_agent.hardware.vm.VMError: post-revert screen does not match the clean-desktop baseline after 3 virt-viewer relaunches -- refusing to run tasks against an unverified display (capture is probably showing the host desktop, not the VM)
+
+=== history=2 category=microsoft_paint done in 925.6s (2/2 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h2_microsoft_paint_waa_20260719_012954.json ===
+
+=== history=2 category=clock starting 01:45:18 ===
+- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 16.5s] step 20: {'action': 'key', 'key': 'enter'}
+[run 14.2s] step 21: {'action': 'left_click', 'coordinate': [631.6800000000001, 532.4399999999999], 'element': 'Blue Add button with plus icon in the Add new location dialog'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 14.7s] step 22: {'action': 'left_click', 'coordinate': [648.96, 536.76], 'element': 'Blue Add button in the Add new location dialog'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 15.0s] step 23: {'action': 'key', 'key': 'enter'}
+[run 16.2s] step 24: {'action': 'left_click', 'coordinate': [656.6400000000001, 534.6], 'element': 'Blue Add button with plus icon in the Add new location dialog'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 16.2s] step 25: {'action': 'left_click', 'coordinate': [860.16, 453.59999999999997], 'element': 'Search icon button to the right of the Munich Germany search field'}
+[run 18.3s] step 26: {'action': 'left_click', 'coordinate': [645.12, 533.52], 'element': 'Blue Add button with plus icon in the Add new location dialog'}
+[run 17.3s] step 27: {'action': 'left_click', 'coordinate': [652.8000000000001, 535.68], 'element': 'Add button text in the blue button'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.9 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 18.3s] step 28: {'action': 'finished', 'text': 'Munich, Germany has been successfully added to your world clocks list in the Clock app. The city now appears with a blue pin marker on the world map and displays the current time (12:29 PM, +6 hours from local time).'}
+[run] finished: 'Munich, Germany has been successfully added to your world clocks list in the Clock app. The city now appears with a blue pin marker on the world map and displays the current time (12:29 PM, +6 hours from local time).'
+[run_log] OK in 29 steps, 397.7s -> /home/aaron/workspace/vllm/runs/waa__91A30BE9-0E11-4374-8D43-41D4D097080A-WOS_20260719_022333/summary.json
+True True
+--> score=1.0 finished=True (397.7s) ok
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+1/4 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260719_014520.json
+
+=== history=2 category=clock done in 2697.2s (1/4 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h2_clock_waa_20260719_014520.json ===
+
+=== history=2 category=settings starting 02:30:15 ===
+wer may not be fullscreen -- killing + relaunching
+[vm] virt-viewer was down after revert -- relaunched for win11-agent
+[vm] revert verified clean (diff 0.0 <= 6.0)
+[vm] HID round-trip verified (NumLock toggled + read back correctly, both HID collections online)
+[waa] shell input-ready after 3s of probing
+[run_log] recording to /home/aaron/workspace/vllm/runs/waa__e8f68f22-1f6a-4cba-a97a-ac611bb4c67b-wos_20260719_030154
+[run 4.8s] step 0: {'action': 'left_click', 'coordinate': [712.3199999999999, 1069.2], 'element': 'Windows logo button in the taskbar'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.4 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 7.9s] step 1: {'action': 'left_click', 'coordinate': [1203.84, 436.32000000000005], 'element': 'Arrow/chevron next to Storage Sense toggle to access detailed settings'}
+[run 8.0s] step 2: {'action': 'left_click', 'coordinate': [1196.16, 575.64], 'element': 'Arrow button next to Storage Sense toggle to access detailed configuration options'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.7 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.7 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 8.6s] step 3: {'action': 'left_click', 'coordinate': [558.7199999999999, 119.88], 'element': 'Storage in the breadcrumb navigation at the top of the page'}
+[execute] WARNING: left_click produced no visible screen change (diff=2.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 9.1s] step 4: {'action': 'left_click', 'coordinate': [1201.92, 568.08], 'element': 'Arrow button next to Storage Sense toggle to access detailed configuration options'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.5 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 9.3s] step 5: {'action': 'left_click', 'coordinate': [581.76, 494.64000000000004], 'element': 'Dropdown menu showing "During low free disk space (default)" under "Run Storage Sense"'}
+[execute] WARNING: left_click produced no visible screen change (diff=2.4 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.1 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[run 9.3s] step 6: {'action': 'left_click', 'coordinate': [447.36, 425.52000000000004], 'element': '"Every week" option in the Run Storage Sense dropdown menu'}
+[run 10.3s] step 7: {'action': 'finished', 'text': 'Storage Sense has been successfully enabled and configured to run every week. The toggle is switched "On" and the frequency dropdown shows "Every week" as selected.'}
+[run] finished: 'Storage Sense has been successfully enabled and configured to run every week. The toggle is switched "On" and the frequency dropdown shows "Every week" as selected.'
+[run_log] OK in 8 steps, 71.7s -> /home/aaron/workspace/vllm/runs/waa__e8f68f22-1f6a-4cba-a97a-ac611bb4c67b-wos_20260719_030154/summary.json
+7 7
+--> score=1.0 finished=True (71.7s) ok
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+3/5 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260719_023017.json
+
+=== history=2 category=settings done in 1971.9s (3/5 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h2_settings_waa_20260719_023017.json ===
+
+=== history=3 category=notepad starting 03:03:07 ===
+95.48], 'element': 'File menu in Notepad'}
+[run 13.6s] step 12: {'action': 'left_click', 'coordinate': [251.52, 264.6], 'element': 'Open menu item in the File dropdown'}
+[run 13.8s] step 13: {'action': 'left_click', 'coordinate': [172.79999999999998, 271.08], 'element': 'Open option in File menu dropdown'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.3 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.3 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 14.5s] step 14: {'action': 'left_click', 'coordinate': [182.4, 216.0], 'element': 'File menu option at top left of Notepad window'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.7 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.7 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[run 14.8s] step 15: {'action': 'left_click', 'coordinate': [211.2, 291.6], 'element': 'Open menu item in File dropdown'}
+[run 15.2s] step 16: {'action': 'left_click', 'coordinate': [176.64, 219.24], 'element': 'File menu at top left of Notepad'}
+[run 15.5s] step 17: {'action': 'left_click', 'coordinate': [205.44, 344.52], 'element': 'Open option in File menu dropdown'}
+[run 15.1s] step 18: {'action': 'key', 'key': 'ctrl+o'}
+[run 16.0s] step 19: {'action': 'left_click', 'coordinate': [384.0, 319.68], 'element': 'largefile file in the file list'}
+[run 16.4s] step 20: {'action': 'left_click', 'coordinate': [940.8, 648.0], 'element': 'Open button at the bottom of the file dialog'}
+[execute] WARNING: left_click produced no visible screen change (diff=2.5 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 16.6s] step 21: {'action': 'key', 'key': 'ctrl+f'}
+[run 16.8s] step 22: {'action': 'type', 'text': 'example', 'press_enter': False}
+[execute] WARNING: type produced no visible screen change (diff=3.0 <= 3.0) -- likely stale Win32 focus (launching an app does not reliably transfer keyboard focus to it, confirmed live via GetForegroundWindow), not a dropped keystroke -- clicking screen-center (960,540) to force real focus before retrying (attempt 1/2)
+[run 19.5s] step 23: {'action': 'left_click', 'coordinate': [1163.52, 273.24], 'element': 'Down arrow button in search bar to find next occurrence'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.1 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=2.2 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 17.8s] step 24: {'action': 'finished', 'text': '7'}
+[run] finished: '7'
+[run_log] OK in 25 steps, 352.4s -> /home/aaron/workspace/vllm/runs/waa__a7d4b6c5-569b-452e-9e1d-ffdb3d431d15-WOS_20260719_031146/summary.json
+--> score=0.0 finished=True (352.4s) conjunct failed
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+1/2 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260719_030309.json
+
+=== history=3 category=notepad done in 880.9s (1/2 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h3_notepad_waa_20260719_030309.json ===
+
+=== history=3 category=windows_calc starting 03:17:48 ===
+ not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 22.4s] step 31: {'action': 'left_click', 'coordinate': [192.0, 340.2], 'element': 'Day 8 in the October 1980 calendar grid, second row'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 21.8s] step 32: {'action': 'left_click', 'coordinate': [182.4, 216.0], 'element': 'Calendar icon next to the "From" date field showing "October 21, 1980"'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.3 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 22.2s] step 33: {'action': 'left_click', 'coordinate': [226.56, 318.59999999999997], 'element': 'Day 8 in the October 1980 calendar grid'}
+[run 22.6s] step 34: {'action': 'left_click', 'coordinate': [163.20000000000002, 291.6], 'element': 'Calendar icon next to the "To" date field showing "July 19, 2026"'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.1 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 22.5s] step 35: {'action': 'left_click', 'coordinate': [96.0, 194.4], 'element': 'Year header "2026" at the top of the calendar popup'}
+[execute] WARNING: left_click produced no visible screen change (diff=2.9 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 23.1s] step 36: {'action': 'left_click', 'coordinate': [115.19999999999999, 194.4], 'element': 'Year range header "2020 - 2029" at the top of the calendar'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 22.9s] step 37: {'action': 'left_click', 'coordinate': [345.59999999999997, 324.0], 'element': 'Year 2024 in the year selection grid'}
+[run 23.4s] step 38: {'action': 'left_click', 'coordinate': [182.4, 264.6], 'element': 'Month "Aug" in the month selection grid for 2024'}
+[execute] WARNING: left_click produced no visible screen change (diff=2.5 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 23.8s] step 39: {'action': 'left_click', 'coordinate': [134.4, 194.4], 'element': 'Month/year header "February 2024" at the top of the calendar popup'}
+[run] max_steps reached without finishing
+[run_log] FAIL in 40 steps, 696.9s -> /home/aaron/workspace/vllm/runs/waa__28b91a24-5d97-4c2a-891c-dccbd3820c62-WOS_20260719_034525/summary.json
+false true
+--> score=0.0 finished=False (696.9s) conjunct failed
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+0/3 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260719_031750.json
+
+=== history=3 category=windows_calc done in 2355.1s (0/3 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h3_windows_calc_waa_20260719_031750.json ===
+
+=== history=3 category=microsoft_paint starting 03:57:03 ===
+in the top-left corner of Paint window'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.6 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=2.5 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 7.4s] step 1: {'action': 'left_click', 'coordinate': [318.72, 484.92], 'element': 'Image properties option in the File menu'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.1 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.1 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 8.6s] step 2: {'action': 'left_click', 'coordinate': [301.44, 522.72], 'element': 'Image properties menu item in the File dropdown'}
+[run 12.8s] step 3: {'action': 'left_click', 'coordinate': [228.48, 167.4], 'element': 'File menu in the top menu bar of Paint'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 11.6s] step 4: {'action': 'left_click', 'coordinate': [768.0, 731.1600000000001], 'element': 'Width input field in Image Properties dialog'}
+[run 11.0s] step 5: {'action': 'type', 'text': '800', 'press_enter': False}
+[run 11.9s] step 6: {'action': 'left_click', 'coordinate': [944.64, 734.4000000000001], 'element': 'Height input field in Image Properties dialog'}
+[run 12.0s] step 7: {'action': 'type', 'text': '600', 'press_enter': False}
+[run 12.2s] step 8: {'action': 'left_click', 'coordinate': [827.52, 813.24], 'element': 'OK button in Image Properties dialog'}
+[run 13.1s] step 9: {'action': 'left_click', 'coordinate': [821.76, 822.96], 'element': 'OK button in Image Properties dialog'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.8 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.8 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 13.0s] step 10: {'action': 'finished', 'text': 'Canvas size successfully changed to 800x600 pixels.'}
+[run] finished: 'Canvas size successfully changed to 800x600 pixels.'
+[run_log] OK in 11 steps, 124.2s -> /home/aaron/workspace/vllm/runs/waa__44dbac63-32bf-4cd2-81b4-ad6803ec812d-WOS_20260719_041833/summary.json
+True True
+--> score=1.0 finished=True (124.2s) ok
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+3/3 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260719_035705.json
+
+=== history=3 category=microsoft_paint done in 1424.8s (3/3 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h3_microsoft_paint_waa_20260719_035705.json ===
+
+=== history=3 category=clock starting 04:20:48 ===
+ter 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 21.5s] step 24: {'action': 'left_click', 'coordinate': [1205.76, 870.48], 'element': 'Leftmost button (pin/location icon) at bottom right of Clock app'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 27.1s] step 25: {'action': 'left_click', 'coordinate': [1238.4, 872.6400000000001], 'element': 'Middle button with pencil/edit icon at bottom right of Clock app'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 23.9s] step 26: {'action': 'left_click', 'coordinate': [1056.0, 108.0], 'element': 'Map area in East Asia/Japan region, upper right portion of the world map'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 24.5s] step 27: {'action': 'left_click', 'coordinate': [1094.3999999999999, 124.2], 'element': 'Map area showing East Asia region where Japan is located, right side of the map'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 24.0s] step 28: {'action': 'left_click', 'coordinate': [1171.2, 145.8], 'element': 'Map area in the East Asia region where Japan appears on the world map'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 20.8s] step 29: {'action': 'key', 'key': 'right_click'}
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+0/2 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260719_042050.json
+
+!!! history=3 category=clock nonzero exit 1:
+s not exist",
+  "status": "error"
+}
+
+Timer is not start or does not exist in Clock app. Status text: {
+  "message": "Timer does not exist",
+  "status": "error"
+}
+
+Traceback (most recent call last):
+  File "/home/aaron/workspace/vllm/kvm_agent/hardware/appliance.py", line 37, in _req
+    with urllib.request.urlopen(req, timeout=self.timeout) as r:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/aaron/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/aaron/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/urllib/request.py", line 525, in open
+    response = meth(req, response)
+               ^^^^^^^^^^^^^^^^^^^
+  File "/home/aaron/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/urllib/request.py", line 634, in http_response
+    response = self.parent.error(
+               ^^^^^^^^^^^^^^^^^^
+  File "/home/aaron/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/urllib/request.py", line 563, in error
+    return self._call_chain(*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/aaron/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/home/aaron/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/urllib/request.py", line 643, in http_error_default
+    raise HTTPError(req.full_url, code, msg, hdrs, fp)
+urllib.error.HTTPError: HTTP Error 502: Bad Gateway
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/aaron/workspace/vllm/waa/runner.py", line 270, in <module>
+    main()
+  File "/home/aaron/workspace/vllm/waa/runner.py", line 254, in main
+    r = run_task(t, max_steps=args.max_steps,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/aaron/workspace/vllm/waa/runner.py", line 173, in run_task
+    res = loop.run(task["instruction"], max_steps=max_steps, confirm_first=0,
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/aaron/workspace/vllm/agent_loop_holo.py", line 380, in run
+    _execute(action)
+  File "/home/aaron/workspace/vllm/agent_loop_holo.py", line 214, in _execute
+    _fire()
+  File "/home/aaron/workspace/vllm/agent_loop_holo.py", line 183, in _fire
+    ENV.r4.key(key)
+  File "/home/aaron/workspace/vllm/kvm_agent/hardware/appliance.py", line 55, in key
+    def key(self, name):     return self._req("/hid/key", name=str(name))
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/aaron/workspace/vllm/kvm_agent/hardware/appliance.py", line 40, in _req
+    raise ApplianceError(f"{path} transport error: {e}")
+kvm_agent.hardware.appliance.ApplianceError: /hid/key transport error: HTTP Error 502: Bad Gateway
+
+=== history=3 category=clock done in 1798.1s (0/2 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h3_clock_waa_20260719_042050.json ===
+
+=== history=3 category=settings starting 04:50:46 ===
+ue (256.7s) ok
+
+=== [settings] e8f68f22-1f6a-4cba-a97a-ac611bb4c67b-wos
+Enable the "Storage Sense" feature and configure it to run every week.
+[boot] ready. holo target=local (http://127.0.0.1:9292/v1, model=holo3.1)
+[vm] cold-rebooted; waiting 35s for the desktop
+[vm] virt-viewer was down after revert -- relaunched for win11-agent
+[vm] revert verified clean (diff 0.0 <= 6.0)
+[vm] HID round-trip verified (NumLock toggled + read back correctly, both HID collections online)
+[waa] shell input-ready after 3s of probing
+[run_log] recording to /home/aaron/workspace/vllm/runs/waa__e8f68f22-1f6a-4cba-a97a-ac611bb4c67b-wos_20260719_052821
+[run 5.7s] step 0: {'action': 'left_click', 'coordinate': [710.4, 1032.48], 'element': 'Start button in the bottom left corner of the taskbar'}
+[run 7.5s] step 1: {'action': 'left_click', 'coordinate': [1146.24, 436.32000000000005], 'element': 'Storage Sense section with the toggle switch showing "On"'}
+[run 7.4s] step 2: {'action': 'left_click', 'coordinate': [1196.16, 570.24], 'element': 'Arrow button next to Storage Sense toggle to access configuration options'}
+[execute] WARNING: left_click produced no visible screen change (diff=0.7 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[execute] WARNING: left_click produced no visible screen change (diff=0.7 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 2/2)
+[execute] left_click STILL produced no visible change after 2 retries -- either a genuine no-op or a persistent delivery failure; not silently swallowed, see run log
+[run 11.5s] step 3: {'action': 'left_click', 'coordinate': [552.9599999999999, 123.12], 'element': 'Storage breadcrumb link in the navigation path at the top'}
+[execute] WARNING: left_click produced no visible screen change (diff=2.0 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 11.7s] step 4: {'action': 'left_click', 'coordinate': [485.76, 568.08], 'element': 'Storage Sense text in the Storage management section'}
+[execute] WARNING: left_click produced no visible screen change (diff=2.1 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 12.1s] step 5: {'action': 'left_click', 'coordinate': [537.6, 489.24], 'element': 'Dropdown menu showing "During low free disk space (default)" under "Run Storage Sense"'}
+[run 12.2s] step 6: {'action': 'left_click', 'coordinate': [449.28000000000003, 424.44], 'element': 'Every week option in the dropdown menu'}
+[execute] WARNING: left_click produced no visible screen change (diff=1.7 <= 3.0) -- a Pico ACK does not prove guest delivery -- retrying identical command (attempt 1/2)
+[run 14.3s] step 7: {'action': 'finished', 'text': 'Storage Sense has been successfully enabled and configured to run every week. The toggle for "Automatic User content cleanup" is set to "On", and the "Run Storage Sense" dropdown is now set to "Every week" instead of the default "During low free disk space" option.'}
+[run] finished: 'Storage Sense has been successfully enabled and configured to run every week. The toggle for "Automatic User content cleanup" is set to "On", and the "Run Storage Sense" dropdown is now set to "Every week" instead of the default "During low free disk space" option.'
+[run_log] OK in 8 steps, 85.8s -> /home/aaron/workspace/vllm/runs/waa__e8f68f22-1f6a-4cba-a97a-ac611bb4c67b-wos_20260719_052821/summary.json
+7 7
+--> score=1.0 finished=True (85.8s) ok
+[shutdown] env close err: OpenCV(5.0.0) /io/opencv/modules/highgui/src/window.cpp:1210: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'destroyAllWindowsImpl'
+
+[shutdown] hardware released
+
+3/5 passed -> /home/aaron/workspace/vllm/waa/results/waa_20260719_045048.json
+
+=== history=3 category=settings done in 2342.3s (3/5 passed) -> /home/aaron/workspace/vllm/waa/shakedown_results/h3_settings_waa_20260719_045048.json ===
+
+
+SHAKEDOWN COMPLETE in 22094s (368.2 min) -> /home/aaron/workspace/vllm/waa/shakedown_results/manifest.json
+  history=1: 5/17 passed
+  history=2: 7/16 passed
+  history=3: 7/15 passed
