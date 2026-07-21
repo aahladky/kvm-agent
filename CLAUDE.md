@@ -12,15 +12,16 @@ Repo layout (cleaned 2026-07-20)
 
 Code (~120M, tracked):
 - kvm_agent/          — canonical package (config, hardware, instrumentation, llm, models). Active.
-- agent_loop_holo.py  — CURRENT agent loop (Holo3.1 + WAA). Where new work happens.
-- appliance/, waa/, tools/, tests/, docs/ — current-gen support: appliance code,
-  WindowsAgentArena runner + shakedown results, harnesses/probes, unit tests, session reports.
+- agent_loop_holo.py  — CURRENT agent loop (Holo3.1, physical Win10 target). Where new work happens.
+- appliance/, tools/, tests/, docs/ — current-gen support: appliance code,
+  harnesses (battery runner), unit tests, session reports.
 - appliance/pico_fw/  — CURRENT Pico firmware (C/TinyUSB, ported from PiKVM 2026-07-18).
   The old CircuitPython firmware (root boot.py/code.py + appliance/pico/) is RETIRED —
-  kept for history only, never deploy.
-- _archive/old-stack/ — the retired EvoCUA/UI-TARS/Open-WebUI stack plus its shims,
-  tools, and tests (65 files, moved 2026-07-20 as pure renames). Reference only;
-  nothing in the live tree may import from it.
+  in _archive, never deploy.
+- _archive/old-stack/ — the retired generations: EvoCUA/UI-TARS/Open-WebUI stack, and
+  (2026-07-20 physical move) the libvirt VM stack, WindowsAgentArena (waa/), the
+  pyautogui exec-shim, wol.py, appliance/pico/ + send.py + stage2_verify.py.
+  Reference only; nothing in the live tree may import from it.
 
 Data (untracked, gitignored, moved out of the repo 2026-07-20):
 - runs    -> ~/data/kvm-agent/runs      (symlink; benchmark evidence, 4.8G)
