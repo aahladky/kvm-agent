@@ -94,8 +94,8 @@ def show(run_dir, repeats_only=False):
 
     if n_missing_reasoning:
         print(f"WARNING: {n_missing_reasoning}/{len(step_files)} steps had no reasoning_content "
-              f"-- reasoning-mode may have been off for this run (see CFG.planner_thinking / "
-              f"enable_thinking in the call), not a logging gap.")
+              f"-- reasoning-mode may have been off for this run (see the enable_thinking "
+              f"parameter of call_holo_full in kvm_agent/models/holo.py), not a logging gap.")
 
 
 def main():
