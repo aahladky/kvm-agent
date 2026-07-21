@@ -210,8 +210,18 @@ def _execute(action, settle_s=1.5, verify_retries=2):
 
     verifiable = kind in ("left_click", "type")
     before = _frame_png() if verifiable else None
+    seq0 = ENV.cam.seq
 
     _fire()
+    # Finding #6 pairing: guarantee the capture pipeline has advanced PAST the fire
+    # before settling, so the `after` frame can never be one captured before the action
+    # landed. (A fresh frame can still predate the visible EFFECT; wait_until_stable
+    # covers settling on top of this freshness floor.)
+    try:
+        ENV.cam.wait_newer(seq0, timeout_s=settle_s)
+    except TimeoutError:
+        print(f"[execute] WARNING: capture stalled — no frame newer than seq={seq0} "
+              f"within {settle_s}s")
     # Smart settle (2026-07-18): proceed the moment the UI stops changing, up to settle_s.
     wait_until_stable(ENV.cam.read, settle_s)
 
