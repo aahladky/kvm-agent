@@ -12,8 +12,9 @@ OS-agnostic, undetectable. Pure curiosity project.
 
 ## 2. The live system (current iteration)
 
-- **LOOP** — `agent_loop_holo.py`: one tool-call per step, observe→act with
-  verify-and-retry (paired to the action via frame seq numbers). Model: **Holo3.1-35B**
+- **LOOP** — `agent_loop_holo.py`: batched tool calls per step (native semantics:
+  calls in a batch see each other's effects; only the batch's final screenshot goes
+  back), observe→act with the frame-seq freshness floor (paired via seq numbers). Model: **Holo3.1-35B**
   served locally via **llama-swap** (`http://127.0.0.1:9292/v1`, SYCL llama-server on
   the Arc Pro B70, modelctl-managed).
 - **HID** — Pi 5 + Pico 2 W **appliance** (`appliance/`): Pico runs `pico_fw/`
