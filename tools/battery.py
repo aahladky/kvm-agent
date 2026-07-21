@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from kvm_agent.config import CFG
 from kvm_agent.hardware import target
+import agent_loop_holo
 from agent_loop_holo import boot, run, shutdown
 
 
@@ -88,6 +89,19 @@ def main():
             if task.get("setup"):
                 print(f"[battery] setup: {task['setup']}")
             target.reboot()
+            # Post-reboot HID gate (2026-07-21): a physical reboot can bring the
+            # composite HID device up half-dead (keyboard alive, mouse dead, probe
+            # flags LYING) -- camera-verified round-trips are the only truth. The
+            # operator fixes it by replugging the Pico's USB at the laptop.
+            while True:
+                hid_ok, detail = target.verify_hid(agent_loop_holo.ENV.r4,
+                                                 agent_loop_holo.ENV.cam,
+                                                 screen=CFG.screen_size)
+                print(f"[battery] hid gate: {detail}")
+                if hid_ok:
+                    break
+                input("[battery] HID not delivering -- replug the Pico's USB at the "
+                      "laptop (or power-cycle it), then press Enter to re-test... ")
             tag = f"battery_{task['id']}"
             # no_progress_abort=False per H1 (2026-07-19): the frozen-screen/same-click
             # aborts fired falsely on recoverable tasks; benchmark runs give the full budget.

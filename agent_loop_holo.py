@@ -33,6 +33,7 @@ from io import BytesIO
 from PIL import Image
 
 from kvm_agent.config import CFG
+from kvm_agent.hardware.appliance import ApplianceError
 from kvm_agent.hardware.env import PicoEnv, wait_until_stable
 from kvm_agent.instrumentation import RunRecorder
 from kvm_agent.models.holo import (
@@ -404,7 +405,24 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
 
         if step < confirm_first:
             input(f"[run] step {step}: about to execute {action} -- Enter to confirm...")
-        _execute(action)
+        try:
+            _execute(action)
+        except ApplianceError as e:
+            # A rejected/undeliverable action (e.g. a model-invented key name -> bridge
+            # 502) must not kill the run/battery: count it as a dropped action, exactly
+            # like a parse error. Transport death (bridge down) trips the same counter
+            # after STUCK_LIMIT steps -- loud in the run log either way (2026-07-21:
+            # 'winkey' crashed a battery run at step 1 before this existed).
+            stuck += 1
+            print(f"[run] step {step}: exec error ({e}) -- dropped action ({stuck}/{STUCK_LIMIT})")
+            if recorder:
+                recorder.log_step(step, png, message, action, usage, dt, executed=False)
+            if stuck >= STUCK_LIMIT:
+                print("[run] stuck limit hit -- aborting")
+                if recorder:
+                    recorder.finish(False, note="stuck limit hit (exec errors)")
+                return {"finished": False, "answer_text": ""}
+            continue
         if recorder:
             recorder.log_step(step, png, message, action, usage, dt, executed=True)
 
