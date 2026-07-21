@@ -31,7 +31,9 @@ import struct
 import threading
 import time
 
-import serial
+# NOTE: pyserial is imported LAZILY inside PicoHidLink.__init__ (2026-07-21 review):
+# the pure helpers (KEYCODES, crc16, _frame, _px_to_proto) must stay importable on
+# boxes without pyserial -- host-side tests import KEYCODES off the Pi.
 
 
 # ---- USB HID keyboard usage IDs (USB HID Usage Page 0x07) ----------------------
@@ -164,6 +166,7 @@ class PicoHidLink:
     every public call is a blocking request/response round trip."""
 
     def __init__(self, port, baud=115200, timeout=1.0):
+        import serial   # lazy -- see the module-top note
         self.ser = serial.Serial(port, baud, timeout=timeout)
         self.lock = threading.Lock()
         self.port = port

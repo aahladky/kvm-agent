@@ -105,7 +105,8 @@ UART protocol can't frame a literal newline.
 
 ## Bring-up stages (isolate one unknown per stage — see the plan doc)
 
-1. **UART link** ✅ DONE — `pico/stage1_uart_echo.py` + `pi5/stage1_ping_test.py`.
+1. **UART link** ✅ DONE — `pico/stage1_uart_echo.py` + `pi5/stage1_ping_test.py`
+   (both retired with the ASCII protocol; now in `_archive/firmware_old/appliance_pico/`).
 2. **HID over UART** ✅ DONE — `pico/stage2_hid.py` + `pi5/send.py` + `host/stage2_verify.py`.
 3. **Through libvirt passthrough → win11-agent** ✅ DONE — reused Stage-2 firmware + send.py.
 4. **Capture alone (ustreamer on the Pi 5)** — DEFERRED (capture stays host-side for now).
@@ -140,8 +141,13 @@ re-enumeration unless the udev rule is in place and matches the CURRENT VID:PID 
   Also the `Camera.release()` thread-join race (#5) — fixed.
 - `pi5/send.py` still speaks the OLD ASCII protocol against the retired `pico/` firmware; not
   yet ported to `pikvm_proto.py`. Low priority (not on the ApplianceClient/hid_bridge path).
+  `pi5/stage1_ping_test.py` was the same class (ASCII-only, can't talk to `pico_fw`) —
+  archived 2026-07-21 to `_archive/firmware_old/appliance_pico/`.
 
 ## Stage 1 quickstart
+
+(historical — both files now live in `_archive/firmware_old/appliance_pico/`; the shipped
+`pico_fw` speaks binary CRC16 frames, not this ASCII protocol)
 
 1. Copy `pico/stage1_uart_echo.py` to CIRCUITPY as `code.py` (keep existing `boot.py`).
 2. Wire per the table above.

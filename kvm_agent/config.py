@@ -45,6 +45,13 @@ class Config:
     # --- orchestration / IO: all run artifacts live under runs/ (AGENTS.md §1) ---
     runs_dir: str = _env("RUNS_DIR", str(Path(__file__).resolve().parent.parent / "runs"))
 
+    # Frame-diff change threshold on the tile-max metric (0-255 per-tile mean diff).
+    # Calibrated live 2026-07-18: static screen = 0.00, a typed word = 4.5, calc
+    # digit/op changes = 5.7-17. 3.0 sits well above static/caret-flicker and below
+    # the real-change cluster. THE single home for this value (2026-07-21 review:
+    # it was hardcoded in three places that could drift apart silently).
+    frame_change_threshold: float = float(_env("FRAME_CHANGE_THRESHOLD", "3.0"))
+
     # --- Holo3.1 grounding model (llama.cpp SYCL on the Arc Pro B70, port 9292;
     #     hosted reference API for local-vs-hosted diffing) ---
     holo_local_url: str = _env("HOLO_LOCAL_URL", "http://127.0.0.1:9292/v1")

@@ -20,18 +20,51 @@ from kvm_agent.config import CFG
 from kvm_agent.hardware.appliance import ApplianceClient
 
 
+def _tile_means_gray(a, b):
+    """Per-tile mean-abs diff over a 16x9 grid of 30x30 tiles on a 480x270 downscale
+    (grayscale inputs). THE single home of the tile geometry (2026-07-21 review): the
+    settle metric, the loop's frame-diff detail, and verify_hid all derive from this
+    so the tiling can never drift between callers. A small localized change (a typed
+    char, a calc digit) registers strongly in its own tile instead of being averaged
+    into nothing by the whole frame."""
+    a = cv2.resize(a, (480, 270)).astype(np.int16)
+    b = cv2.resize(b, (480, 270)).astype(np.int16)
+    return np.abs(a - b).reshape(9, 30, 16, 30).mean(axis=(1, 3))   # 9x16 per-tile means
+
+
 def _tile_max_diff(prev, curr):
-    """Max per-tile mean-abs diff over a 16x9 grid on a 480x270 downscale — the same
-    tiling as agent_loop_holo._frame_diff_score (flaw #4 fix), for raw BGR frames.
-    A small localized change (a typed char, a calc digit) registers strongly in its
-    own tile instead of being averaged into nothing by the whole frame."""
-    a = cv2.cvtColor(cv2.resize(prev, (480, 270)), cv2.COLOR_BGR2GRAY).astype(np.int16)
-    b = cv2.cvtColor(cv2.resize(curr, (480, 270)), cv2.COLOR_BGR2GRAY).astype(np.int16)
-    d = np.abs(a - b)
-    return float(d.reshape(9, 30, 16, 30).mean(axis=(1, 3)).max())
+    """Max per-tile mean-abs diff for raw BGR frames (flaw #4 fix) — the settle
+    metric below and wait_until_stable's threshold basis."""
+    a = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
+    b = cv2.cvtColor(curr, cv2.COLOR_BGR2GRAY)
+    return float(_tile_means_gray(a, b).max())
 
 
-def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=3.0, poll_s=0.05):
+def tile_means_png(png_a, png_b):
+    """The 9x16 tile grid for two PNG byte strings — agent_loop_holo's frame-diff
+    detail (score + region) derives from this."""
+    a = cv2.imdecode(np.frombuffer(png_a, np.uint8), cv2.IMREAD_GRAYSCALE)
+    b = cv2.imdecode(np.frombuffer(png_b, np.uint8), cv2.IMREAD_GRAYSCALE)
+    return _tile_means_gray(a, b)
+
+
+def tile_max_diff_png(png_a, png_b):
+    """Score-only convenience over tile_means_png (verify_hid's round-trip diff)."""
+    return float(tile_means_png(png_a, png_b).max())
+
+
+def model_input_jpeg(frame, target_h):
+    """Shared resize+encode core of Camera.model_input_jpeg (BGR array -> JPEG q90 at
+    target_h height, aspect preserved) — exported so A/B tooling
+    (tools/probe_resolution_ab.py) uses the same code instead of a hand copy that
+    would drift (2026-07-21 review)."""
+    h, w = frame.shape[:2]
+    frame = frame if target_h >= h else cv2.resize(frame, (int(w * target_h / h), target_h))
+    ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    return buf.tobytes()
+
+
+def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=None, poll_s=0.05):
     """Wait up to max_s for the screen to STOP changing, returning as soon as
     `stable_frames` consecutive polls show a tile-max diff below `thresh`. Replaces
     blind post-action sleeps: fast actions proceed immediately, slow-rendering apps
@@ -39,10 +72,10 @@ def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=3.0, poll_s=0.05):
 
     Metric: tile-max (2026-07-20) — the old 160x90 whole-frame mean was the metric
     flaw #4 discredited for change detection; on analog capture its noise floor and
-    the small-change signal overlap. thresh=3.0 matches FRAME_CHANGE_THRESHOLD's live
-    calibration (2026-07-18: static=0.0, typed word=4.5, calc digit=5.7-17);
-    RE-VALIDATE against the laptop panel's noise floor on the first physical run
-    (Task 11) and adjust if the static floor differs.
+    the small-change signal overlap. thresh defaults to CFG.frame_change_threshold
+    (the single home, calibrated 2026-07-18: static=0.0, typed word=4.5, calc
+    digit=5.7-17); RE-VALIDATE against the laptop panel's noise floor on the first
+    physical run (Task 11) and adjust if the static floor differs.
 
     Returns a status string (2026-07-21 review P0-5 — previously every outcome
     returned None, so a dead capture was indistinguishable from instant stability):
@@ -50,6 +83,8 @@ def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=3.0, poll_s=0.05):
         "timeout" — still churning when the deadline hit
         "dead"    — read_fn() returned None for the ENTIRE window (nothing was ever
                     compared; the capture pipeline is not delivering)"""
+    if thresh is None:
+        thresh = CFG.frame_change_threshold
     end = time.time() + max_s
     prev = None
     stable = 0
@@ -191,11 +226,7 @@ class Camera:
         the model's [0,1000] normalized coordinates still project against the real screen.
         NOT for evidence/grading frames (those stay full-res PNG via png_bytes)."""
         frame, _ = self._fb.get()
-        h, w = frame.shape[:2]
-        target_h = CFG.holo_model_input_res
-        frame = frame if target_h >= h else cv2.resize(frame, (int(w * target_h / h), target_h))
-        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
-        return buf.tobytes()
+        return model_input_jpeg(frame, CFG.holo_model_input_res)
 
     def release(self):
         self.run = False

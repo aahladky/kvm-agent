@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from kvm_agent.config import CFG
+from kvm_agent.hardware.env import model_input_jpeg
 from kvm_agent.models.holo import (
     call_holo_full, observation_message, tool_output_message, SYSTEM_PROMPT,
 )
@@ -43,15 +43,12 @@ _PRIOR_STEP_JSON = json.dumps({
 
 
 def make_jpeg(png_bytes: bytes, target_h: int) -> bytes:
-    """Resize (by height, aspect preserved) + JPEG q90 -- mirrors Camera.model_input_jpeg."""
+    """Decode + the SHARED resize/encode core (kvm_agent.hardware.env.model_input_jpeg)
+    -- no local re-implementation to drift from Camera.model_input_jpeg (2026-07-21 review)."""
     import cv2
     import numpy as np
     arr = cv2.imdecode(np.frombuffer(png_bytes, np.uint8), cv2.IMREAD_COLOR)
-    h, w = arr.shape[:2]
-    if target_h < h:
-        arr = cv2.resize(arr, (int(w * target_h / h), target_h))
-    ok, buf = cv2.imencode(".jpg", arr, [cv2.IMWRITE_JPEG_QUALITY, 90])
-    return buf.tobytes()
+    return model_input_jpeg(arr, target_h)
 
 
 def data_url(jpeg: bytes) -> str:

@@ -257,10 +257,10 @@ def main():
     ap.add_argument("--timeout", type=float, default=1.0)
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8080)
-    # FALLBACK ONLY (2026-07-19) -- overwritten at runtime by /hid/set_screen once a caller
-    # with guest access (waa/runner.py's query_guest_resolution) knows the real value. Not a
-    # source of truth: the launch-time default here has no way to know what the guest is
-    # actually rendering at.
+    # FALLBACK ONLY (2026-07-19) -- overwritten at runtime by /hid/set_screen, which
+    # PicoEnv.__init__ (kvm_agent/hardware/env.py) pushes at every bring-up since
+    # 2026-07-21. Not a source of truth: the launch-time default here has no way to
+    # know what the target is actually rendering at.
     ap.add_argument("--screen-w", type=int, default=1920)
     ap.add_argument("--screen-h", type=int, default=1080)
     ap.add_argument("--log", default="/home/aaron/hid_bridge_commands.jsonl",

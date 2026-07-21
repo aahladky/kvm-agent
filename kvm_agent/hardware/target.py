@@ -41,10 +41,11 @@ def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0, attempts
     dismiss leftovers, and a small diff triggers a clean retry (the first attempt's
     post-Esc closes a refocused leftover, so the retry measures a real open). Returns
     (ok: bool, detail: str)."""
-    # lazy: package -> script import (same pattern the archived vm.py used); keeps
-    # target.py importable without dragging the loop's import-time side effects in.
-    from agent_loop_holo import _frame_diff_score
-    from kvm_agent.hardware.env import wait_until_stable
+    # The tile-max metric comes from the package (its single home, 2026-07-21) --
+    # no more package->script import of agent_loop_holo._frame_diff_score, which
+    # also dragged the loop's import-time side effects (debug-dir makedirs) into
+    # every verify_hid caller.
+    from kvm_agent.hardware.env import tile_max_diff_png, wait_until_stable
 
     def round_trip(fire):
         """esc -> settle -> before -> fire() -> settle -> diff -> esc -> settle.
@@ -56,7 +57,7 @@ def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0, attempts
             before = cam.png_bytes()
             fire()
             wait_until_stable(cam.read, settle_s)
-            diff = _frame_diff_score(before, cam.png_bytes())
+            diff = tile_max_diff_png(before, cam.png_bytes())
             r4.key("esc")
             wait_until_stable(cam.read, 1.0)
             if diff > thresh:
