@@ -1401,6 +1401,7 @@ def main():
     os.makedirs(run_dir, exist_ok=True)
 
     r4 = ApplianceClient()
+    r4.clear_hid()
     probe = r4.probe()
     ack = str(probe.get("ack"))
     print("[smoke] probe:", ack)
@@ -1435,28 +1436,32 @@ if __name__ == "__main__":
 
 Run: `python -m py_compile tools/hid_smoke.py` — expected exit 0. Commit: `git add -A && git commit -m "tools: hid_smoke first-contact test for the physical target"`.
 
-- [ ] **Step 2: Cable and boot**
+- [ ] **Step 2: Redeploy the Pi bridge**
+
+`appliance/pi5/hid_bridge.py` gained the `/hid/clear` route on this branch, but the Pi runs a *copy* at `/home/aaron/hid_bridge.py` via `hid-bridge.service`. Copy the new file to the Pi, `sudo systemctl restart hid-bridge`, and verify `curl -X POST http://192.168.0.29:8080/hid/clear` returns `{"ok": true, ...}` before any agent run — otherwise `PicoEnv.__init__`'s `clear_hid()` raises and every `boot()` fails.
+
+- [ ] **Step 3: Cable and boot**
 
 Laptop lid closed, HDMI out → capture card → passthrough to the user's monitor. Boot to the Windows desktop. Gate: `python -c "from kvm_agent.config import CFG; from kvm_agent.hardware.env import Camera; c=Camera(CFG.cam_index,*CFG.screen_size); f=c.read(); print(f.shape); c.release()"` prints a real frame shape. Record the panel's native resolution in the session doc; if it isn't 1920×1080, set `SCREEN_W`/`SCREEN_H` env vars (and the bridge's `--screen-w/--screen-h` on the Pi) to match before proceeding.
 
-- [ ] **Step 3: HID smoke test**
+- [ ] **Step 4: HID smoke test**
 
 Run: `python tools/hid_smoke.py`
 Gate: probe shows `kbd=1 mouse=1`; the evidence frame shows `holo smoke 123` in Notepad (OCR or eyeball). If the probe shows a half-dead collection: reboot the laptop once and retry; if persistent, STOP — that's a new Blame-Ledger row to investigate before any battery number means anything.
 
-- [ ] **Step 4: One task end-to-end**
+- [ ] **Step 5: One task end-to-end**
 
 Run: `python tools/battery.py` with a one-task file containing only `notepad_type` (copy `tools/battery_tasks_shakedown.json`, trim to the first entry). Grade it yourself. Gate: the run dir in `runs/` contains step frames + raw outputs + summary; the grade lands in `runs/battery_<ts>_results.json`.
 
-- [ ] **Step 5: Full shakedown battery**
+- [ ] **Step 6: Full shakedown battery**
 
 Enable Steps Recorder (psr.exe) on the laptop (raise the 100-capture cap in its settings). Run: `python tools/battery.py tools/battery_tasks_shakedown.json`. Afterward, retrieve the psr .zip(s) into the battery's run dirs. Record the score in the session doc — this is the first honest baseline (REPORT_2026-07-19 §6 item 1).
 
-- [ ] **Step 6: Settle-threshold revalidation**
+- [ ] **Step 7: Settle-threshold revalidation**
 
 From the battery's recorded step frames: compute `_tile_max_diff` over consecutive idle frames (e.g. from `runs/battery_*` steps where no action fired) and confirm the static noise floor is well below `thresh=3.0`. If the floor differs materially, adjust the `wait_until_stable` default and record the calibration in the session doc. Fill in the session doc's `## Live shakedown results`, `## Settle-threshold revalidation`, and `## Learned` sections.
 
-- [ ] **Step 7: Clonezilla image + close-out**
+- [ ] **Step 8: Clonezilla image + close-out**
 
 Take a Clonezilla disk image of the clean Win10 state (the reset backstop). Update `PROJECT_STATE.md` §4 with the baseline score. Final: `python tests/test_frame_diff.py && python tests/test_frame_buffer.py && python tests/test_settle.py && python tests/test_target.py && python tests/test_battery.py && python tests/test_clear_hid.py` all `ALL PASS`; `git status` clean.
 
@@ -1469,6 +1474,6 @@ git commit -m "docs: physical shakedown baseline + settle revalidation"
 
 ## Self-Review Notes (author-filled)
 
-- **Spec coverage:** §2 topology → Tasks 7, 11. §3 retirements → Tasks 1, 2, 9 (HOLO stamp in 1; pycache in 1; pyproject/comments in 9/10). §4 trust fixes → Tasks 3, 4+5, 6. §5 battery → Task 8. §6 shakedown → Task 11 (+ hid_smoke). §7 testing → per-task steps + 11.7. §8 close-out → Tasks 10, 11.7. §9 deferred → PROJECT_STATE §4 + no tasks (deliberate).
+- **Spec coverage:** §2 topology → Tasks 7, 11. §3 retirements → Tasks 1, 2, 9 (HOLO stamp in 1; pycache in 1; pyproject/comments in 9/10). §4 trust fixes → Tasks 3, 4+5, 6. §5 battery → Task 8. §6 shakedown → Task 11 (+ hid_smoke). §7 testing → per-task steps + 11.8. §8 close-out → Tasks 10, 11.8. §9 deferred → PROJECT_STATE §4 + no tasks (deliberate).
 - **Ordering:** Task 9 deletes vm_*/planner_* config fields — safe only after Task 1 archived their consumers. Task 5 depends on Task 4's `wait_newer`. Task 8 depends on Task 7. Everything else is order-independent within its file.
 - **`git mv` caveat** handled via shell `mv` + `git add -A` (gitignored `waa/results` etc. travel with the move; repo rule: artifacts technically belong in `runs/` — they ride into `_archive` unchanged rather than being re-homed, since `_archive` is write-only and they're historical).

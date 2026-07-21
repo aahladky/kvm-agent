@@ -10,8 +10,8 @@ appliance/pico_fw/ and [[pikvm_hid_rp2350_port]] memory) -- the CircuitPython
 firmware was structurally unsound (no ACK, composite-collection independent
 death) and got replaced wholesale rather than re-patched.
 
-The HTTP surface is UNCHANGED from the prior version, so kvm_agent/hardware/
-appliance.py (ApplianceClient) needs no changes:
+The HTTP surface is the prior version's set PLUS /hid/clear (added 2026-07-20 —
+kvm_agent/hardware/appliance.py gained the matching ApplianceClient.clear_hid()):
 
   GET  /health                      -> {ok, port, pico_acking, probe}
   POST /hid/move?x=&y=              -> absolute move (pixel coords; internally

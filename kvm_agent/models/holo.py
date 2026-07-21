@@ -50,8 +50,9 @@ from vendor docs):
     - Coordinates are integers in [0, 1000], normalized to the exact image sent;
       projection is raw / 1000 * image_dimension.
 
-STATUS: Phases I0-I5 of HOLO_INTEGRATION_PLAN.md are done and verified live (VM target,
-SPICE-fullscreen capture, Pico HID over WiFi). This vendor-alignment pass landed after I5.
+STATUS: Phases I0-I5 of HOLO_INTEGRATION_PLAN.md are done and verified live against the rig
+(originally VM target; physical Win10 laptop as of the 2026-07-20 move, appliance HID over
+UART). This vendor-alignment pass landed after I5.
 """
 from __future__ import annotations
 

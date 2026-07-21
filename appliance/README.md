@@ -10,13 +10,16 @@ capture. Design + rationale: `docs/PLAN_2026-07-18_pi5_pico_appliance.md`. Motiv
   structurally unsound (no real per-command ACK contract, composite HID collections that died
   independently on re-enumeration); rather than keep patching it, PiKVM's proven implementation
   was ported wholesale.
-- `pico/` — RETIRED CircuitPython firmware. Kept for history; not deployed. Do not resurrect
-  without a strong reason — `pico_fw/` supersedes it.
+- `pico/` — RETIRED CircuitPython firmware; moved to `_archive/firmware_old/appliance_pico/`
+  in the 2026-07-20 sweep. Kept for history; not deployed. Do not resurrect without a strong
+  reason — `pico_fw/` supersedes it.
 - `pi5/`  — code that runs on the Pi 5 appliance. `hid_bridge.py` (systemd service, HTTP API)
   now speaks `pikvm_proto.py`'s binary CRC16-framed protocol against `pico_fw/`, replacing the
-  old ASCII-line protocol against `pico/`. `send.py` is a one-shot sender for the OLD protocol
-  (not yet ported; use `pikvm_proto.PicoHidLink` directly for new one-shot needs).
-- `host/` — main-host bring-up/verification tooling (not the production client).
+  old ASCII-line protocol against `pico/`. The old-protocol one-shot sender `send.py` moved to
+  `_archive/old-stack/appliance/` (not ported; use `pikvm_proto.PicoHidLink` directly for new
+  one-shot needs).
+- `host/` — main-host bring-up/verification tooling; moved to `_archive/old-stack/appliance/`
+  in the 2026-07-20 sweep.
 
 Host-side integration (the client the Holo loop talks to) will live at
 `kvm_agent/hardware/appliance.py`, not here.
@@ -90,8 +93,9 @@ can't carry a literal newline (the UART protocol is newline-framed); the host-si
 `kvm_agent/hardware/appliance.py: ApplianceClient` — drop-in for the WiFi `R4` (same
 move/click/type/key/combo/scroll/drag surface) but backed by the Pi bridge HTTP API; a
 failed/dropped command raises `ApplianceError` LOUDLY instead of silently succeeding.
-`PicoEnv` now selects the HID client via `CFG.hid_kind` (default `appliance`; `wifi` = retired
-R4), keeping the host `Camera` for capture. New config: `CFG.hid_kind`, `CFG.appliance_url`.
+`PicoEnv` uses the appliance client directly, keeping the host `Camera` for capture (at this
+stage it selected via a `CFG.hid_kind` switch; the switch was removed in the 2026-07-20
+config cleanup when the WiFi path was archived — remaining config: `CFG.appliance_url`).
 Verified end-to-end: `agent_loop_holo.boot()` comes up on the appliance + host capture (no
 more dead-WiFi failure), `ENV.r4` typed a line into the VM Notepad through
 host→bridge→UART→Pico→passthrough→VM, and `shutdown()` was clean.

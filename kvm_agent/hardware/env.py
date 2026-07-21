@@ -194,15 +194,15 @@ class PicoEnv:
         self.cam = Camera(cam_index, *screen_size)
         try:
             self.r4 = make_hid_client()
+            # Start every session from all-keys-up: a combo interrupted mid-fault leaves the
+            # modifier latched on the target, silently corrupting every later step.
+            self.r4.clear_hid()
         except Exception:
             try:
-                self.cam.release()   # don't orphan the capture device if the HID client fails
+                self.cam.release()   # don't orphan the capture device if HID setup fails
             except Exception:
                 pass
             raise
-        # Start every session from all-keys-up: a combo interrupted mid-fault leaves the
-        # modifier latched on the target, silently corrupting every later step.
-        self.r4.clear_hid()
         self.show = show
         f = self.cam.read()
         print(f"[env] capture {f.shape[1]}x{f.shape[0]}")

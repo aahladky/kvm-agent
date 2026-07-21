@@ -44,6 +44,10 @@ def load_tasks(path):
 def grade_task(task, result):
     """The human grader. No default and no empty answer — a grade can never be
     silently recorded (finding #8). Input form: 'p <optional note>' / 'f <optional note>'."""
+    # Show the model's own verdict + where the evidence lives before asking for a grade.
+    print(f"[battery] model verdict: finished={result['finished']} "
+          f"answer_text={result['answer_text']!r}")
+    print(f"[battery] evidence in runs/battery_{task['id']}_<ts>/ (step frames, raw outputs)")
     while True:
         raw = input(f"[battery] task {task['id']!r}: grade [p/f] + optional note: ").strip()
         if raw[:1] in ("p", "f"):
@@ -65,27 +69,38 @@ def main():
     print("[battery] REMINDER: start Steps Recorder (psr.exe) on the laptop (raise its "
           "100-capture cap in its settings first) and drop its .zip into the battery's "
           "run dirs afterward — it is the independent ground-truth channel.")
+    raw = input("[battery] Steps Recorder active on the laptop? [y/n]: ")
+    psr_active = raw.strip().lower().startswith("y")
+    results_path = os.path.join(CFG.runs_dir, f"battery_{ts}_results.json")
+
+    def payload():
+        return {"started": ts, "tasks_file": tasks_path, "psr_active": psr_active,
+                "results": results,
+                "score": f"{sum(r['grade'] == 'pass' for r in results)}/{len(results)}"}
+
     boot()
     results = []
-    for i, task in enumerate(tasks):
-        print(f"\n[battery] === task {i + 1}/{len(tasks)}: {task['id']} ===")
-        if task.get("setup"):
-            print(f"[battery] setup: {task['setup']}")
-        target.reboot()
-        tag = f"battery_{task['id']}"
-        # no_progress_abort=False per H1 (2026-07-19): the frozen-screen/same-click
-        # aborts fired falsely on recoverable tasks; benchmark runs give the full budget.
-        result = run(task["instruction"], max_steps=task["max_steps"],
-                     confirm_first=0, tag=tag, no_progress_abort=False)
-        verdict = grade_task(task, result)
-        results.append({"task_id": task["id"], "instruction": task["instruction"],
-                        "run_tag": tag, "finished": result["finished"],
-                        "answer_text": result["answer_text"], "grader": "human", **verdict})
-        print(f"[battery] {task['id']}: {verdict['grade']} ({verdict['note']})")
-    shutdown()
-    payload = {"started": ts, "tasks_file": tasks_path, "results": results,
-               "score": f"{sum(r['grade'] == 'pass' for r in results)}/{len(results)}"}
-    write_results(os.path.join(CFG.runs_dir, f"battery_{ts}_results.json"), payload)
+    try:
+        for i, task in enumerate(tasks):
+            print(f"\n[battery] === task {i + 1}/{len(tasks)}: {task['id']} ===")
+            if task.get("setup"):
+                print(f"[battery] setup: {task['setup']}")
+            target.reboot()
+            tag = f"battery_{task['id']}"
+            # no_progress_abort=False per H1 (2026-07-19): the frozen-screen/same-click
+            # aborts fired falsely on recoverable tasks; benchmark runs give the full budget.
+            result = run(task["instruction"], max_steps=task["max_steps"],
+                         confirm_first=0, tag=tag, no_progress_abort=False)
+            verdict = grade_task(task, result)
+            results.append({"task_id": task["id"], "instruction": task["instruction"],
+                            "run_tag": tag, "finished": result["finished"],
+                            "answer_text": result["answer_text"], "grader": "human", **verdict})
+            print(f"[battery] {task['id']}: {verdict['grade']} ({verdict['note']})")
+            # Incremental write: a crash mid-battery must not lose grades already taken.
+            write_results(results_path, payload())
+    finally:
+        shutdown()  # releases the camera even if a task raised mid-battery
+    write_results(results_path, payload())
 
 
 if __name__ == "__main__":

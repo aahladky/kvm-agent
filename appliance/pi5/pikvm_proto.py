@@ -2,8 +2,9 @@
 pikvm_proto.py -- wire protocol client for the ported PiKVM Pico HID firmware
 (appliance/pico_fw/, RP2350/Pico 2 W port of github.com/pikvm/kvmd hid/pico).
 
-Replaces the old ASCII "<seq> CMD arg\\n" protocol (appliance/pico/stage2_hid.py,
-CircuitPython, retired 2026-07-18) with PiKVM's real binary framing: fixed 8-byte
+Replaces the old ASCII "<seq> CMD arg\\n" protocol (appliance/pico/stage2_hid.py, now
+_archive/firmware_old/appliance_pico/stage2_hid.py, CircuitPython, retired 2026-07-18) with
+PiKVM's real binary framing: fixed 8-byte
 frames, CRC16/MODBUS-checked, over the same UART wiring (Pi5 GPIO14/15 <-> Pico
 GP0/GP1, uart0 @ 115200 -- see appliance/README.md).
 

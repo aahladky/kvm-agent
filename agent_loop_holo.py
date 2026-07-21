@@ -2,7 +2,8 @@
 agent_loop_holo.py — REPL-driven capture->ground->act loop for Holo3.1, built around
 kvm_agent.models.holo (NOT the old EvoCUA/UI-TARS loop -- Holo emits a normalized
 action dict via native tool-calling, not pyautogui code strings, so execution here maps
-straight onto env.r4, bypassing the PicoPyAutoGUI exec-shim those older agents used, now archived).
+straight onto env.r4, bypassing the PicoPyAutoGUI exec-shim those older agents used (the shim
+itself is now archived)).
 
 STATUS: Phases I0-I5 done (see HOLO_INTEGRATION_PLAN.md -- SUPERSEDED) -- verified live
 against the rig (originally VM target; physical Win10 laptop as of the 2026-07-20 move,
@@ -196,7 +197,8 @@ def _execute(action, settle_s=1.5, verify_retries=2):
             elif direction == "down":
                 ENV.r4.scroll(-3)
             else:
-                # v5 firmware wheel is single-axis vertical only (see boot.py/code.py) --
+                # v5 firmware wheel is single-axis vertical only (see boot.py/code.py, now
+                # archived under _archive/old-stack/) --
                 # left/right have no real mapping. No-op, loud, rather than a wrong guess.
                 print(f"[execute] scroll direction={direction!r} not supported by current "
                       f"firmware (vertical wheel only) -- no-op")
@@ -283,7 +285,8 @@ def _frame_diff_score(png_a, png_b, drop_bottom_row=False):
 
     drop_bottom_row excludes the bottom tile row (the taskbar strip: clock, weather/widget
     text, notification badges) -- content that churns BY ITSELF between a reference frame
-    and a later verify. vm.py's post-revert check uses this: on 2026-07-18 a weather-widget
+    and a later verify. vm.py's post-revert check used this (vm.py itself is now archived
+    under _archive/old-stack/): on 2026-07-18 a weather-widget
     text change (tile diff ~12) tripped the reset verifier and aborted a battery run over
     what was actually a perfectly clean desktop. Anything the check exists to catch (host
     desktop instead of the VM, an app auto-launched) differs in tiles far above the taskbar,
@@ -344,7 +347,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
 
     confirm_first defaults to CONFIRM_FIRST; pass 0 to run unattended.
 
-    record (default True, per PROJECT_GUIDANCE_holo.md §3.3 -- "unlogged runs are wasted
+    record (default True, per AGENTS.md §1 — all artifacts in runs/; "unlogged runs are wasted
     runs") writes every step's pre-action frame, raw message, parsed action, token usage,
     and wall time to CFG.runs_dir/<tag>_<timestamp>/ via RunRecorder, plus a summary.json
     at the end. tag names the run directory (e.g. the task id in a battery).
