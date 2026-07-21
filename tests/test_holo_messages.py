@@ -108,6 +108,38 @@ def test_trim_to_last_n_images_zero_evicts_all():
             assert m["content"][1] == {"type": "text", "text": "[screenshot evicted]"}
 
 
+def test_scalar_shape_guards():
+    """P1-10 (2026-07-21 review): _scalar must not average garbage into a plausible-
+    looking coordinate. The hosted-API [min, max] range quirk is handled; anything
+    else raises instead of inventing a click point."""
+    from kvm_agent.models.holo import _scalar
+    assert _scalar(5) == 5, "scalar passthrough"
+    assert _scalar([7]) == 7, "single-element list unwraps"
+    assert _scalar([100, 200]) == 150, "[min,max] range takes the midpoint"
+    for bad in ([], [1, 2, 3]):
+        raised = False
+        try:
+            _scalar(bad)
+        except ValueError:
+            raised = True
+        assert raised, f"nonsense coordinate list {bad} raises, not invents a coordinate"
+
+
+def test_parse_response_garbage_coordinate_is_loud():
+    """A nonsense coordinate list must not silently become a click: parse_response
+    lets the ValueError propagate (run()'s model-call guard then records it as a
+    dropped step) rather than projecting an invented midpoint."""
+    msg = {"role": "assistant", "content": json.dumps({
+        "note": None, "thought": None,
+        "tool_calls": [{"tool_name": "click_desktop", "x": [1, 2, 3], "y": 500}]})}
+    raised = False
+    try:
+        parse_response(msg, 1920, 1080)
+    except ValueError:
+        raised = True
+    assert raised, "garbage coordinate raises out of parse_response"
+
+
 if __name__ == "__main__":
     import traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

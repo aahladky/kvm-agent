@@ -13,6 +13,7 @@ Capture is unchanged (still the host `Camera`); only the action channel moves to
 the appliance. So PicoEnv keeps its `cam` and swaps only `r4`.
 """
 import json
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -36,6 +37,20 @@ class ApplianceClient:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 data = json.load(r)
+        except urllib.error.HTTPError as e:
+            # The bridge answers failures with 502/404/400 + a JSON body carrying its
+            # own ack/error detail (e.g. "pico error code=0x45"). Surface that detail
+            # (2026-07-21 review P1-11): previously it was swallowed into a bare
+            # "transport error" and the carefully constructed bridge error never
+            # reached the caller.
+            detail = ""
+            try:
+                body = json.loads(e.read())
+                detail = body.get("ack") or body.get("error") or ""
+            except Exception:
+                pass
+            raise ApplianceError(f"{path} transport error: {e}"
+                                 + (f" ({detail})" if detail else ""))
         except Exception as e:
             raise ApplianceError(f"{path} transport error: {e}")
         if not data.get("ok"):

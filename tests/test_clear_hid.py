@@ -1,6 +1,10 @@
 """
 test_clear_hid.py — OFFLINE test: ApplianceClient.clear_hid() hits the bridge's
-/hid/clear route and raises loudly on a not-ok response (the all-keys-up wiring).
+/hid/clear route and raises loudly on failure. The fake server mimics the REAL
+bridge's failure shapes (2026-07-21 review P1-11: the previous fake returned
+HTTP 200 with {"ok": false}, a shape the real bridge never produces — hid_bridge
+returns 502/404/400, so the not-ok branch the old test exercised was unreachable
+in production and the bridge's ack/error detail never reached the caller).
 
     python tests/test_clear_hid.py
 """
@@ -11,19 +15,25 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from kvm_agent.hardware.appliance import ApplianceClient, ApplianceError
 
 
-def _serve():
+def _serve(fail_clear=False):
     hits = []
 
     class H(BaseHTTPRequestHandler):
-        def do_POST(self):
-            hits.append(self.path)
-            ok = self.path == "/hid/clear"
-            body = json.dumps({"ok": ok, "ack": "CLR" if ok else "no such route"}).encode()
-            self.send_response(200)
+        def _json(self, status, obj):
+            body = json.dumps(obj).encode()
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        def do_POST(self):
+            hits.append(self.path)
+            if self.path == "/hid/clear" and not fail_clear:
+                self._json(200, {"ok": True, "ack": "CLR"})
+            elif self.path == "/hid/clear":
+                self._json(502, {"ok": False, "error": "pico error code=0x45"})
+            else:
+                self._json(404, {"ok": False, "error": "no such route"})
         def log_message(self, *a):
             pass
 
@@ -42,14 +52,33 @@ def test_clear_hid_posts_to_route():
         srv.shutdown()
 
 
-def test_not_ok_response_raises():
+def test_bridge_502_raises_with_error_detail():
+    """The real bridge answers a failed HID command with 502 + an error body; the
+    client must raise loudly AND carry the bridge's detail (not swallow it)."""
+    srv, url, hits = _serve(fail_clear=True)
+    try:
+        err = None
+        try:
+            ApplianceClient(base_url=url).clear_hid()
+        except ApplianceError as e:
+            err = e
+        assert err is not None, "bridge 502 raises ApplianceError"
+        assert "transport error" in str(err), "non-2xx arrives as a transport error"
+        assert "0x45" in str(err), "the bridge's error detail reaches the caller"
+    finally:
+        srv.shutdown()
+
+
+def test_unknown_route_404_raises_with_detail():
     srv, url, hits = _serve()
     try:
+        err = None
         try:
             ApplianceClient(base_url=url)._req("/hid/bogus")
-            assert False, "not-ok response raises ApplianceError"
-        except ApplianceError:
-            pass
+        except ApplianceError as e:
+            err = e
+        assert err is not None, "unknown route raises ApplianceError"
+        assert "no such route" in str(err), "the bridge's 404 detail reaches the caller"
     finally:
         srv.shutdown()
 

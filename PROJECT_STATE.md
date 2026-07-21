@@ -67,6 +67,14 @@ OS-agnostic, undetectable. Pure curiosity project.
   single home (`kvm_agent.hardware.env` + `CFG.frame_change_threshold`);
   `verify_hid` no longer imports the root app script; dead code dropped
   (`_frame_png_full`, `drop_bottom_row`, ASCII-only `stage1_ping_test.py`).
+- Review batch-4 fixes (2026-07-21): `Camera` bring-up failure raises catchable
+  `RuntimeError` instead of `SystemExit`; `_scalar` shape-guards coordinates (a
+  nonsense list raises instead of inventing a midpoint click); `_req` surfaces the
+  bridge's HTTP error detail (502/404 bodies) instead of a bare "transport error";
+  `show_reasoning.py` speaks the live action vocabulary (hotkey/double_click/
+  hold_and_tap, `keys` field) and the batched step-record shape; battery summary is
+  foldered (`runs/battery_<ts>/results.json`) and the resolution A/B probe writes
+  its results to `runs/`.
 
 ## 4. Open problems
 

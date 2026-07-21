@@ -258,6 +258,38 @@ def test_p0_4_boot_hid_gate():
         al.ENV, al.PicoEnv, target_mod.verify_hid = saved
 
 
+def test_p1_9_camera_bringup_failure_is_catchable():
+    """P1-9 (2026-07-21 review): Camera raised SystemExit on bring-up failure, which
+    sails past `except Exception` in any embedding caller (battery, future server).
+    It must raise a catchable RuntimeError instead."""
+    import time
+    import types
+
+    class FakeCap:
+        def set(self, *a): pass
+        def read(self):
+            time.sleep(0.01)   # don't busy-spin the capture thread
+            return False, None
+        def release(self): pass
+
+    fake_cv2 = types.SimpleNamespace(
+        VideoCapture=lambda *a, **k: FakeCap(),
+        CAP_PROP_FRAME_WIDTH=0, CAP_PROP_FRAME_HEIGHT=0, CAP_PROP_BUFFERSIZE=0)
+    real_cv2 = env_mod.cv2
+    env_mod.cv2 = fake_cv2
+    try:
+        raised = None
+        try:
+            env_mod.Camera(0, bringup_timeout_s=0.2)
+        except RuntimeError as e:
+            raised = e
+        assert raised is not None, \
+            "bring-up failure raises RuntimeError (catchable via except Exception)"
+        assert "capture card" in str(raised), "error message says what to check"
+    finally:
+        env_mod.cv2 = real_cv2
+
+
 if __name__ == "__main__":
     import sys, traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

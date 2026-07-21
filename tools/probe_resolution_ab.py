@@ -135,13 +135,32 @@ def main():
         errs = sum(1 for r in rows if r["error"])
         summary[res] = (mp, mc, mw)
         print(f"{res:>6} {mp:>11.0f} {mc:>10.0f} {mw:>8.1f} {len(rows):>5}  errors={errs}")
+    verdict = None
     if 720 in summary and 1080 in summary:
         p720, p1080 = summary[720], summary[1080]
-        print(f"\n720p vs 1080p: prompt tokens {p720[0] / p1080[0]:.1%} of 1080p "
-              f"(saves {p1080[0] - p720[0]:.0f}/step), wall {p720[2] / p1080[2]:.1%} of 1080p "
-              f"(saves {p1080[2] - p720[2]:.1f}s/step)")
+        verdict = (f"720p vs 1080p: prompt tokens {p720[0] / p1080[0]:.1%} of 1080p "
+                   f"(saves {p1080[0] - p720[0]:.0f}/step), wall {p720[2] / p1080[2]:.1%} "
+                   f"of 1080p (saves {p1080[2] - p720[2]:.1f}s/step)")
+        print(f"\n{verdict}")
         print("Note: wall time includes completion (reasoning trace) variance, which can "
               "swamp the prompt-side saving at these step sizes -- see the spread above.")
+
+    # The primary result must land in runs/, not stdout only (AGENTS.md §1;
+    # 2026-07-21 review: this was the one tool whose output never did).
+    from kvm_agent.config import CFG
+    out_dir = Path(CFG.runs_dir) / f"probe_resolution_ab_{time.strftime('%Y%m%d_%H%M%S')}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "screen": [screen_w, screen_h], "reps": args.reps,
+        "source": args.image or "live rig capture",
+        "per_resolution": {str(res): rows for res, rows in results.items()},
+        "means": {str(res): {"prompt_tokens": m[0], "completion_tokens": m[1],
+                             "wall_s": m[2]} for res, m in summary.items()},
+        "verdict": verdict,
+    }
+    out_path = out_dir / "results.json"
+    out_path.write_text(json.dumps(payload, indent=2))
+    print(f"\n[probe] results -> {out_path}")
 
 
 if __name__ == "__main__":

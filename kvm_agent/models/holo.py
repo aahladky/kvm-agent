@@ -402,10 +402,22 @@ def _scalar(v):
     instead of a scalar, despite the schema declaring "type": "integer". Take the
     midpoint rather than crash or silently drop -- see docs/FORMAT_NOTES_holo.md
     "hosted vs local" section. Local (llama.cpp/B70) has never shown this.
+
+    Shape-guarded (2026-07-21 review P1-10): anything OTHER than a scalar, a
+    single-element list, or a 2-element range raises ValueError -- a zero-length
+    list was a ZeroDivisionError and a longer nonsense list became a
+    plausible-looking midpoint click. Loud is correct here: run()'s model-call
+    guard records the step as dropped instead of clicking an invented coordinate.
     """
     if isinstance(v, list):
-        logger.warning("non-scalar coordinate value %r, using midpoint", v)
-        return sum(v) / len(v)
+        if len(v) == 1:
+            logger.warning("single-element coordinate list %r, unwrapping", v)
+            return v[0]
+        if len(v) == 2:
+            logger.warning("range coordinate value %r, using midpoint", v)
+            return (v[0] + v[1]) / 2
+        raise ValueError(
+            f"nonsense coordinate list (expected scalar or [min, max] range): {v!r}")
     return v
 
 

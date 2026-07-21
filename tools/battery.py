@@ -13,7 +13,7 @@ the anti-pattern this project exists to kill).
 
 Artifacts (AGENTS.md §1 — everything under runs/):
     runs/battery_<task_id>_<ts>/    per-task RunRecorder dirs (written by run())
-    runs/battery_<ts>_results.json  grades + provenance for the whole battery
+    runs/battery_<ts>/results.json  grades + provenance for the whole battery
 """
 import json
 import os
@@ -74,7 +74,11 @@ def main():
           "run dirs afterward — it is the independent ground-truth channel.")
     raw = input("[battery] Steps Recorder active on the laptop? [y/n]: ")
     psr_active = raw.strip().lower().startswith("y")
-    results_path = os.path.join(CFG.runs_dir, f"battery_{ts}_results.json")
+    # One folder per battery (AGENTS.md §1): the summary was previously a loose file
+    # at the runs/ root while every other artifact is foldered (2026-07-21 review).
+    results_dir = os.path.join(CFG.runs_dir, f"battery_{ts}")
+    os.makedirs(results_dir, exist_ok=True)
+    results_path = os.path.join(results_dir, "results.json")
 
     def payload():
         return {"started": ts, "tasks_file": tasks_path, "psr_active": psr_active,

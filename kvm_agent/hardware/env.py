@@ -163,10 +163,11 @@ _CAPTURE_BACKEND = cv2.CAP_MSMF if sys.platform == "win32" else cv2.CAP_V4L2
 
 
 class Camera:
-    def __init__(self, index=0, w=1920, h=1080):
+    def __init__(self, index=0, w=1920, h=1080, bringup_timeout_s=15.0):
         # MSMF is slow to OPEN (~20-25s one-time Media Foundation init) on Windows, hence
         # the longer first-frame wait below; once open, the threaded read drains fresh
-        # frames. V4L2 on Linux opens fast by comparison.
+        # frames. V4L2 on Linux opens fast by comparison. bringup_timeout_s is injectable
+        # for tests.
         self.cap = cv2.VideoCapture(index, _CAPTURE_BACKEND)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
@@ -177,8 +178,12 @@ class Camera:
         self._thread.start()
         t0 = time.time()
         while self._fb.seq == 0:
-            if time.time() - t0 > 15:
-                raise SystemExit("no frames — is the capture card free (other process holding it)?")
+            if time.time() - t0 > bringup_timeout_s:
+                # RuntimeError, NOT SystemExit (2026-07-21 review P1-9): SystemExit sails
+                # past `except Exception` in embedding callers (battery, future server),
+                # turning a rig fault into a silent process teardown.
+                raise RuntimeError(
+                    "no frames — is the capture card free (other process holding it)?")
             time.sleep(0.05)
         # discard the first few frames: MSMF's first frame post-open can be torn
         for _ in range(8):

@@ -1,4 +1,4 @@
-"""show_reasoning.py -- the FIRST place to look when a run.py/waa run goes wrong.
+"""show_reasoning.py -- the FIRST place to look when a run goes wrong.
 
 Every step's raw reasoning_content is already captured verbatim by RunRecorder
 (kvm_agent/instrumentation/run_log.py's step_NN.json, message.reasoning_content) --
@@ -9,10 +9,15 @@ looked like "the mouse can't click" tonight, before the real cause -- launching 
 app doesn't reliably transfer Win32 keyboard focus -- was found by actually looking
 at what happened, not by guessing from outside).
 
+Speaks the LIVE action vocabulary (2026-07-21 review P1-12): left_click,
+double_click, move_to, drag_to, type, hotkey (keys list), hold_and_tap, scroll,
+update_plan, finished -- and the batched step record shape (step_NN.json's "action"
+field holds the whole parsed step dict, actions under "actions").
+
     python tools/show_reasoning.py                          # latest run in runs/
-    python tools/show_reasoning.py waa__366de66e             # dir glob prefix
-    python tools/show_reasoning.py runs/waa__.../             # exact dir
-    python tools/show_reasoning.py --repeats-only waa__366de66e
+    python tools/show_reasoning.py battery_notepad_type     # dir glob prefix
+    python tools/show_reasoning.py runs/battery_.../        # exact dir
+    python tools/show_reasoning.py --repeats-only battery_notepad_type
 """
 import argparse
 import glob
@@ -23,22 +28,47 @@ ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
 
 
 def _same_action(a, b, tol=25):
-    """Loose equality for the repeat-detector: same kind, and (for clicks) within
-    tol px, or (for type/key) identical payload. Mirrors run()'s own click_repeat
-    idiom (agent_loop_holo.py, ~25px cluster)."""
+    """Loose equality for the repeat-detector: same kind, and (for pointer actions)
+    within tol px, or (for type/hotkey/hold_and_tap) identical payload. Mirrors
+    run()'s own click_repeat idiom (agent_loop_holo.py, ~25px cluster)."""
     if a.get("action") != b.get("action"):
         return False
     kind = a.get("action")
-    if kind == "left_click":
+    if kind in ("left_click", "double_click", "move_to", "drag_to"):
         ca, cb = a.get("coordinate"), b.get("coordinate")
         if not ca or not cb:
             return False
         return abs(ca[0] - cb[0]) <= tol and abs(ca[1] - cb[1]) <= tol
+    if kind == "scroll":
+        ca, cb = a.get("coordinate"), b.get("coordinate")
+        if ca and cb:
+            return abs(ca[0] - cb[0]) <= tol and abs(ca[1] - cb[1]) <= tol
+        return a.get("direction") == b.get("direction")
     if kind == "type":
         return a.get("text") == b.get("text")
-    if kind == "key":
-        return a.get("key") == b.get("key")
-    return False
+    if kind == "hotkey":
+        return a.get("keys") == b.get("keys")
+    if kind == "hold_and_tap":
+        return a.get("hold_keys") == b.get("hold_keys") and \
+               a.get("tap_keys") == b.get("tap_keys")
+    return False   # update_plan / finished / unknown: never a "repeat"
+
+
+def _actions_of(d):
+    """The action list from one step_NN.json record. Since the 2026-07-21
+    native-verbatim rearchitecture the record's "action" field holds the whole
+    parsed step dict ({"actions": [...], "note", ...}); pre-batch records held a
+    single action dict directly."""
+    step = d.get("action") or {}
+    if "actions" in step:
+        return step["actions"] or []
+    return [step] if step.get("action") else []
+
+
+def _same_step(actions, prev_actions):
+    """A step repeats when it fires the identical action sequence as the prior step."""
+    return (bool(actions) and len(actions) == len(prev_actions)
+            and all(_same_action(a, b) for a, b in zip(actions, prev_actions)))
 
 
 def find_run_dir(spec):
@@ -62,29 +92,31 @@ def show(run_dir, repeats_only=False):
     if not step_files:
         raise SystemExit(f"no step_*.json in {run_dir}")
 
-    prev_action = None
+    prev_actions = None
     repeat_run = 0
     n_missing_reasoning = 0
     for f in step_files:
         d = json.load(open(f))
         step = d.get("step")
-        action = d.get("action", {})
+        actions = _actions_of(d)
         message = d.get("message", {})
         reasoning = message.get("reasoning_content")
         wall = d.get("wall_time_s")
 
-        is_repeat = prev_action is not None and _same_action(action, prev_action)
+        is_repeat = prev_actions is not None and _same_step(actions, prev_actions)
         repeat_run = repeat_run + 1 if is_repeat else 0
-        prev_action = action
+        prev_actions = actions
 
         if repeats_only and not is_repeat:
             continue
 
         marker = f"  *** REPEAT #{repeat_run} of the same action ***" if is_repeat else ""
-        kind = action.get("action")
-        detail = (action.get("coordinate") or action.get("text") or action.get("key")
-                   or action.get("direction") or "")
-        print(f"--- step {step} ({wall:.1f}s) -> {kind} {detail}{marker}")
+        kinds = "+".join(a.get("action", "?") for a in actions) or "(no actions)"
+        detail = next((a.get("coordinate") or a.get("text") or a.get("keys")
+                       or a.get("direction") for a in actions
+                       if (a.get("coordinate") or a.get("text") or a.get("keys")
+                           or a.get("direction"))), "")
+        print(f"--- step {step} ({wall:.1f}s) -> {kinds} {detail}{marker}")
         if reasoning:
             print(f"    {reasoning.strip()}")
         else:
