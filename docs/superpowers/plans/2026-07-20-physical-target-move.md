@@ -682,9 +682,12 @@ wait_until_stable(scripted([BASE.copy() for _ in range(50)]), max_s=2.0, poll_s=
 check("stable sequence settles fast", time.time() - t0 < 1.0)
 
 # (b) small localized change every poll (a 40x40 block toggling) -> NOT stable,
-#     must burn the whole window (the case the whole-frame mean missed)
+#     must burn the whole window (the case the whole-frame mean missed).
+#     200 frames: at poll_s=0.005 the scripted churn must outlast the 0.4s
+#     window (50 frames exhausts at ~0.25s and the replayed tail reads stable —
+#     plan defect found in execution, 2026-07-20).
 churn = []
-for i in range(50):
+for i in range(200):
     f = BASE.copy()
     if i % 2:
         f[100:140, 200:240] = 255
