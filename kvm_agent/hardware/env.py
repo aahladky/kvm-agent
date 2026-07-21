@@ -139,6 +139,9 @@ class PicoEnv:
             except Exception:
                 pass
             raise
+        # Start every session from all-keys-up: a combo interrupted mid-fault leaves the
+        # modifier latched on the target, silently corrupting every later step.
+        self.r4.clear_hid()
         self.show = show
         f = self.cam.read()
         print(f"[env] capture {f.shape[1]}x{f.shape[0]}")
@@ -164,7 +167,7 @@ class PicoEnv:
 
     def close(self):
         try:
-            self.r4.up()  # safety: release any held mouse button before disconnecting
+            self.r4.clear_hid()  # all keys AND buttons up, not just the mouse button
         except Exception:
             pass
         try:

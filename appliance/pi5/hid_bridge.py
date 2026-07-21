@@ -21,6 +21,7 @@ appliance.py (ApplianceClient) needs no changes:
   POST /hid/type?text=hello%20world
   POST /hid/combo?spec=ctrl%2Ba     (ctrl+a)
   POST /hid/scroll?ticks=3
+  POST /hid/clear                  -> all-keys-up (release every held key/button)
   GET  /hid/probe                   -> keyboard liveness (LED readback)
 Every response is JSON: {"ok":bool, "ack":str, "ms":float, "cmd":str}.
 
@@ -103,11 +104,16 @@ def _cmd_probe(q):
             f"kbd={int(p['kbd_online'])} mouse={int(p['mouse_online'])}")
 
 
+def _cmd_clear(q):
+    LINK.clear_hid()
+    return "CLR"
+
+
 ROUTES = {
     "/hid/move": _cmd_move, "/hid/click": _cmd_click, "/hid/rclick": _cmd_rclick,
     "/hid/down": _cmd_down, "/hid/up": _cmd_up, "/hid/home": _cmd_home,
     "/hid/key": _cmd_key, "/hid/type": _cmd_type, "/hid/combo": _cmd_combo,
-    "/hid/scroll": _cmd_scroll, "/hid/probe": _cmd_probe,
+    "/hid/scroll": _cmd_scroll, "/hid/probe": _cmd_probe, "/hid/clear": _cmd_clear,
 }
 
 

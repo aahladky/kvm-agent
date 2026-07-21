@@ -80,6 +80,12 @@ class ApplianceClient:
         self.move(x2, y2); self.up()
 
     # --- appliance-specific ---
+    def clear_hid(self):
+        """All-keys-up: release every held key/button on the target. Called on connect
+        and on close() so a mid-fault latched modifier (combo interrupted by a link
+        failure) can't corrupt the next session's input state."""
+        return self._req("/hid/clear")
+
     def probe(self):
         return self._req("/hid/probe")
 
