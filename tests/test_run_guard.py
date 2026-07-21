@@ -32,7 +32,8 @@ class FakeRecorder:
     def __init__(self, *a, **k):
         self.steps = []
         self.finished = None
-    def log_step(self, step_idx, png, message, action, usage, wall_time_s, executed=True):
+    def log_step(self, step_idx, png, message, action, usage, wall_time_s, executed=True,
+                 stalled=False):
         self.steps.append({"step": step_idx, "action": action, "executed": executed})
     def finish(self, success, note=""):
         self.finished = (success, note)

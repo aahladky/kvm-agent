@@ -81,7 +81,9 @@ def main():
                 "results": results,
                 "score": f"{sum(r['grade'] == 'pass' for r in results)}/{len(results)}"}
 
-    boot()
+    # verify=False: the battery runs its own INTERACTIVE replug-loop gate per task
+    # (below) -- boot()'s single-attempt raise-on-failure gate would be redundant here.
+    boot(verify=False)
     results = []
     try:
         for i, task in enumerate(tasks):

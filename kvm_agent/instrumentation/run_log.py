@@ -37,7 +37,8 @@ class RunRecorder:
             json.dump(obj, f, indent=2, default=str)
 
     def log_step(self, step_idx: int, png: bytes, message: dict, action: dict,
-                 usage: dict | None, wall_time_s: float, executed: bool = True):
+                 usage: dict | None, wall_time_s: float, executed: bool = True,
+                 stalled: bool = False):
         with open(os.path.join(self.dir, f"step_{step_idx:02d}.png"), "wb") as f:
             f.write(png)
         record = {
@@ -47,6 +48,9 @@ class RunRecorder:
             "usage": usage or {},
             "wall_time_s": wall_time_s,
             "executed": executed,
+            # capture stalled during this step's actions: diffs may predate the action
+            # (review 2026-07-21 P0-3) -- graders should distrust this step's signal.
+            "stalled": stalled,
         }
         self._write_json(f"step_{step_idx:02d}.json", record)
         self.steps.append(record)

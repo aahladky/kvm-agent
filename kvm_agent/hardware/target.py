@@ -46,6 +46,11 @@ def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0, attempts
     from agent_loop_holo import _frame_diff_score
     from kvm_agent.hardware.env import wait_until_stable
 
+    class _CaptureDead(Exception):
+        """No frames during the verify window: the CAMERA is the dead component --
+        without it a dead-still diff would misread as 'HID not delivering' and send
+        the operator replugging the wrong device (review 2026-07-21 P0-5)."""
+
     def round_trip(fire):
         """esc -> settle -> before -> fire() -> settle -> diff -> esc -> settle.
         Returns the diff of the first attempt that beats thresh, else the last diff."""
@@ -55,7 +60,8 @@ def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0, attempts
             wait_until_stable(cam.read, 1.0)
             before = cam.png_bytes()
             fire()
-            wait_until_stable(cam.read, settle_s)
+            if wait_until_stable(cam.read, settle_s) == "no_frames":
+                raise _CaptureDead()
             diff = _frame_diff_score(before, cam.png_bytes())
             r4.key("esc")
             wait_until_stable(cam.read, 1.0)
@@ -63,15 +69,19 @@ def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0, attempts
                 break
         return diff
 
-    kbd_diff = round_trip(lambda: r4.combo("win+r"))
-    if kbd_diff <= thresh:
-        return False, f"keyboard NOT delivering (win+r diff {kbd_diff:.1f} <= {thresh})"
+    try:
+        kbd_diff = round_trip(lambda: r4.combo("win+r"))
+        if kbd_diff <= thresh:
+            return False, f"keyboard NOT delivering (win+r diff {kbd_diff:.1f} <= {thresh})"
 
-    def start_click():
-        r4.move(20, screen[1] - 25)   # Start button, bottom-left
-        r4.click()
+        def start_click():
+            r4.move(20, screen[1] - 25)   # Start button, bottom-left
+            r4.click()
 
-    mouse_diff = round_trip(start_click)
-    if mouse_diff <= thresh:
-        return False, f"mouse NOT delivering (Start click diff {mouse_diff:.1f} <= {thresh})"
-    return True, f"hid ok (kbd diff {kbd_diff:.1f}, mouse diff {mouse_diff:.1f})"
+        mouse_diff = round_trip(start_click)
+        if mouse_diff <= thresh:
+            return False, f"mouse NOT delivering (Start click diff {mouse_diff:.1f} <= {thresh})"
+        return True, f"hid ok (kbd diff {kbd_diff:.1f}, mouse diff {mouse_diff:.1f})"
+    except _CaptureDead:
+        return False, ("capture delivered NO frames during verify -- the camera is the "
+                       "dead component here; fix capture before blaming the HID")

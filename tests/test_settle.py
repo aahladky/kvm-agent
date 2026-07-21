@@ -32,8 +32,9 @@ BASE = np.full((270, 480, 3), 128, np.uint8)
 
 # (a) truly stable sequence -> returns well before max_s
 t0 = time.time()
-wait_until_stable(scripted([BASE.copy() for _ in range(50)]), max_s=2.0, poll_s=0.005)
+status = wait_until_stable(scripted([BASE.copy() for _ in range(50)]), max_s=2.0, poll_s=0.005)
 check("stable sequence settles fast", time.time() - t0 < 1.0)
+check("stable sequence reports 'settled'", status == "settled")
 
 # (b) small localized change every poll (a 40x40 block toggling) -> NOT stable,
 #     must burn the whole window (the case the whole-frame mean missed).
@@ -46,14 +47,21 @@ for i in range(200):
         f[100:140, 200:240] = 255
     churn.append(f)
 t0 = time.time()
-wait_until_stable(scripted(churn), max_s=0.4, poll_s=0.005)
+status = wait_until_stable(scripted(churn), max_s=0.4, poll_s=0.005)
 check("localized churn never reads as stable", time.time() - t0 >= 0.35)
+check("churn reports 'timeout'", status == "timeout")
 
 # (c) uniform +1 noise everywhere -> below threshold, reads as stable
 noise = [(BASE.astype(int) + (i % 2)).clip(0, 255).astype(np.uint8) for i in range(50)]
 t0 = time.time()
-wait_until_stable(scripted(noise), max_s=2.0, poll_s=0.005)
+status = wait_until_stable(scripted(noise), max_s=2.0, poll_s=0.005)
 check("uniform low-level noise reads as stable", time.time() - t0 < 1.0)
+check("noise reports 'settled'", status == "settled")
+
+# (d) dead capture (read_fn never yields a frame) -> "no_frames", distinguishable from
+#     a settled screen (review 2026-07-21 P0-5: both used to return None)
+status = wait_until_stable(lambda: None, max_s=0.1, poll_s=0.005)
+check("dead capture reports 'no_frames'", status == "no_frames")
 
 print("\n" + ("ALL PASS" if not _FAILS else f"{len(_FAILS)} FAILED: {_FAILS}"))
 sys.exit(1 if _FAILS else 0)

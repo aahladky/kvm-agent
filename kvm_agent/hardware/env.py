@@ -42,22 +42,29 @@ def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=3.0, poll_s=0.05):
     the small-change signal overlap. thresh=3.0 matches FRAME_CHANGE_THRESHOLD's live
     calibration (2026-07-18: static=0.0, typed word=4.5, calc digit=5.7-17);
     RE-VALIDATE against the laptop panel's noise floor on the first physical run
-    (Task 11) and adjust if the static floor differs."""
+    (Task 11) and adjust if the static floor differs.
+
+    Returns "settled" | "timeout" | "no_frames" (2026-07-21, review P0-5: previously
+    None in every case, so a dead capture was indistinguishable from a settled
+    screen). Callers that only want the wait may ignore the return."""
     end = time.time() + max_s
     prev = None
     stable = 0
+    saw_frame = False
     while time.time() < end:
         f = read_fn()
         if f is not None:
+            saw_frame = True
             if prev is not None:
                 if _tile_max_diff(prev, f) < thresh:
                     stable += 1
                     if stable >= stable_frames:
-                        return
+                        return "settled"
                 else:
                     stable = 0
             prev = f
         time.sleep(poll_s)
+    return "timeout" if saw_frame else "no_frames"
 
 
 def make_hid_client():

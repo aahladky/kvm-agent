@@ -63,7 +63,7 @@ _real_env_cls, _real_env = agent_loop_holo.PicoEnv, agent_loop_holo.ENV
 agent_loop_holo.PicoEnv = FakeEnv
 agent_loop_holo.ENV = None
 try:
-    agent_loop_holo.boot()
+    agent_loop_holo.boot(verify=False)   # the HID gate has its own test (test_boot_gate.py)
     calls = agent_loop_holo.ENV.r4.calls
     check("boot() pushes set_screen once", calls == [("set_screen", 1920, 1080)])
 finally:

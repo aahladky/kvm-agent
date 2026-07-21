@@ -48,6 +48,7 @@ from PIL import Image
 from kvm_agent.config import CFG
 from kvm_agent.hardware.appliance import ApplianceError
 from kvm_agent.hardware.env import PicoEnv, wait_until_stable
+from kvm_agent.hardware.target import verify_hid
 from kvm_agent.instrumentation import RunRecorder
 from kvm_agent.models.holo import (
     _error_step, call_holo, call_holo_full, jpeg_bytes_to_data_url, observation_message,
@@ -71,6 +72,12 @@ FRAME_CHANGE_THRESHOLD = 3.0
 NO_PROGRESS_LIMIT = 4   # k consecutive executed steps with no visible change OR the identical
                         # action repeated -> abort as "no progress" (flaw #9). small_target_tray
                         # clicked ~the same coord 6x and burned the whole budget undetected.
+STALL_GRACE_S = 2.0     # extra wait_newer grace after the settle-budget freshness wait times
+                        # out, before declaring a capture stall -- the settle budget (1.5s)
+                        # doubles as the freshness timeout and is tight for a busy pipeline
+                        # (review 2026-07-21 P0-3 decision: escalate, don't raise).
+STALL_ABORT_LIMIT = 3   # k consecutive stalled-capture steps -> abort. A rig fault, NOT model
+                        # behavior, so it is deliberately not gated by no_progress_abort.
 
 ENV = None
 LAST = {"png": None, "step": None, "history": None}
@@ -83,9 +90,17 @@ CURSOR = {"pos": None}
 PLAN = {"goals": []}
 
 
-def boot():
-    """Open camera + appliance HID, and sync the bridge's click scale to the pixel
-    space this loop sends coordinates in. Idempotent-ish; call once."""
+def boot(verify=True):
+    """Open camera + appliance HID, sync the bridge's click scale to the pixel space
+    this loop sends coordinates in, and run the camera-verified HID gate.
+
+    The gate (review 2026-07-21 P0-4): the bridge probe's online flags can LIE (the
+    I2 half-dead-composite class), and until now only the battery ran verify_hid --
+    every REPL session drove an unverified channel. One non-interactive attempt
+    (~10s); failure releases the hardware and raises with the gate's diagnosis, so
+    boot() stays re-runnable after a replug. verify=False skips it for fast iteration
+    on a just-verified channel; the battery passes False because it runs its own
+    interactive replug-loop gate per task."""
     global ENV
     if ENV is None:
         ENV = PicoEnv(cam_index=CFG.cam_index, screen_size=CFG.screen_size, show=False)
@@ -93,6 +108,15 @@ def boot():
         # this the bridge scales clicks from its process-lifetime default and a
         # resolution mismatch stretches every click silently.
         ENV.r4.set_screen(ENV.screen_width, ENV.screen_height)
+        if verify:
+            ok, detail = verify_hid(ENV.r4, ENV.cam,
+                                    screen=(ENV.screen_width, ENV.screen_height),
+                                    attempts=1)
+            if not ok:
+                shutdown()   # leave a re-runnable state, not a half-alive ENV
+                raise RuntimeError(
+                    f"HID gate failed at boot: {detail}. Replug the Pico and boot() "
+                    f"again, or boot(verify=False) to skip the gate deliberately.")
     print(f"[boot] ready. holo target=local ({CFG.holo_local_url}, model={CFG.holo_model})")
     return True
 
@@ -177,6 +201,10 @@ def _execute(action, settle_s=1.5):
     The wait_newer freshness floor (finding #6 pairing) is KEPT: the capture pipeline
     must advance PAST the fire before settling, so a later diff frame can never be one
     captured before the action landed. That is observation correctness, not injection.
+
+    Returns True when the freshness floor was VIOLATED (capture stalled past the grace
+    window, or delivered no frames at all) -- the caller owns what to do with a diff
+    that may predate the action. False on a healthy capture.
     """
     kind = action.get("action")
     seq0 = ENV.cam.seq
@@ -248,20 +276,31 @@ def _execute(action, settle_s=1.5):
         PLAN["goals"] = action.get("goals", [])
         running = [g.get("title") for g in PLAN["goals"] if g.get("status") == "running"]
         print(f"[execute] plan updated ({len(PLAN['goals'])} goals, running: {running})")
-        return  # no screen effect -> no settle wait
+        return False  # no screen effect -> no settle wait, nothing to stall
     elif kind == "finished":
         pass    # nothing to execute; run() handles this as loop-terminal
     else:
         print(f"[execute] unknown action kind {kind!r} -- no-op")
 
     # Freshness floor: the capture pipeline must advance PAST the fire before settling.
+    # A violated floor is RETURNED, not swallowed (review 2026-07-21 P0-3): the caller
+    # must know the next diff may predate the action -- the finding-#6 class the seq
+    # pairing exists to prevent.
+    stalled = False
     try:
         ENV.cam.wait_newer(seq0, timeout_s=settle_s)
     except TimeoutError:
-        print(f"[execute] WARNING: capture stalled — no frame newer than seq={seq0} "
-              f"within {settle_s}s")
+        try:
+            ENV.cam.wait_newer(seq0, timeout_s=STALL_GRACE_S)
+        except TimeoutError:
+            stalled = True
+            print(f"[execute] WARNING: capture stalled -- no frame newer than seq={seq0} "
+                  f"within {settle_s + STALL_GRACE_S}s; diffs may predate this action")
     # Smart settle (2026-07-18): proceed the moment the UI stops changing, up to settle_s.
-    wait_until_stable(ENV.cam.read, settle_s)
+    if wait_until_stable(ENV.cam.read, settle_s) == "no_frames":
+        stalled = True
+        print("[execute] WARNING: capture delivered no frames during settle")
+    return stalled
 
 
 def _frame_diff_detail(png_a, png_b):
@@ -349,6 +388,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     frozen = 0          # consecutive executed steps with no visible screen change
     click_repeat = 0    # consecutive steps whose last click landed in ~the same spot
     last_click = None
+    stall_streak = 0    # consecutive steps whose capture stalled (rig-fault guard)
     recorder = RunRecorder(tag, instruction, target=target,
                             meta={"max_steps": max_steps,
                                   "screen_size": (ENV.screen_width, ENV.screen_height),
@@ -399,6 +439,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         answer_text = None
         exec_error = False
         step_changed = False
+        step_stalled = False
         for action in actions:
             kind = action.get("action")
             tool_name = {"left_click": "click_desktop", "double_click": "double_click_desktop",
@@ -408,7 +449,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                          "update_plan": "update_plan", "finished": "answer"}.get(kind, str(kind))
             before = _frame_png()
             try:
-                _execute(action)
+                call_stalled = _execute(action)
             except ApplianceError as e:
                 # A rejected/undeliverable action (e.g. a model-invented key name ->
                 # bridge 502) halts the batch (native semantics) but must not kill the
@@ -428,13 +469,20 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
             result = (f"Executed. Screen changed (max tile diff {score:.1f}, region {region})."
                       if changed else
                       f"Executed. Screen did not visibly change (max tile diff {score:.1f}).")
+            if call_stalled:
+                # The model must not trust a diff whose after-frame may predate the
+                # action (review 2026-07-21 P0-3: this used to be a swallowed print).
+                step_stalled = True
+                result += (" WARNING: capture stalled after this action -- this result "
+                           "may reflect a pre-action frame.")
             tool_outputs.append(tool_output_message(tool_name, result))
             if kind == "finished":
                 answer_text = action.get("text", "")
                 break  # terminal: nothing after answer executes
 
         if recorder:
-            recorder.log_step(step_i, png, message, step, usage, dt, executed=not exec_error)
+            recorder.log_step(step_i, png, message, step, usage, dt, executed=not exec_error,
+                              stalled=step_stalled)
 
         if step.get("note"):
             print(f"[run] note: {step['note']!r}")
@@ -460,6 +508,16 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
             if recorder:
                 recorder.finish(True, note=answer_text)
             return {"finished": True, "answer_text": answer_text}
+
+        # Rig-fault guard (review 2026-07-21 P0-3): a repeatedly stalled capture means no
+        # result can be trusted. Deliberately NOT gated by no_progress_abort -- that flag
+        # masks MODEL-behavior guards for benchmarks; this is our pipeline failing.
+        stall_streak = stall_streak + 1 if step_stalled else 0
+        if stall_streak >= STALL_ABORT_LIMIT:
+            print(f"[run] capture stalled {stall_streak} consecutive steps -- aborting (rig fault)")
+            if recorder:
+                recorder.finish(False, note="capture pipeline stalled")
+            return {"finished": False, "answer_text": ""}
 
         # no-progress guards (flaw #9): abort instead of silently burning the budget.
         # (a) screen frozen -- consecutive executed steps with no visible change; (b) clustered
