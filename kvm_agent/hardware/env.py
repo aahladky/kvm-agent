@@ -20,31 +20,43 @@ from kvm_agent.config import CFG
 from kvm_agent.hardware.appliance import ApplianceClient
 
 
-def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=2.0, poll_s=0.05):
-    """Wait up to max_s for the screen to STOP changing, returning as soon as
-    `stable_frames` consecutive polls show a mean-abs diff below `thresh` on a 160x90
-    grayscale downscale. Replaces blind post-action sleeps: fast actions proceed
-    immediately, slow-rendering apps still get the full window. 2026-07-18.
+def _tile_max_diff(prev, curr):
+    """Max per-tile mean-abs diff over a 16x9 grid on a 480x270 downscale — the same
+    tiling as agent_loop_holo._frame_diff_score (flaw #4 fix), for raw BGR frames.
+    A small localized change (a typed char, a calc digit) registers strongly in its
+    own tile instead of being averaged into nothing by the whole frame."""
+    a = cv2.cvtColor(cv2.resize(prev, (480, 270)), cv2.COLOR_BGR2GRAY).astype(np.int16)
+    b = cv2.cvtColor(cv2.resize(curr, (480, 270)), cv2.COLOR_BGR2GRAY).astype(np.int16)
+    d = np.abs(a - b)
+    return float(d.reshape(9, 30, 16, 30).mean(axis=(1, 3)).max())
 
-    KNOWN-DEBT (fixed in the physical-target move): this is the whole-frame-mean
-    metric flaw #4 discredited for change DETECTION; it survives here only because
-    settle waits for "stop changing", not "did it change". Tile-max port is planned.
-    """
+
+def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=3.0, poll_s=0.05):
+    """Wait up to max_s for the screen to STOP changing, returning as soon as
+    `stable_frames` consecutive polls show a tile-max diff below `thresh`. Replaces
+    blind post-action sleeps: fast actions proceed immediately, slow-rendering apps
+    still get the full window.
+
+    Metric: tile-max (2026-07-20) — the old 160x90 whole-frame mean was the metric
+    flaw #4 discredited for change detection; on analog capture its noise floor and
+    the small-change signal overlap. thresh=3.0 matches FRAME_CHANGE_THRESHOLD's live
+    calibration (2026-07-18: static=0.0, typed word=4.5, calc digit=5.7-17);
+    RE-VALIDATE against the laptop panel's noise floor on the first physical run
+    (Task 11) and adjust if the static floor differs."""
     end = time.time() + max_s
     prev = None
     stable = 0
     while time.time() < end:
         f = read_fn()
         if f is not None:
-            curr = cv2.cvtColor(cv2.resize(f, (160, 90)), cv2.COLOR_BGR2GRAY).astype(np.int16)
             if prev is not None:
-                if float(np.abs(curr - prev).mean()) < thresh:
+                if _tile_max_diff(prev, f) < thresh:
                     stable += 1
                     if stable >= stable_frames:
                         return
                 else:
                     stable = 0
-            prev = curr
+            prev = f
         time.sleep(poll_s)
 
 
