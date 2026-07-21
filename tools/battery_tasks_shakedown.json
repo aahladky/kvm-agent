@@ -1,0 +1,7 @@
+[
+  {"id": "notepad_type", "instruction": "Open Notepad and type the sentence: the quick brown fox jumps over the lazy dog", "max_steps": 15},
+  {"id": "calc_multiply", "instruction": "Open Calculator and compute 7 times 8", "max_steps": 20},
+  {"id": "settings_display", "instruction": "Open the Settings app and go to the Display settings page", "max_steps": 15},
+  {"id": "paint_line", "instruction": "Open Paint and draw a straight line across the canvas", "max_steps": 20},
+  {"id": "taskbar_clock", "instruction": "Read the current time shown on the taskbar clock and tell me what it says", "max_steps": 10}
+]
