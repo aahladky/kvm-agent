@@ -89,6 +89,15 @@ class ApplianceClient:
     def probe(self):
         return self._req("/hid/probe")
 
+    def set_screen(self, w, h):
+        """Sync the bridge's pixel->wire-range scale factor to the target's REAL display
+        resolution (the deployed bridge has supported /hid/set_screen since 2026-07-19;
+        this client method was missing on this line until now). Must be called whenever
+        the target's display resolution changes -- e.g. the 2026-07-21 native-720p A/B:
+        with the laptop rendering at 1280x720 but the bridge still scaling for
+        1920x1080, every click lands stretched away from its target."""
+        return self._req("/hid/set_screen", w=int(w), h=int(h))
+
     def health(self):
         return self._req("/health", method="GET")
 

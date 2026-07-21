@@ -280,6 +280,14 @@ def _frame_diff_detail(png_a, png_b):
     return float(tiles.max()), region
 
 
+def _frame_diff_score(png_a, png_b, drop_bottom_row=False):
+    """Compat wrapper for tests/test_frame_diff.py: the score half of _frame_diff_detail.
+    drop_bottom_row is accepted for signature compatibility only -- its taskbar-churn
+    exclusion had no live caller after the VM stack retired, so it is ignored (loudly
+    documented here rather than silently reimplemented wrong)."""
+    return _frame_diff_detail(png_a, png_b)[0]
+
+
 def _frame_changed(png_a, png_b, threshold=FRAME_CHANGE_THRESHOLD):
     return _frame_diff_detail(png_a, png_b)[0] > threshold
 
