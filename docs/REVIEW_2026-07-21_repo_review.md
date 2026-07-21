@@ -297,3 +297,67 @@ and cross-directory imports run on cwd/sys.path accidents
    move the `.j2` out of docs/ (or bless docs/native as a runtime asset dir),
    drop `_frame_png_full`/dead params, decouple `pikvm_proto`'s pure helpers
    from the `serial` import.
+
+---
+
+## Errata & amendments (2026-07-21, post-merge audit by Aaron)
+
+The review above merged as written; Aaron's close reading found the following
+corrections. Kept here rather than edited in place, per the house record-keeping
+discipline. Items marked FIXED were addressed the same day on the follow-up branch.
+
+### Where the review UNDERSTATED the problem
+- **P0-6 (jinja2) is worse than stated.** `SYSTEM_PROMPT = _render_native_prompt()`
+  runs at module top level (`holo.py:365`), so a fresh env without jinja2 fails at
+  `import kvm_agent.models.holo` — before any run starts, taking every entry point
+  and test with it, not just "the native-prompt path". The fix (add jinja2, drop
+  requests) was exactly right. FIXED.
+- **P2 (pyserial) is worse than stated.** pyserial was not declared in
+  pyproject.toml at all, so there was NO install path that made
+  `test_key_aliases.py` importable. FIXED: `serial` is now an optional import in
+  `pikvm_proto` (pure helpers importable without it) and pyserial is declared as
+  the `appliance` extra.
+
+### Where the review OVERSTATED or needed nuance
+- **P2-b (parser "entirely untested") overstated.** `parse_response` had offline
+  coverage via `_self_test()` (`holo.py:664`) against
+  `holo_native_verbatim_raw.json` — just not in `tests/` and not
+  pytest-collectable. Only `holo_phase2_native_tools_raw.json` was truly orphaned —
+  and it turns out to be a capture of the RETIRED phase-2 tool-calling format, so
+  the correct test pins the current parser rejecting it loudly, not parsing it.
+  FIXED: `tests/test_holo_parser.py` covers both.
+- **P1-9 (Camera SystemExit): real hazard, wrong victim.** The battery was not
+  exposed — `boot()` is called outside the battery's `try`. It is a
+  future-embedding trap, not a live bug. (Unscheduled; noted for a future batch.)
+- **P0-2 nuance:** the failure was persisted to `logs/holo_requests.jsonl` before
+  the re-raise — what was lost is `summary.json` and the remaining battery tasks,
+  not all forensic trace. FIXED (the guard).
+- **P1-8 (drag_to) nuance:** in-loop desync was not actually possible (every
+  pointer-moving branch updates CURSOR); the real exposure is target-side physical
+  drift. The suggested fix (pre-drag re-home) was still right. FIXED.
+
+### Cosmetic corrections
+- Tracked content is ~1.85 MB, not "2.5 MB" (the review's figure came from du
+  block-size rounding).
+- `build_messages` ALIASES the caller's history; `trim_to_last_n_images` is what
+  mutates through the alias.
+- The header the review called "accurate" (CLAUDE.md:11-29) itself contained the
+  :13 (~120M) and :22-23 (pico-fw location) errors the review lists — the review
+  should not have endorsed it wholesale. (CLAUDE.md has since been pruned outright.)
+
+### Implementation snags the review missed (found while fixing)
+- **P0-4 (verify_hid in boot()) was not a drop-in**: the interactive replug loop
+  and the multi-attempt cost live in the battery, and boot() needed a
+  non-interactive failure policy that didn't exist. Resolution: single-attempt
+  gate, raise-with-diagnosis, hardware released so boot() stays re-runnable,
+  `verify=False` escape hatch; battery keeps its own gate.
+- **P0-3 (capture stall)**: `wait_newer`'s timeout EQUALS the settle budget
+  (1.5 s), so "just raise" would have changed severity semantics. Resolution: one
+  extended grace (STALL_GRACE_S), then surface to model + recorder, abort after
+  STALL_ABORT_LIMIT consecutive stalls (not gated by no_progress_abort).
+- **P0-1**: the bridge docstring falsely named `PicoEnv.__init__` as the
+  set_screen caller. FIXED in the same commit as the wiring.
+- **show_reasoning.py was more broken than "stale vocabulary"**: since the
+  batching change, `step_NN.json`'s `action` field holds the whole parsed STEP, so
+  the tool's per-step readout matched nothing at all on new runs. FIXED: handles
+  both record shapes, batch-aware repeat detection, hotkey vocabulary.

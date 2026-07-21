@@ -1,24 +1,22 @@
 """
 test_frame_diff.py — OFFLINE test for the tile-max frame-diff metric (flaw #4 fix).
 
-Confirms the new _frame_diff_score catches a small LOCALIZED change (the case the old
-whole-frame-mean metric missed, e.g. a calculator digit) while ignoring uniform low-level
-noise -- the two behaviours that motivated the rewrite.
+Confirms the metric catches a small LOCALIZED change (the case the old
+whole-frame-mean metric missed, e.g. a calculator digit) while ignoring uniform
+low-level noise -- the two behaviours that motivated the rewrite. Canonical home is
+kvm_agent.hardware.env since 2026-07-21 (review P3); agent_loop_holo's _frame_*
+names must stay importable aliases.
 
-    python tests/test_frame_diff.py
+    python tests/test_frame_diff.py   (or pytest tests/test_frame_diff.py)
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import cv2
-from agent_loop_holo import _frame_diff_score, _frame_changed, FRAME_CHANGE_THRESHOLD
 
-_FAILS = []
-def check(name, cond):
-    print(("ok  " if cond else "FAIL") + "  " + name)
-    if not cond:
-        _FAILS.append(name)
+from kvm_agent.config import CFG
+from kvm_agent.hardware.env import frame_diff_detail, frame_diff_score
 
 
 def png(arr):
@@ -26,25 +24,37 @@ def png(arr):
     return buf.tobytes()
 
 
-base = np.full((1080, 1920), 128, np.uint8)
-same = png(base)
+BASE = np.full((1080, 1920), 128, np.uint8)
+SAME = png(BASE)
 
-check("identical frames -> score 0.0", _frame_diff_score(same, same) == 0.0)
-check("identical frames -> not changed", _frame_changed(same, same) is False)
 
-# small localized change: a 40x40 bright block (a digit/char-sized region) -- the exact class
-# the old whole-frame mean averaged into ~nothing.
-b2 = base.copy()
-b2[500:540, 900:940] = 255
-loc = png(b2)
-check("small localized change scores above threshold",
-      _frame_diff_score(same, loc) > FRAME_CHANGE_THRESHOLD)
-check("small localized change -> changed True", _frame_changed(same, loc) is True)
+def test_identical_frames_score_zero():
+    assert frame_diff_score(SAME, SAME) == 0.0
 
-# uniform low-level shift everywhere (noise-like) stays below threshold -- must NOT read as a change.
-b3 = (base.astype(int) + 1).clip(0, 255).astype(np.uint8)
-check("uniform +1 (noise-like) below threshold",
-      _frame_diff_score(same, png(b3)) < FRAME_CHANGE_THRESHOLD)
 
-print("\n" + ("ALL PASS" if not _FAILS else f"{len(_FAILS)} FAILED: {_FAILS}"))
-sys.exit(1 if _FAILS else 0)
+def test_small_localized_change_detected():
+    # a 40x40 bright block (digit/char-sized) -- the class the whole-frame mean missed
+    b2 = BASE.copy()
+    b2[500:540, 900:940] = 255
+    loc = png(b2)
+    score, region = frame_diff_detail(SAME, loc)
+    assert score > CFG.frame_change_threshold
+    assert region == "center", f"the changed tile is mid-screen, got {region!r}"
+
+
+def test_uniform_noise_below_threshold():
+    b3 = (BASE.astype(int) + 1).clip(0, 255).astype(np.uint8)
+    assert frame_diff_score(SAME, png(b3)) < CFG.frame_change_threshold
+
+
+def test_agent_loop_aliases_still_work():
+    # callers/tests import these via the app script; they must track env's metric
+    from agent_loop_holo import _frame_diff_score, _frame_changed, FRAME_CHANGE_THRESHOLD
+    assert FRAME_CHANGE_THRESHOLD == CFG.frame_change_threshold
+    assert _frame_diff_score(SAME, SAME) == 0.0
+    assert _frame_changed(SAME, SAME) is False
+
+
+if __name__ == "__main__":
+    import pytest
+    raise SystemExit(pytest.main([__file__, "-q"]))

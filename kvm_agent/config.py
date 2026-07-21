@@ -65,6 +65,14 @@ class Config:
     # (-33%) -- but real coordinate misses on dense UIs at 720p (2026-07-19). Replaces
     # the old HOLO_MODEL_INPUT_FULL_RES bool.
     holo_model_input_res: int = int(_env("HOLO_MODEL_INPUT_RES", "1080"))
+    # Tile-max frame-change threshold (0-255 per-tile mean diff): THE single knob for
+    # "did the screen visibly change" -- the loop's diff signal AND settle stability
+    # (review 2026-07-21 P3: 3.0 used to live hardcoded in three places). Calibrated
+    # live 2026-07-18: static screen = 0.00, a typed word = 4.5, calc digit/op changes
+    # = 5.7-17; 3.0 sits above static/caret flicker and below the real-change cluster.
+    # A lone single char (~1.6) reads as no-change -- accepted edge case (the model
+    # sees the actual screenshot regardless).
+    frame_change_threshold: float = float(_env("FRAME_CHANGE_THRESHOLD", "3.0"))
 
     @property
     def screen_size(self):

@@ -3,12 +3,18 @@
 _Snapshot: 2026-07-20 — physical-target move. Supersedes the 2026-07-20 post-sweep
 snapshot (git history). Design: `docs/PLAN_2026-07-20_physical_target_move.md`._
 
-_2026-07-21: full repo review (docs-only session, no code changes) —
-`docs/REVIEW_2026-07-21_repo_review.md`. Headline P0s: `set_screen` never called
-(bridge click-scale stays on fallback), unguarded model call can kill a battery with
-no recorded verdict, capture-stall swallowed as a print, HID gate battery-only,
-`jinja2` missing from pyproject. Also: CLAUDE.md body ~80 KB stale vs its own header;
-note §2's "one tool-call per step" below predates the 9a98d96 batched-calls change._
+_2026-07-21: full repo review + fixes. Review: `docs/REVIEW_2026-07-21_repo_review.md`
+(now with a post-merge errata section). Fixes landed same day, three commits: (1) P0
+quick wins — boot() pushes /hid/set_screen, run() guards the model call so a timeout
+ends the TASK with a recorded verdict instead of the whole battery, pyproject
+jinja2/requests, plan-only steps exempt from the frozen counter, drag_to re-homes;
+(2) decision P0s — capture stalls surfaced to the model/recorder + rig-fault abort,
+boot() runs the HID gate by default (battery keeps its own interactive gate),
+wait_until_stable returns settled/timeout/no_frames; (3) hygiene — CLAUDE.md pruned
+from 82 KB to a truthful pointer file, tests pytest-ified (+ parser tests on the holo
+fixtures), tile-diff metric single-homed in env.py with the threshold in CFG,
+pikvm_proto importable without pyserial, show_reasoning speaks the batched action
+format, probe_resolution_ab writes to runs/._
 
 ## 1. What it is
 
@@ -19,8 +25,10 @@ OS-agnostic, undetectable. Pure curiosity project.
 
 ## 2. The live system (current iteration)
 
-- **LOOP** — `agent_loop_holo.py`: one tool-call per step, observe→act with
-  verify-and-retry (paired to the action via frame seq numbers). Model: **Holo3.1-35B**
+- **LOOP** — `agent_loop_holo.py`: steps are BATCHES of tool calls (native-verbatim
+  line, 9a98d96 2026-07-21 — was one tool-call per step), executed sequentially with
+  one `<tool_output>` per call carrying the tile-diff magnitude+region signal, paired
+  to the action via frame seq numbers. Model: **Holo3.1-35B**
   served locally via **llama-swap** (`http://127.0.0.1:9292/v1`, SYCL llama-server on
   the Arc Pro B70, modelctl-managed).
 - **HID** — Pi 5 + Pico 2 W **appliance** (`appliance/`): Pico runs `pico_fw/`

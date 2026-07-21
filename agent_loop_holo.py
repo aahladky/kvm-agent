@@ -47,7 +47,7 @@ from PIL import Image
 
 from kvm_agent.config import CFG
 from kvm_agent.hardware.appliance import ApplianceError
-from kvm_agent.hardware.env import PicoEnv, wait_until_stable
+from kvm_agent.hardware.env import PicoEnv, frame_diff_detail, wait_until_stable
 from kvm_agent.hardware.target import verify_hid
 from kvm_agent.instrumentation import RunRecorder
 from kvm_agent.models.holo import (
@@ -62,13 +62,9 @@ os.makedirs(DBG, exist_ok=True)
 
 CONFIRM_FIRST = 5   # gate the first N steps of run() with a keypress preview
 STUCK_LIMIT = 3     # k consecutive dropped/error steps -> abort (make-failure-loud guard)
-# _frame_changed threshold on the tile-max metric (0-255 per-tile mean diff). Calibrated
-# live 2026-07-18: static screen = 0.00, a typed word = 4.5, calc digit/op changes = 5.7-17
-# (the exact changes the OLD whole-frame-mean metric missed as 0.03-0.71 -> flaw #4). 3.0
-# sits well above static/caret-flicker and below the real-change cluster. A lone single char
-# (~1.6) reads as "no change" -- an accepted edge case (it's in caret-blink territory, and the
-# model sees the actual screenshot regardless).
-FRAME_CHANGE_THRESHOLD = 3.0
+# Single knob since 2026-07-21 (review P3: 3.0 lived hardcoded in three places) --
+# calibration notes live on the CFG field.
+FRAME_CHANGE_THRESHOLD = CFG.frame_change_threshold
 NO_PROGRESS_LIMIT = 4   # k consecutive executed steps with no visible change OR the identical
                         # action repeated -> abort as "no progress" (flaw #9). small_target_tray
                         # clicked ~the same coord 6x and burned the whole budget undetected.
@@ -125,13 +121,6 @@ def _frame_png():
     """Full-res PNG frame for diffing/evidence (PicoEnv.observe() is full-res PNG since
     the native-verbatim split -- model input has its own JPEG path)."""
     return ENV.observe()["screenshot"]
-
-
-def _frame_png_full():
-    """Compat alias (target/battery tooling): identical to _frame_png() since 2026-07-21
-    (every PNG frame is full-res now -- the old 720p-model-input/1080p-evidence split
-    moved to the dedicated Camera.model_input_jpeg path)."""
-    return _frame_png()
 
 
 def _model_input_data_url():
@@ -303,40 +292,18 @@ def _execute(action, settle_s=1.5):
     return stalled
 
 
-def _frame_diff_detail(png_a, png_b):
-    """(score, region) for the tile-max diff between two frames.
-
-    Same metric as the flaw #4 tile-max fix (downscale to 480x270, 16x9 grid of 30x30
-    tiles, take the loudest tile) -- but also reports WHICH tile, so tool_output payloads
-    can say WHAT changed and roughly WHERE (the 2026-07-21 follow-up: a bare
-    changed/unchanged binary let the model type blind on false confirmations -- calc
-    battery, taskbar-focus visuals reading as 'changed')."""
-    import cv2
-    import numpy as np
-    a = cv2.imdecode(np.frombuffer(png_a, np.uint8), cv2.IMREAD_GRAYSCALE)
-    b = cv2.imdecode(np.frombuffer(png_b, np.uint8), cv2.IMREAD_GRAYSCALE)
-    a = cv2.resize(a, (480, 270)).astype(np.int16)
-    b = cv2.resize(b, (480, 270)).astype(np.int16)
-    d = np.abs(a - b)                              # 270x480
-    tiles = d.reshape(9, 30, 16, 30).mean(axis=(1, 3))   # 9x16 per-tile means
-    idx = int(tiles.argmax())
-    row, col = divmod(idx, 16)
-    v = "top" if row < 3 else "bottom" if row >= 6 else "middle"
-    h = "left" if col < 5 else "right" if col >= 11 else "center"
-    region = "center" if (v, h) == ("middle", "center") else f"{v}-{h}"
-    return float(tiles.max()), region
+# Tile-diff metric: canonical home is kvm_agent/hardware/env.py since 2026-07-21
+# (review P3 -- it lived here AND there as hand-copies). These names stay for callers.
+_frame_diff_detail = frame_diff_detail
 
 
-def _frame_diff_score(png_a, png_b, drop_bottom_row=False):
-    """Compat wrapper for tests/test_frame_diff.py: the score half of _frame_diff_detail.
-    drop_bottom_row is accepted for signature compatibility only -- its taskbar-churn
-    exclusion had no live caller after the VM stack retired, so it is ignored (loudly
-    documented here rather than silently reimplemented wrong)."""
-    return _frame_diff_detail(png_a, png_b)[0]
+def _frame_diff_score(png_a, png_b):
+    return frame_diff_detail(png_a, png_b)[0]
 
 
-def _frame_changed(png_a, png_b, threshold=FRAME_CHANGE_THRESHOLD):
-    return _frame_diff_detail(png_a, png_b)[0] > threshold
+def _frame_changed(png_a, png_b, threshold=None):
+    threshold = FRAME_CHANGE_THRESHOLD if threshold is None else threshold
+    return frame_diff_detail(png_a, png_b)[0] > threshold
 
 
 def do(s=1.5):

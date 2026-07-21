@@ -31,7 +31,13 @@ import struct
 import threading
 import time
 
-import serial
+try:
+    import serial
+except ImportError:
+    # The pure protocol helpers (KEYCODES, crc16, _frame, decode_code, _px_to_proto)
+    # must stay importable without the hardware dep -- pyserial is only needed to OPEN
+    # the UART link (review 2026-07-21 P2: a keycode-table test died on this import).
+    serial = None
 
 
 # ---- USB HID keyboard usage IDs (USB HID Usage Page 0x07) ----------------------
@@ -164,6 +170,9 @@ class PicoHidLink:
     every public call is a blocking request/response round trip."""
 
     def __init__(self, port, baud=115200, timeout=1.0):
+        if serial is None:
+            raise RuntimeError("pyserial is required to open the UART link -- "
+                               "pip install pyserial (declared as the 'appliance' extra)")
         self.ser = serial.Serial(port, baud, timeout=timeout)
         self.lock = threading.Lock()
         self.port = port

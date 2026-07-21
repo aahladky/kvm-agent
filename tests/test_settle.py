@@ -1,9 +1,10 @@
 """
 test_settle.py — OFFLINE test: wait_until_stable uses the tile-max metric, so a
 small LOCALIZED change (calc-digit class, flaw #4) counts as "still changing" while
-uniform low-level noise counts as stable.
+uniform low-level noise counts as stable. Also pins the status return (review
+2026-07-21 P0-5: settled / timeout / dead-capture all used to return None).
 
-    python tests/test_settle.py
+    python tests/test_settle.py   (or pytest tests/test_settle.py)
 """
 import sys, os, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -11,11 +12,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 from kvm_agent.hardware.env import wait_until_stable
 
-_FAILS = []
-def check(name, cond):
-    print(("ok  " if cond else "FAIL") + "  " + name)
-    if not cond:
-        _FAILS.append(name)
+BASE = np.full((270, 480, 3), 128, np.uint8)
+
 
 def scripted(frames):
     it = iter(frames)
@@ -28,40 +26,44 @@ def scripted(frames):
         return last[0]
     return read
 
-BASE = np.full((270, 480, 3), 128, np.uint8)
 
-# (a) truly stable sequence -> returns well before max_s
-t0 = time.time()
-status = wait_until_stable(scripted([BASE.copy() for _ in range(50)]), max_s=2.0, poll_s=0.005)
-check("stable sequence settles fast", time.time() - t0 < 1.0)
-check("stable sequence reports 'settled'", status == "settled")
+def test_stable_sequence_settles_fast():
+    t0 = time.time()
+    status = wait_until_stable(scripted([BASE.copy() for _ in range(50)]), max_s=2.0, poll_s=0.005)
+    assert time.time() - t0 < 1.0
+    assert status == "settled"
 
-# (b) small localized change every poll (a 40x40 block toggling) -> NOT stable,
-#     must burn the whole window (the case the whole-frame mean missed).
-#     200 frames: at poll_s=0.005 the script must outlast the 0.4s window, else the
-#     exhausted script's repeated last frame reads as "stable" (50 frames = 0.25s < 0.4s).
-churn = []
-for i in range(200):
-    f = BASE.copy()
-    if i % 2:
-        f[100:140, 200:240] = 255
-    churn.append(f)
-t0 = time.time()
-status = wait_until_stable(scripted(churn), max_s=0.4, poll_s=0.005)
-check("localized churn never reads as stable", time.time() - t0 >= 0.35)
-check("churn reports 'timeout'", status == "timeout")
 
-# (c) uniform +1 noise everywhere -> below threshold, reads as stable
-noise = [(BASE.astype(int) + (i % 2)).clip(0, 255).astype(np.uint8) for i in range(50)]
-t0 = time.time()
-status = wait_until_stable(scripted(noise), max_s=2.0, poll_s=0.005)
-check("uniform low-level noise reads as stable", time.time() - t0 < 1.0)
-check("noise reports 'settled'", status == "settled")
+def test_localized_churn_never_stable():
+    # small localized change every poll (a 40x40 block toggling) -> NOT stable, must
+    # burn the whole window (the case the whole-frame mean missed). 200 frames: at
+    # poll_s=0.005 the script must outlast the 0.4s window, else the exhausted
+    # script's repeated last frame reads as "stable".
+    churn = []
+    for i in range(200):
+        f = BASE.copy()
+        if i % 2:
+            f[100:140, 200:240] = 255
+        churn.append(f)
+    t0 = time.time()
+    status = wait_until_stable(scripted(churn), max_s=0.4, poll_s=0.005)
+    assert time.time() - t0 >= 0.35
+    assert status == "timeout"
 
-# (d) dead capture (read_fn never yields a frame) -> "no_frames", distinguishable from
-#     a settled screen (review 2026-07-21 P0-5: both used to return None)
-status = wait_until_stable(lambda: None, max_s=0.1, poll_s=0.005)
-check("dead capture reports 'no_frames'", status == "no_frames")
 
-print("\n" + ("ALL PASS" if not _FAILS else f"{len(_FAILS)} FAILED: {_FAILS}"))
-sys.exit(1 if _FAILS else 0)
+def test_uniform_noise_reads_stable():
+    noise = [(BASE.astype(int) + (i % 2)).clip(0, 255).astype(np.uint8) for i in range(50)]
+    t0 = time.time()
+    status = wait_until_stable(scripted(noise), max_s=2.0, poll_s=0.005)
+    assert time.time() - t0 < 1.0
+    assert status == "settled"
+
+
+def test_dead_capture_distinguishable():
+    # review P0-5: a dead capture must not be indistinguishable from a settled screen
+    assert wait_until_stable(lambda: None, max_s=0.1, poll_s=0.005) == "no_frames"
+
+
+if __name__ == "__main__":
+    import pytest
+    raise SystemExit(pytest.main([__file__, "-q"]))

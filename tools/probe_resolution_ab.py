@@ -112,7 +112,9 @@ def main():
         print(f"[probe] source image {args.image} ({screen_w}x{screen_h})")
     else:
         import agent_loop_holo
-        agent_loop_holo.boot()
+        # verify=False: the probe only CAPTURES a frame; it never fires HID actions,
+        # so the boot HID gate would cost ~10s for a channel this probe doesn't use.
+        agent_loop_holo.boot(verify=False)
         frame = agent_loop_holo.ENV.cam.read()
         import cv2
         ok, buf = cv2.imencode(".png", frame)
@@ -145,6 +147,23 @@ def main():
               f"(saves {p1080[2] - p720[2]:.1f}s/step)")
         print("Note: wall time includes completion (reasoning trace) variance, which can "
               "swamp the prompt-side saving at these step sizes -- see the spread above.")
+
+    # Benchmark results are artifacts: they go in runs/, one folder per run (AGENTS.md
+    # §1 -- review 2026-07-21 P3: this probe printed to stdout only, the one tool whose
+    # primary output escaped runs/).
+    out_dir = Path(CFG.runs_dir) / f"probe_resolution_ab_{time.strftime('%Y%m%d_%H%M%S')}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "results.json").write_text(json.dumps({
+        "reps": args.reps,
+        "source_image": args.image or "live-capture",
+        "screen": [screen_w, screen_h],
+        "history_depth": 3,
+        "system_prompt_chars": len(SYSTEM_PROMPT),
+        "per_rep": results,
+        "means": {str(res): {"prompt_tokens": m[0], "completion_tokens": m[1], "wall_s": m[2]}
+                  for res, m in summary.items()},
+    }, indent=2))
+    print(f"[probe] results -> {out_dir / 'results.json'}")
 
 
 if __name__ == "__main__":

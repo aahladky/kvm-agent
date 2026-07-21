@@ -41,10 +41,10 @@ def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0, attempts
     dismiss leftovers, and a small diff triggers a clean retry (the first attempt's
     post-Esc closes a refocused leftover, so the retry measures a real open). Returns
     (ok: bool, detail: str)."""
-    # lazy: package -> script import (same pattern the archived vm.py used); keeps
-    # target.py importable without dragging the loop's import-time side effects in.
-    from agent_loop_holo import _frame_diff_score
-    from kvm_agent.hardware.env import wait_until_stable
+    # lazy: keeps target.py importable without cv2/numpy (env.py drags both in).
+    # 2026-07-21: was `from agent_loop_holo import _frame_diff_score` -- a package ->
+    # app-script inversion (review P3); the metric's canonical home is env.py now.
+    from kvm_agent.hardware.env import frame_diff_score, wait_until_stable
 
     class _CaptureDead(Exception):
         """No frames during the verify window: the CAMERA is the dead component --
@@ -62,7 +62,7 @@ def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0, attempts
             fire()
             if wait_until_stable(cam.read, settle_s) == "no_frames":
                 raise _CaptureDead()
-            diff = _frame_diff_score(before, cam.png_bytes())
+            diff = frame_diff_score(before, cam.png_bytes())
             r4.key("esc")
             wait_until_stable(cam.read, 1.0)
             if diff > thresh:

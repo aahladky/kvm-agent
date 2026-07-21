@@ -20,18 +20,47 @@ from kvm_agent.config import CFG
 from kvm_agent.hardware.appliance import ApplianceClient
 
 
+def _tile_grid(a_gray, b_gray):
+    """9x16 per-tile mean-abs diff between two 480x270 grayscale int16 arrays. THE
+    tile metric (flaw #4 fix): a small localized change (a typed char, a calc digit)
+    registers strongly in its own tile instead of being averaged into nothing by the
+    whole frame. Every consumer routes through here -- the geometry used to live as
+    hand-copies in this file AND agent_loop_holo (review 2026-07-21 P3), free to
+    drift apart silently."""
+    return np.abs(a_gray - b_gray).reshape(9, 30, 16, 30).mean(axis=(1, 3))
+
+
 def _tile_max_diff(prev, curr):
-    """Max per-tile mean-abs diff over a 16x9 grid on a 480x270 downscale — the same
-    tiling as agent_loop_holo._frame_diff_score (flaw #4 fix), for raw BGR frames.
-    A small localized change (a typed char, a calc digit) registers strongly in its
-    own tile instead of being averaged into nothing by the whole frame."""
+    """Tile-max diff for raw BGR frames (the settle-stability path)."""
     a = cv2.cvtColor(cv2.resize(prev, (480, 270)), cv2.COLOR_BGR2GRAY).astype(np.int16)
     b = cv2.cvtColor(cv2.resize(curr, (480, 270)), cv2.COLOR_BGR2GRAY).astype(np.int16)
-    d = np.abs(a - b)
-    return float(d.reshape(9, 30, 16, 30).mean(axis=(1, 3)).max())
+    return float(_tile_grid(a, b).max())
 
 
-def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=3.0, poll_s=0.05):
+def frame_diff_detail(png_a, png_b):
+    """(score, region) tile-max diff for PNG-encoded frames -- the tool_output
+    "report WHAT changed" signal. Region names which third of the screen held the
+    loudest tile. Canonical home since 2026-07-21 (moved from agent_loop_holo so
+    target.py no longer imports the app script to reach it)."""
+    a = cv2.imdecode(np.frombuffer(png_a, np.uint8), cv2.IMREAD_GRAYSCALE)
+    b = cv2.imdecode(np.frombuffer(png_b, np.uint8), cv2.IMREAD_GRAYSCALE)
+    a = cv2.resize(a, (480, 270)).astype(np.int16)
+    b = cv2.resize(b, (480, 270)).astype(np.int16)
+    tiles = _tile_grid(a, b)
+    idx = int(tiles.argmax())
+    row, col = divmod(idx, 16)
+    v = "top" if row < 3 else "bottom" if row >= 6 else "middle"
+    h = "left" if col < 5 else "right" if col >= 11 else "center"
+    region = "center" if (v, h) == ("middle", "center") else f"{v}-{h}"
+    return float(tiles.max()), region
+
+
+def frame_diff_score(png_a, png_b):
+    """The score half of frame_diff_detail (verify gates, tests)."""
+    return frame_diff_detail(png_a, png_b)[0]
+
+
+def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=None, poll_s=0.05):
     """Wait up to max_s for the screen to STOP changing, returning as soon as
     `stable_frames` consecutive polls show a tile-max diff below `thresh`. Replaces
     blind post-action sleeps: fast actions proceed immediately, slow-rendering apps
@@ -39,14 +68,15 @@ def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=3.0, poll_s=0.05):
 
     Metric: tile-max (2026-07-20) — the old 160x90 whole-frame mean was the metric
     flaw #4 discredited for change detection; on analog capture its noise floor and
-    the small-change signal overlap. thresh=3.0 matches FRAME_CHANGE_THRESHOLD's live
-    calibration (2026-07-18: static=0.0, typed word=4.5, calc digit=5.7-17);
+    the small-change signal overlap. thresh defaults to CFG.frame_change_threshold
+    (the single calibrated knob -- see config.py for the 2026-07-18 calibration);
     RE-VALIDATE against the laptop panel's noise floor on the first physical run
     (Task 11) and adjust if the static floor differs.
 
     Returns "settled" | "timeout" | "no_frames" (2026-07-21, review P0-5: previously
     None in every case, so a dead capture was indistinguishable from a settled
     screen). Callers that only want the wait may ignore the return."""
+    thresh = CFG.frame_change_threshold if thresh is None else thresh
     end = time.time() + max_s
     prev = None
     stable = 0

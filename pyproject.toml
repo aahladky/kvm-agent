@@ -15,6 +15,10 @@ dependencies = [
   "jinja2",
 ]
 
+[project.optional-dependencies]
+appliance = ["pyserial"]   # Pi 5 bridge side (pikvm_proto's UART link)
+dev = ["pytest"]
+
 [tool.setuptools.packages.find]
 include = ["kvm_agent*"]
 
