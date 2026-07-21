@@ -3,6 +3,13 @@
 _Snapshot: 2026-07-20 — physical-target move. Supersedes the 2026-07-20 post-sweep
 snapshot (git history). Design: `docs/PLAN_2026-07-20_physical_target_move.md`._
 
+_2026-07-21: full repo review (docs-only session, no code changes) —
+`docs/REVIEW_2026-07-21_repo_review.md`. Headline P0s: `set_screen` never called
+(bridge click-scale stays on fallback), unguarded model call can kill a battery with
+no recorded verdict, capture-stall swallowed as a print, HID gate battery-only,
+`jinja2` missing from pyproject. Also: CLAUDE.md body ~80 KB stale vs its own header;
+note §2's "one tool-call per step" below predates the 9a98d96 batched-calls change._
+
 ## 1. What it is
 
 A computer-use agent where **nothing is installed on the target**. A local vision
