@@ -8,22 +8,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from kvm_agent.hardware import target
 
-_FAILS = []
-def check(name, cond):
-    print(("ok  " if cond else "FAIL") + "  " + name)
-    if not cond:
-        _FAILS.append(name)
 
-calls = []
-real_input = builtins.input
-builtins.input = lambda prompt="": calls.append(prompt) or ""
-try:
-    target.reboot()
-finally:
-    builtins.input = real_input
-check("reboot() blocks on operator confirmation exactly once", len(calls) == 1)
-check("reboot() prompt tells the operator what to do", "power-cycle" in calls[0].lower())
-check("is_up() is True after operator confirmation (v1 contract)", target.is_up() is True)
+def test_reboot_operator_confirmation():
+    calls = []
+    real_input = builtins.input
+    builtins.input = lambda prompt="": calls.append(prompt) or ""
+    try:
+        target.reboot()
+    finally:
+        builtins.input = real_input
+    assert len(calls) == 1, "reboot() blocks on operator confirmation exactly once"
+    assert "power-cycle" in calls[0].lower(), "reboot() prompt tells the operator what to do"
+    assert target.is_up() is True, "is_up() is True after operator confirmation (v1 contract)"
 
 
 # --- verify_hid gate (fake r4 + fake cam; verifies the camera-checked round-trips) ---
@@ -61,26 +57,40 @@ class FakeCam:
         return self._still
 
 
-r4 = FakeR4()
-cam = FakeCam([SAME, CHANGED, SAME, CHANGED])
-ok, detail = target.verify_hid(r4, cam)
-check("gate passes when both round-trips show change", ok is True)
-check("gate ran the keyboard round-trip (win+r + esc)",
-      ("combo", "win+r") in r4.calls and ("key", "esc") in r4.calls)
-check("gate ran the mouse round-trip (Start click)",
-      ("move", 20, 1055) in r4.calls and ("click",) in r4.calls)
+def test_verify_hid_gate():
+    r4 = FakeR4()
+    cam = FakeCam([SAME, CHANGED, SAME, CHANGED])
+    ok, detail = target.verify_hid(r4, cam)
+    assert ok is True, "gate passes when both round-trips show change"
+    assert ("combo", "win+r") in r4.calls and ("key", "esc") in r4.calls, \
+        "gate ran the keyboard round-trip (win+r + esc)"
+    assert ("move", 20, 1055) in r4.calls and ("click",) in r4.calls, \
+        "gate ran the mouse round-trip (Start click)"
 
-r4_dead = FakeR4()
-cam_dead = FakeCam([SAME, SAME, SAME, SAME])
-ok_dead, detail_dead = target.verify_hid(r4_dead, cam_dead)
-check("gate fails closed when nothing changes", ok_dead is False)
-check("gate names the dead collection (keyboard first)", "keyboard" in detail_dead)
+    r4_dead = FakeR4()
+    cam_dead = FakeCam([SAME, SAME, SAME, SAME])
+    ok_dead, detail_dead = target.verify_hid(r4_dead, cam_dead)
+    assert ok_dead is False, "gate fails closed when nothing changes"
+    assert "keyboard" in detail_dead, "gate names the dead collection (keyboard first)"
 
-r4_mdead = FakeR4()
-cam_mdead = FakeCam([SAME, CHANGED, SAME, SAME])
-ok_mdead, detail_mdead = target.verify_hid(r4_mdead, cam_mdead)
-check("gate catches the half-dead case (mouse only)",
-      ok_mdead is False and "mouse" in detail_mdead)
+    r4_mdead = FakeR4()
+    cam_mdead = FakeCam([SAME, CHANGED, SAME, SAME])
+    ok_mdead, detail_mdead = target.verify_hid(r4_mdead, cam_mdead)
+    assert ok_mdead is False and "mouse" in detail_mdead, \
+        "gate catches the half-dead case (mouse only)"
 
-print("\n" + ("ALL PASS" if not _FAILS else f"{len(_FAILS)} FAILED: {_FAILS}"))
-sys.exit(1 if _FAILS else 0)
+
+if __name__ == "__main__":
+    import sys, traceback
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    fails = 0
+    for fn in fns:
+        try:
+            fn()
+            print(f"ok   {fn.__name__}")
+        except Exception:
+            fails += 1
+            print(f"FAIL {fn.__name__}")
+            traceback.print_exc()
+    print("\n" + ("ALL PASS" if not fails else f"{fails} FAILED"))
+    sys.exit(1 if fails else 0)

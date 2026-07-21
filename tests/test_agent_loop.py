@@ -20,12 +20,6 @@ import numpy as np
 import agent_loop_holo as al
 import kvm_agent.hardware.env as env_mod
 
-_FAILS = []
-def check(name, cond):
-    print(("ok  " if cond else "FAIL") + "  " + name)
-    if not cond:
-        _FAILS.append(name)
-
 
 def _png(v):
     arr = np.full((270, 480, 3), v, np.uint8)
@@ -86,21 +80,6 @@ class FakeRecorder:
         return {}
 
 
-# --- P0-1: env bring-up syncs the bridge's pixel->wire scale to the real screen ---
-r4 = FakeR4()
-real_camera, real_make = env_mod.Camera, env_mod.make_hid_client
-env_mod.Camera = lambda *a, **k: FakeCam()
-env_mod.make_hid_client = lambda: r4
-try:
-    env_mod.PicoEnv(cam_index=0, screen_size=(1280, 720), show=False)
-finally:
-    env_mod.Camera, env_mod.make_hid_client = real_camera, real_make
-check("env bring-up pushes the real screen size to the bridge",
-      ("set_screen", 1280, 720) in r4.calls)
-check("set_screen rides on the same connect as clear_hid",
-      r4.calls[:2] == [("clear_hid",), ("set_screen", 1280, 720)])
-
-
 def _patch_run(model_fn):
     saved = (al.ENV, al.call_holo_full, al.RunRecorder)
     al.ENV = FakeEnv()
@@ -114,150 +93,182 @@ def _restore_run(saved):
     al.ENV, al.call_holo_full, al.RunRecorder = saved
 
 
+# --- P0-1: env bring-up syncs the bridge's pixel->wire scale to the real screen ---
+def test_p0_1_env_bringup_pushes_screen_size():
+    r4 = FakeR4()
+    real_camera, real_make = env_mod.Camera, env_mod.make_hid_client
+    env_mod.Camera = lambda *a, **k: FakeCam()
+    env_mod.make_hid_client = lambda: r4
+    try:
+        env_mod.PicoEnv(cam_index=0, screen_size=(1280, 720), show=False)
+    finally:
+        env_mod.Camera, env_mod.make_hid_client = real_camera, real_make
+    assert ("set_screen", 1280, 720) in r4.calls, \
+        "env bring-up pushes the real screen size to the bridge"
+    assert r4.calls[:2] == [("clear_hid",), ("set_screen", 1280, 720)], \
+        "set_screen rides on the same connect as clear_hid"
+
+
 # --- P0-2: a model-call exception is contained (never propagates, recorder finishes) ---
-def always_fail(*a, **k):
-    raise TimeoutError("simulated 180s API timeout")
+def test_p0_2_model_call_containment():
+    def always_fail(*a, **k):
+        raise TimeoutError("simulated 180s API timeout")
 
-saved = _patch_run(always_fail)
-try:
-    result = al.run("do something", max_steps=5, confirm_first=0, tag="t_modfail")
-finally:
-    _restore_run(saved)
-rec = FakeRecorder.instances[-1]
-check("model-call failure does not propagate out of run()", result["finished"] is False)
-check("recorder.finish still runs on persistent model-call failure",
-      rec.finished is not None)
-check("model-call failures count as stuck steps and abort at the limit",
-      rec.finished == (False, "stuck limit hit"))
+    saved = _patch_run(always_fail)
+    try:
+        result = al.run("do something", max_steps=5, confirm_first=0, tag="t_modfail")
+    finally:
+        _restore_run(saved)
+    rec = FakeRecorder.instances[-1]
+    assert result["finished"] is False, "model-call failure does not propagate out of run()"
+    assert rec.finished is not None, \
+        "recorder.finish still runs on persistent model-call failure"
+    assert rec.finished == (False, "stuck limit hit"), \
+        "model-call failures count as stuck steps and abort at the limit"
 
+    calls = {"n": 0}
+    def fail_then_finish(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("simulated transient API error")
+        return ({"actions": [{"action": "finished", "text": "all done"}], "note": None},
+                {"content": "{}"}, {"prompt_tokens": 1})
 
-calls = {"n": 0}
-def fail_then_finish(*a, **k):
-    calls["n"] += 1
-    if calls["n"] == 1:
-        raise RuntimeError("simulated transient API error")
-    return ({"actions": [{"action": "finished", "text": "all done"}], "note": None},
-            {"content": "{}"}, {"prompt_tokens": 1})
-
-saved = _patch_run(fail_then_finish)
-try:
-    result = al.run("do something", max_steps=5, confirm_first=0, tag="t_recover")
-finally:
-    _restore_run(saved)
-rec = FakeRecorder.instances[-1]
-check("a single model-call failure does not kill the run", result["finished"] is True)
-check("run still returns the model's answer after a transient failure",
-      result["answer_text"] == "all done")
-check("a recovered run records success", rec.finished is not None and rec.finished[0] is True)
+    saved = _patch_run(fail_then_finish)
+    try:
+        result = al.run("do something", max_steps=5, confirm_first=0, tag="t_recover")
+    finally:
+        _restore_run(saved)
+    rec = FakeRecorder.instances[-1]
+    assert result["finished"] is True, "a single model-call failure does not kill the run"
+    assert result["answer_text"] == "all done", \
+        "run still returns the model's answer after a transient failure"
+    assert rec.finished is not None and rec.finished[0] is True, \
+        "a recovered run records success"
 
 
 # --- P1-7: planning-only steps never trip the frozen-screen abort ---
-def plan_only(*a, **k):
-    return ({"actions": [{"action": "update_plan",
-                          "goals": [{"title": "g", "status": "running"}]}],
-             "note": None},
-            {"content": "{}"}, {})
+def test_p1_7_planning_only_steps_no_freeze_abort():
+    def plan_only(*a, **k):
+        return ({"actions": [{"action": "update_plan",
+                              "goals": [{"title": "g", "status": "running"}]}],
+                 "note": None},
+                {"content": "{}"}, {})
 
-saved = _patch_run(plan_only)
-try:
-    result = al.run("plan a lot", max_steps=5, confirm_first=0, tag="t_plan")
-finally:
-    _restore_run(saved)
-rec = FakeRecorder.instances[-1]
-check("planning-only steps never trip the frozen-screen abort",
-      rec.finished is not None and "max_steps" in rec.finished[1])
-check("planning-only run uses its full step budget",
-      result == {"finished": False, "answer_text": ""})
+    saved = _patch_run(plan_only)
+    try:
+        result = al.run("plan a lot", max_steps=5, confirm_first=0, tag="t_plan")
+    finally:
+        _restore_run(saved)
+    rec = FakeRecorder.instances[-1]
+    assert rec.finished is not None and "max_steps" in rec.finished[1], \
+        "planning-only steps never trip the frozen-screen abort"
+    assert result == {"finished": False, "answer_text": ""}, \
+        "planning-only run uses its full step budget"
 
 
 # --- P1-8: drag_to re-asserts the tracked start position before button-down ---
-fake = FakeEnv()
-saved_env, saved_cur = al.ENV, al.CURSOR["pos"]
-al.ENV = fake
-al.CURSOR["pos"] = (100, 100)
-try:
-    al._execute({"action": "drag_to", "coordinate": [500, 500]}, settle_s=0.1)
-finally:
-    al.ENV = saved_env
-    al.CURSOR["pos"] = saved_cur
-check("drag_to re-asserts the start position before button-down",
-      fake.r4.calls[:2] == [("move", 100, 100), ("down",)])
-check("drag_to still ends at the target and releases",
-      fake.r4.calls[-2:] == [("move", 500, 500), ("up",)])
+def test_p1_8_drag_to_reasserts_start():
+    fake = FakeEnv()
+    saved_env, saved_cur = al.ENV, al.CURSOR["pos"]
+    al.ENV = fake
+    al.CURSOR["pos"] = (100, 100)
+    try:
+        al._execute({"action": "drag_to", "coordinate": [500, 500]}, settle_s=0.1)
+    finally:
+        al.ENV = saved_env
+        al.CURSOR["pos"] = saved_cur
+    assert fake.r4.calls[:2] == [("move", 100, 100), ("down",)], \
+        "drag_to re-asserts the start position before button-down"
+    assert fake.r4.calls[-2:] == [("move", 500, 500), ("up",)], \
+        "drag_to still ends at the target and releases"
 
 
 # --- P0-3: a capture stall is surfaced, not swallowed ---
-fake = FakeEnv()
-fake.cam = StallCam()
-saved_env = al.ENV
-al.ENV = fake
-try:
-    info = al._execute({"action": "move_to", "coordinate": [5, 5]}, settle_s=0.3)
-finally:
-    al.ENV = saved_env
-check("_execute reports the stall instead of only printing it",
-      info is not None and info.get("stalled") and "seq=" in info["stalled"])
-check("_execute reports the settle status", info.get("settle") == "stable")
+def test_p0_3_capture_stall_surfaced():
+    fake = FakeEnv()
+    fake.cam = StallCam()
+    saved_env = al.ENV
+    al.ENV = fake
+    try:
+        info = al._execute({"action": "move_to", "coordinate": [5, 5]}, settle_s=0.3)
+    finally:
+        al.ENV = saved_env
+    assert info is not None and info.get("stalled") and "seq=" in info["stalled"], \
+        "_execute reports the stall instead of only printing it"
+    assert info.get("settle") == "stable", "_execute reports the settle status"
 
+    def click_then_finish(*a, **k):
+        return ({"actions": [{"action": "left_click", "coordinate": [10, 10]},
+                             {"action": "finished", "text": "done"}], "note": None},
+                {"content": "{}"}, {})
 
-def click_then_finish(*a, **k):
-    return ({"actions": [{"action": "left_click", "coordinate": [10, 10]},
-                         {"action": "finished", "text": "done"}], "note": None},
-            {"content": "{}"}, {})
-
-fake = FakeEnv()
-fake.cam = StallCam()
-saved = (al.ENV, al.call_holo_full, al.RunRecorder)
-al.ENV = fake
-al.call_holo_full = click_then_finish
-al.RunRecorder = FakeRecorder
-FakeRecorder.instances.clear()
-try:
-    result = al.run("click and finish", max_steps=3, confirm_first=0, tag="t_stall")
-finally:
-    al.ENV, al.call_holo_full, al.RunRecorder = saved
-check("a stalled run still completes", result["finished"] is True)
-tool_outputs = [m["content"] for m in al.LAST["history"]
-                if m.get("role") == "user" and isinstance(m.get("content"), str)
-                and m["content"].startswith("<tool_output")]
-check("the stall reaches the model's <tool_output>",
-      any("WARNING" in t and "stale" in t for t in tool_outputs))
-rec = FakeRecorder.instances[-1]
-logged_step = rec.steps[0][0][3]   # log_step(step_i, png, message, step, ...)
-check("the stall reaches the recorder (step warnings)",
-      any("stalled" in w for w in logged_step.get("warnings", [])))
+    fake = FakeEnv()
+    fake.cam = StallCam()
+    saved = (al.ENV, al.call_holo_full, al.RunRecorder)
+    al.ENV = fake
+    al.call_holo_full = click_then_finish
+    al.RunRecorder = FakeRecorder
+    FakeRecorder.instances.clear()
+    try:
+        result = al.run("click and finish", max_steps=3, confirm_first=0, tag="t_stall")
+    finally:
+        al.ENV, al.call_holo_full, al.RunRecorder = saved
+    assert result["finished"] is True, "a stalled run still completes"
+    tool_outputs = [m["content"] for m in al.LAST["history"]
+                    if m.get("role") == "user" and isinstance(m.get("content"), str)
+                    and m["content"].startswith("<tool_output")]
+    assert any("WARNING" in t and "stale" in t for t in tool_outputs), \
+        "the stall reaches the model's <tool_output>"
+    rec = FakeRecorder.instances[-1]
+    logged_step = rec.steps[0][0][3]   # log_step(step_i, png, message, step, ...)
+    assert any("stalled" in w for w in logged_step.get("warnings", [])), \
+        "the stall reaches the recorder (step warnings)"
 
 
 # --- P0-4: boot() runs the camera-verified HID gate by default ---
-import kvm_agent.hardware.target as target_mod
+def test_p0_4_boot_hid_gate():
+    import kvm_agent.hardware.target as target_mod
 
-saved = (al.ENV, al.PicoEnv, target_mod.verify_hid)
-try:
-    al.PicoEnv = lambda *a, **k: FakeEnv()
-    target_mod.verify_hid = lambda r4, cam, **k: (False, "mouse NOT delivering (test)")
-    al.ENV = None
-    raised = False
+    saved = (al.ENV, al.PicoEnv, target_mod.verify_hid)
     try:
-        al.boot()
-    except RuntimeError:
-        raised = True
-    check("boot() fails closed when the HID gate fails", raised)
-    check("boot() tears down the env after a gate failure", al.ENV is None)
+        al.PicoEnv = lambda *a, **k: FakeEnv()
+        target_mod.verify_hid = lambda r4, cam, **k: (False, "mouse NOT delivering (test)")
+        al.ENV = None
+        raised = False
+        try:
+            al.boot()
+        except RuntimeError:
+            raised = True
+        assert raised, "boot() fails closed when the HID gate fails"
+        assert al.ENV is None, "boot() tears down the env after a gate failure"
 
-    gate_calls = {"n": 0}
-    def passing_gate(r4, cam, **k):
-        gate_calls["n"] += 1
-        return True, "hid ok (test)"
-    target_mod.verify_hid = passing_gate
-    al.ENV = None
-    check("boot() returns True when the gate passes", al.boot() is True)
-    check("the gate actually ran", gate_calls["n"] == 1)
-    al.ENV = None
-    al.boot(verify=False)
-    check("boot(verify=False) skips the gate", gate_calls["n"] == 1)
-finally:
-    al.ENV, al.PicoEnv, target_mod.verify_hid = saved
+        gate_calls = {"n": 0}
+        def passing_gate(r4, cam, **k):
+            gate_calls["n"] += 1
+            return True, "hid ok (test)"
+        target_mod.verify_hid = passing_gate
+        al.ENV = None
+        assert al.boot() is True, "boot() returns True when the gate passes"
+        assert gate_calls["n"] == 1, "the gate actually ran"
+        al.ENV = None
+        al.boot(verify=False)
+        assert gate_calls["n"] == 1, "boot(verify=False) skips the gate"
+    finally:
+        al.ENV, al.PicoEnv, target_mod.verify_hid = saved
 
 
-print("\n" + ("ALL PASS" if not _FAILS else f"{len(_FAILS)} FAILED: {_FAILS}"))
-sys.exit(1 if _FAILS else 0)
+if __name__ == "__main__":
+    import sys, traceback
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    fails = 0
+    for fn in fns:
+        try:
+            fn()
+            print(f"ok   {fn.__name__}")
+        except Exception:
+            fails += 1
+            print(f"FAIL {fn.__name__}")
+            traceback.print_exc()
+    print("\n" + ("ALL PASS" if not fails else f"{fails} FAILED"))
+    sys.exit(1 if fails else 0)

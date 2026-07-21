@@ -15,6 +15,14 @@ dependencies = [
   "jinja2",
 ]
 
+[project.optional-dependencies]
+# tests/ runs as plain scripts (python tests/x.py) AND under pytest; pikvm_proto
+# (appliance/pi5) imports pyserial at module top, which test_key_aliases pulls in.
+test = [
+  "pytest",
+  "pyserial",
+]
+
 [tool.setuptools.packages.find]
 include = ["kvm_agent*"]
 

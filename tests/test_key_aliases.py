@@ -11,14 +11,23 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from pikvm_proto import KEYCODES
 
-_FAILS = []
-def check(name, cond):
-    print(("ok  " if cond else "FAIL") + "  " + name)
-    if not cond:
-        _FAILS.append(name)
 
-for alias in ("win", "gui", "cmd", "leftgui", "winkey", "windows", "super", "meta"):
-    check(f"{alias!r} resolves to the GUI keycode", KEYCODES.get(alias) == 0xE3)
+def test_windows_gui_key_aliases_resolve():
+    for alias in ("win", "gui", "cmd", "leftgui", "winkey", "windows", "super", "meta"):
+        assert KEYCODES.get(alias) == 0xE3, f"{alias!r} resolves to the GUI keycode"
 
-print("\n" + ("ALL PASS" if not _FAILS else f"{len(_FAILS)} FAILED: {_FAILS}"))
-sys.exit(1 if _FAILS else 0)
+
+if __name__ == "__main__":
+    import sys, traceback
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    fails = 0
+    for fn in fns:
+        try:
+            fn()
+            print(f"ok   {fn.__name__}")
+        except Exception:
+            fails += 1
+            print(f"FAIL {fn.__name__}")
+            traceback.print_exc()
+    print("\n" + ("ALL PASS" if not fails else f"{fails} FAILED"))
+    sys.exit(1 if fails else 0)

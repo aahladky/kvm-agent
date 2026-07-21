@@ -14,12 +14,6 @@ import numpy as np
 import cv2
 from agent_loop_holo import _frame_diff_score, _frame_changed, FRAME_CHANGE_THRESHOLD
 
-_FAILS = []
-def check(name, cond):
-    print(("ok  " if cond else "FAIL") + "  " + name)
-    if not cond:
-        _FAILS.append(name)
-
 
 def png(arr):
     ok, buf = cv2.imencode(".png", arr)
@@ -29,22 +23,41 @@ def png(arr):
 base = np.full((1080, 1920), 128, np.uint8)
 same = png(base)
 
-check("identical frames -> score 0.0", _frame_diff_score(same, same) == 0.0)
-check("identical frames -> not changed", _frame_changed(same, same) is False)
+
+def test_identical_frames_no_change():
+    assert _frame_diff_score(same, same) == 0.0, "identical frames -> score 0.0"
+    assert _frame_changed(same, same) is False, "identical frames -> not changed"
+
 
 # small localized change: a 40x40 bright block (a digit/char-sized region) -- the exact class
 # the old whole-frame mean averaged into ~nothing.
-b2 = base.copy()
-b2[500:540, 900:940] = 255
-loc = png(b2)
-check("small localized change scores above threshold",
-      _frame_diff_score(same, loc) > FRAME_CHANGE_THRESHOLD)
-check("small localized change -> changed True", _frame_changed(same, loc) is True)
+def test_small_localized_change_detected():
+    b2 = base.copy()
+    b2[500:540, 900:940] = 255
+    loc = png(b2)
+    assert _frame_diff_score(same, loc) > FRAME_CHANGE_THRESHOLD, \
+        "small localized change scores above threshold"
+    assert _frame_changed(same, loc) is True, "small localized change -> changed True"
+
 
 # uniform low-level shift everywhere (noise-like) stays below threshold -- must NOT read as a change.
-b3 = (base.astype(int) + 1).clip(0, 255).astype(np.uint8)
-check("uniform +1 (noise-like) below threshold",
-      _frame_diff_score(same, png(b3)) < FRAME_CHANGE_THRESHOLD)
+def test_uniform_noise_below_threshold():
+    b3 = (base.astype(int) + 1).clip(0, 255).astype(np.uint8)
+    assert _frame_diff_score(same, png(b3)) < FRAME_CHANGE_THRESHOLD, \
+        "uniform +1 (noise-like) below threshold"
 
-print("\n" + ("ALL PASS" if not _FAILS else f"{len(_FAILS)} FAILED: {_FAILS}"))
-sys.exit(1 if _FAILS else 0)
+
+if __name__ == "__main__":
+    import sys, traceback
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    fails = 0
+    for fn in fns:
+        try:
+            fn()
+            print(f"ok   {fn.__name__}")
+        except Exception:
+            fails += 1
+            print(f"FAIL {fn.__name__}")
+            traceback.print_exc()
+    print("\n" + ("ALL PASS" if not fails else f"{fails} FAILED"))
+    sys.exit(1 if fails else 0)
