@@ -59,6 +59,14 @@ OS-agnostic, undetectable. Pure curiosity project.
   camera-verified HID gate by default (`verify=False` to bypass — the battery keeps
   its interactive per-task gate), so REPL sessions no longer click into a half-dead
   HID silently.
+- Review batch-3 hygiene (2026-07-21): CLAUDE.md pruned to a corrected header +
+  trust-ordered pointers (the ~80 KB retired-stack body survives in git history);
+  test suite is pytest-collectable (30 tests) while staying script-runnable, with a
+  declared `[test]` extra and new holo message-layer coverage
+  (`tests/test_holo_messages.py`); the tile-max metric and its threshold have a
+  single home (`kvm_agent.hardware.env` + `CFG.frame_change_threshold`);
+  `verify_hid` no longer imports the root app script; dead code dropped
+  (`_frame_png_full`, `drop_bottom_row`, ASCII-only `stage1_ping_test.py`).
 
 ## 4. Open problems
 
