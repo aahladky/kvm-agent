@@ -8,7 +8,7 @@ EvoCUA was archived 2026-07-20 (AGENTS.md §3 — the shim's last full version i
 _archive/old-stack/kvm_agent/hardware/env.py). The live consumer is agent_loop_holo.py,
 which talks to env.cam and env.r4 directly and never used the shim.
 
-Live surface: wait_until_stable, make_hid_client, Camera, PicoEnv
+Live surface: wait_until_stable, make_hid_client, FrameBuffer, Camera, PicoEnv
 (observe/_settle/close, plus the .cam and .r4 attributes).
 """
 import sys
@@ -53,17 +53,56 @@ def make_hid_client():
     was archived 2026-07-20; see _archive/old-stack/kvm_agent/hardware/pico_client.py)."""
     return ApplianceClient()
 
+
+class FrameBuffer:
+    """Thread-safe latest-frame store with a monotonic sequence number.
+
+    Finding #6 (2026-07-18 harness review): Camera._loop overwrote self.frame with no
+    freshness guarantee, so a post-action verify frame could predate the action it was
+    meant to check. Every stored frame gets a seq; consumers wait for seq > the seq at
+    action-fire time for exact before/after pairing. get() deliberately does NOT copy:
+    cv2 cap.read() returns a fresh array per call (the producer never mutates a stored
+    frame), and a per-poll 6MB memcpy is real cost at settle-poll rates.
+    """
+
+    def __init__(self):
+        self._cond = threading.Condition()
+        self._frame = None
+        self._seq = 0
+
+    def put(self, frame):
+        with self._cond:
+            self._frame = frame
+            self._seq += 1
+            self._cond.notify_all()
+            return self._seq
+
+    def get(self):
+        with self._cond:
+            return self._frame, self._seq
+
+    @property
+    def seq(self):
+        with self._cond:
+            return self._seq
+
+    def wait_newer(self, seq, timeout_s):
+        end = time.time() + timeout_s
+        with self._cond:
+            while self._seq <= seq:
+                remaining = end - time.time()
+                if remaining <= 0:
+                    raise TimeoutError(f"no frame newer than seq={seq} within {timeout_s}s")
+                self._cond.wait(remaining)
+            return self._frame, self._seq
+
+
 # Windows target: Media Foundation (MSMF), NOT DirectShow -- the Acer USB3 card delivers
 # YUY2 there and cv2's DSHOW backend mis-reads its stride and ghosts stale frames into the
 # current one (the "wallpaper duplicated at two scales" artifact, 2026-06-19); OBS and MSMF
 # both decode it cleanly. Linux host: V4L2 is the native/only real backend for a UVC
 # capture card -- CAP_MSMF doesn't exist outside Windows.
 _CAPTURE_BACKEND = cv2.CAP_MSMF if sys.platform == "win32" else cv2.CAP_V4L2
-
-
-# NOTE: Camera is carried over VERBATIM from the previous env.py (lines 65-120 of the
-# pre-rewrite file, now at _archive/old-stack/kvm_agent/hardware/env.py). It is replaced
-# wholesale by the FrameBuffer version in the frame-freshness task of this plan.
 
 
 class Camera:
@@ -75,12 +114,12 @@ class Camera:
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        self.frame = None
+        self._fb = FrameBuffer()
         self.run = True
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
         t0 = time.time()
-        while self.frame is None:
+        while self._fb.seq == 0:
             if time.time() - t0 > 15:
                 raise SystemExit("no frames — is the capture card free (other process holding it)?")
             time.sleep(0.05)
@@ -92,10 +131,19 @@ class Camera:
         while self.run:
             ok, f = self.cap.read()
             if ok:
-                self.frame = f
+                self._fb.put(f)
+
+    @property
+    def seq(self):
+        """Monotonic captured-frame counter (finding #6 pairing primitive)."""
+        return self._fb.seq
 
     def read(self):
-        return self.frame
+        return self._fb.get()[0]
+
+    def wait_newer(self, seq, timeout_s):
+        """Block until a frame captured AFTER `seq` lands; TimeoutError otherwise."""
+        return self._fb.wait_newer(seq, timeout_s)
 
     def png_bytes(self, full_res=False):
         # Downscale 1080p -> 720p before encoding: vision-token count scales with pixels
@@ -106,7 +154,8 @@ class Camera:
         # full_res=True skips the downscale for EVIDENCE frames (grading/verify/reference):
         # tesseract OCR on a 720p analog-capture frame produces garbage (proven 2026-07-18,
         # calc_basic's "56" unreadable) -- the model reads 720p, the graders read 1080p.
-        frame = self.frame if full_res else cv2.resize(self.frame, (1280, 720))
+        frame, _ = self._fb.get()
+        frame = frame if full_res else cv2.resize(frame, (1280, 720))
         ok, buf = cv2.imencode(".png", frame)
         return buf.tobytes()
 
