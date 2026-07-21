@@ -47,16 +47,26 @@ OS-agnostic, undetectable. Pure curiosity project.
 
 ## 4. Open problems
 
-- **First honest baseline**: the physical shakedown battery (5 tasks,
-  `tools/battery_tasks_shakedown.json`) has not yet run — all prior numbers came from
-  the VM stack and don't transfer.
-- windows_calc class: WinUI3 date-picker inconsistency + stuck-popup click bug
-  (2026-07-19 session doc §4). Win10's classic calc may not reproduce it — re-observe.
-- Settle threshold (3.0) is calibrated on the VM-era capture chain; re-validate on
-  the laptop panel's noise floor on the first physical run.
+- **First honest baseline: INCOMPLETE.** Battery attempt 2026-07-21 scored 1/2
+  (notepad PASS, calc 0/20 — the three-way Blame-Ledger row in `AGENTS.md` §5)
+  and was abandoned at task 2's grade prompt. Remaining: 3 tasks + a clean rerun.
+  Session doc §Battery attempt has the full incident list and follow-ups.
+- **Tool-result signal is semantically misleading**: changed/unchanged binary
+  confirmed real-but-irrelevant pixels (taskbar focus visuals) as action success
+  at decision-critical steps (2026-07-21). Needs magnitude/region — fold into
+  the structured-output session.
+- **Goldfish-memory amnesia is load-bearing**: model's own reasoning flagged it
+  ("screenshots are being evicted"). `HOLO_HISTORY_IMAGES=2` battery A/B queued.
+- **~70s OS dead window post-reboot** (delivered HID swallowed, steps 0-9 of the
+  calc run): cause unknown; psr.exe zip from that run is the outstanding evidence.
+- **Post-reboot half-dead HID recurs** (I2 class, physical): gate exists
+  (`target.verify_hid` + replug loop in battery); automate with the power backend.
+- windows_calc class (WinUI3 date-picker + stuck-popup, 2026-07-19): re-observe
+  on Win10's classic calc.
 - Store auto-update pause expiry (VM-era note; re-assess for the laptop).
 - Deferred: power-control backend, firmware HID watchdog, automated fail-closed
-  vision grading (schema slot exists: `grader` field in battery results).
+  vision grading (schema slot exists), superseded adoption (structured-output
+  rearchitecture + resolution sync).
 
 ## 5. Retired
 

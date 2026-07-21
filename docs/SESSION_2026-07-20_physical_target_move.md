@@ -45,8 +45,46 @@ nothing deployed was regressed. Redeployed + restarted `hid-bridge.service`;
   model load). PASS, verified on the final frame by eye (not the self-report):
   Notepad open with the full sentence typed. Actions: click search box → click
   Notepad tile → type → finished.
-- **Full battery + Clonezilla image**: pending (operator runs
-  `python tools/battery.py` at the terminal — they are the grader by design).
+- **Full battery + Clonezilla image**: Clonezilla pending; battery ABORTED after
+  2/5 tasks (see below).
+
+### Battery attempt (2026-07-21 07:41, abandoned at task 2's grade prompt)
+
+Score 1/2: `notepad_type` PASS (human-graded), `calc_multiply` fail by exhaustion
+(0/20 steps). Three incidents, each root-caused and either fixed or recorded:
+
+1. **Post-reboot half-dead HID (I2 class, physical edition).** The battery's
+   power-cycle brought the composite device up keyboard-alive/mouse-dead with the
+   probe flags LYING (`mouse_online=true`, wire log ACKing everything, camera
+   showing non-delivery). Recovery: replug the Pico's USB. Fixes landed:
+   camera-verified post-reboot HID gate in `target.verify_hid` (Win+R + Start-click
+   round-trips, contamination-hardened with pre-Esc + retry after a leftover Run
+   dialog read as "keyboard dead"); wired into `tools/battery.py` after every
+   `target.reboot()`. (`7725d3b`, `3f99c62`)
+2. **Model-invented key names.** `winkey` 502'd and killed the first battery run
+   at step 1; `winleft` was correctly dropped mid-run after the fix. Fixes: alias
+   sets added (`winkey/windows/super/meta`, `winleft/winright/leftwin/rightwin`),
+   and `run()` now treats a bridge-rejected action as a dropped action in the
+   stuck counter instead of crashing the battery. (`7725d3b`, `8afddba`)
+3. **calc_multiply 0/20 — the Blame-Ledger row** (`AGENTS.md` §5, 2026-07-21).
+   Prematurely called "environment exonerated, model limitations"; the §2 walk
+   (frames + raw reasoning + tool results) showed a three-way split: ~70s OS dead
+   window (delivered input swallowed, steps 0-9, cause unknown — psr zip is the
+   outstanding target-side evidence); "screen changed" tool result technically
+   true but semantically false at steps 4,5,11 (taskbar focus visuals, tile
+   grid(8,1) — the model typed blind, citing the false confirmations in its
+   reasoning); goldfish memory (model: "screenshots are being evicted") with the
+   click-repeat guard disabled by design. Genuine model faults: `winleft`,
+   double-× (M3).
+
+**Open follow-ups for the next session** (in rough priority):
+- Tool-result signal must report WHAT changed (magnitude/region), not a bare
+  changed/unchanged binary — fold into the deferred structured-output session.
+- `HOLO_HISTORY_IMAGES=2` battery A/B — the model explicitly flagged the amnesia;
+  the old depth shakedown (5/17, 7/16, 7/15) predates the physical target.
+- psr.exe zip from the calc run: what was Windows doing during the dead window?
+- Power backend + automatic `verify_hid` post-boot with self-recovery.
+- Superseded adoption: structured-output rearchitecture + resolution sync.
 
 ## Settle-threshold revalidation
 
