@@ -44,16 +44,25 @@ def load_tasks(path):
 
 def grade_task(task, result):
     """The human grader. No default and no empty answer — a grade can never be
-    silently recorded (finding #8). Input form: 'p <optional note>' / 'f <optional note>'."""
+    silently recorded (finding #8). Input form: 'p <optional note>' / 'f <optional note>' /
+    'v <REQUIRED note>'. 'v' (void) means the task was infeasible on this target and
+    is excluded from the score's denominator — 2026-07-22: paint_line had no paint app
+    installed on the GNOME target and the p/f-only vocabulary forced the operator to
+    record a protest "pass" (finding #8's fail-open class, in the grade vocabulary)."""
     # Show the model's own verdict + where the evidence lives before asking for a grade.
     print(f"[battery] model verdict: finished={result['finished']} "
           f"answer_text={result['answer_text']!r}")
     print(f"[battery] evidence in runs/battery_{task['id']}_<ts>/ (step frames, raw outputs)")
     while True:
-        raw = input(f"[battery] task {task['id']!r}: grade [p/f] + optional note: ").strip()
-        if raw[:1] in ("p", "f"):
-            return {"grade": "pass" if raw[0] == "p" else "fail", "note": raw[1:].strip()}
-        print("[battery] need 'p' or 'f' — no grade, no continue")
+        raw = input(f"[battery] task {task['id']!r}: grade [p/f/v] + note (v REQUIRES one): ").strip()
+        grade = {"p": "pass", "f": "fail", "v": "void"}.get(raw[:1])
+        note = raw[1:].strip()
+        if grade == "void" and not note:
+            print("[battery] a void grade REQUIRES a note saying why — no silent exclusions")
+            continue
+        if grade:
+            return {"grade": grade, "note": note}
+        print("[battery] need 'p', 'f' or 'v' — no grade, no continue")
 
 
 def write_results(path, payload):
@@ -66,12 +75,16 @@ def make_payload(ts, tasks_path, psr_active, tasks, results):
     """Fail-closed scoring (2026-07-21 second review #8): the denominator is ALL
     tasks, not just the graded ones -- an abandoned battery previously reported
     '1/1', indistinguishable from a finished one (finding #8's fail-open class,
-    one level up)."""
+    one level up). Void grades (infeasible tasks) leave the denominator but stay
+    visible in the score string -- a void can never inflate the pass count."""
+    passes = sum(r["grade"] == "pass" for r in results)
+    voids = sum(r["grade"] == "void" for r in results)
+    score = f"{passes}/{len(tasks) - voids}" + (f" ({voids} void)" if voids else "")
     return {"started": ts, "tasks_file": tasks_path, "psr_active": psr_active,
             "total_tasks": len(tasks), "graded": len(results),
             "complete": len(results) == len(tasks),
             "results": results,
-            "score": f"{sum(r['grade'] == 'pass' for r in results)}/{len(tasks)}"}
+            "score": score}
 
 
 def main():

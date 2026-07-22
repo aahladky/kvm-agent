@@ -1,7 +1,9 @@
 # Project State — KVM-over-IP Computer-Use Agent
 
-_Snapshot: 2026-07-20 — physical-target move. Supersedes the 2026-07-20 post-sweep
-snapshot (git history). Design: `docs/PLAN_2026-07-20_physical_target_move.md`._
+_Snapshot: 2026-07-22 — first complete battery. Supersedes the 2026-07-20
+physical-target-move snapshot (git history). Design:
+`docs/PLAN_2026-07-20_physical_target_move.md`; latest session:
+`docs/SESSION_2026-07-22_first_complete_battery.md`._
 
 ## 1. What it is
 
@@ -40,11 +42,13 @@ OS-agnostic, undetectable. Pure curiosity project.
   tap → Activities, Esc closes; Activities corner click, top-left — "windows"
   keeps win+r/Start for a Windows target); verified live on GNOME 2026-07-21
   (kbd diff 131.0, mouse diff 134.9).
-- **EVAL** — human-graded battery: `tools/battery.py` + task JSON. The user grades
-  pass/fail per task from the recorded evidence; no automated grade exists and no
-  uncertain grade can masquerade as a pass (finding #8). Steps Recorder (psr.exe) on
-  the laptop is the independent ground-truth channel (what Windows actually received
-  vs what the capture card saw).
+- **EVAL** — human-graded battery: `tools/battery.py` + task JSON
+  (`battery_tasks_gnome.json` for the GNOME target; `_shakedown.json` is the Windows
+  list). The user grades pass/fail/void per task from the recorded evidence — void
+  (infeasible task, note required) leaves the score's denominator but stays visible
+  ("4/4 (1 void)"); no automated grade exists and no uncertain grade can masquerade
+  as a pass (finding #8). Steps Recorder (psr.exe) was the Windows-only independent
+  ground-truth channel — moot on GNOME; the camera is the only evidence channel.
 - **EVIDENCE** — every run records per-step frames + raw model output +
   `reasoning_content` to `runs/<tag>_<time>/` (`RunRecorder`). First tool on any
   failed run: `tools/show_reasoning.py`.
@@ -103,26 +107,42 @@ OS-agnostic, undetectable. Pure curiosity project.
   refused; `finish_reason='length'` logged. Firmware: `ph_usb_send_clear` no
   longer injects a phantom wheel scroll (upstream PiKVM bug) — **needs a Pico
   reflash**, and the `pikvm_proto.py` combo change **needs deploying to the Pi 5**.
+- **First honest baseline: COMPLETE** (2026-07-21 23:51 battery, graded to the end).
+  Honest score **4/4 (1 void)** — recorded 5/5 pre-void-grade; paint_line was
+  infeasible (no paint app on the GNOME target) and force-graded "pass" under the
+  p/f-only vocabulary, now fixed with the void grade (`tools/battery.py`).
+  calc_multiply: clean 6-step pass vs 0/20 the previous morning (OS switch + fix
+  rounds landed together — uncontrolled). Run config: GNOME target, native 720p,
+  `HOLO_HISTORY_IMAGES=3`. Evidence: `runs/battery_20260721_235153/`; full review
+  in `docs/SESSION_2026-07-22_first_complete_battery.md`.
 
 ## 4. Open problems
 
-- **First honest baseline: INCOMPLETE.** Battery attempt 2026-07-21 scored 1/2
-  (notepad PASS, calc 0/20 — the three-way Blame-Ledger row in `AGENTS.md` §5)
-  and was abandoned at task 2's grade prompt. Remaining: 3 tasks + a clean rerun.
-  Session doc §Battery attempt has the full incident list and follow-ups.
+- **Decide-act TOCTOU staleness** (2026-07-22, first complete battery): the screen
+  can change during the model's ~15-20s think time — GNOME's async search re-flowed
+  and a click correct against the decision frame activated the row that slid under
+  it (paint_line s09; blame-ledger row + full frame walk in
+  `docs/SESSION_2026-07-22_first_complete_battery.md`). Milder same-disease cases:
+  double-click on slow-launching apps (settings s00-s01), acting on a "Searching…"
+  spinner (notepad s02). Fix design: pre-fire target-tile guard — re-grab a frame
+  right before each click, tile-diff the target region vs the decision frame,
+  refuse to fire + re-observe on change. Fold into the signal-redesign session.
 - **Tool-result signal is semantically misleading**: changed/unchanged binary
   confirmed real-but-irrelevant pixels (taskbar focus visuals) as action success
   at decision-critical steps (2026-07-21). Needs magnitude/region — fold into
-  the structured-output session.
-- **Goldfish-memory amnesia is load-bearing**: model's own reasoning flagged it
-  ("screenshots are being evicted"). `HOLO_HISTORY_IMAGES=2` battery A/B queued.
-- **~70s OS dead window post-reboot** (delivered HID swallowed, steps 0-9 of the
-  calc run): cause unknown; psr.exe zip from that run is the outstanding evidence.
+  the structured-output session, together with the TOCTOU guard above.
+- **Goldfish-memory A/B still unconducted as a controlled experiment**:
+  `HOLO_HISTORY_IMAGES=3` was live in the 2026-07-21 23:51 battery (which passed
+  4/4 feasible), but the target OS changed the same day — nothing isolated the
+  history-depth variable.
 - **Post-reboot half-dead HID recurs** (I2 class, physical): gate exists
   (`target.verify_hid` + replug loop in battery); automate with the power backend.
-- windows_calc class (WinUI3 date-picker + stuck-popup, 2026-07-19): re-observe
-  on Win10's classic calc.
-- Store auto-update pause expiry (VM-era note; re-assess for the laptop).
+- **Pico reflash + Pi 5 deploy still unconfirmed** (second-review round): the
+  phantom-wheel firmware fix needs a reflash and `pikvm_proto.py` needs deploying
+  to the Pi 5 — verify + record which the 2026-07-21 battery actually ran with.
+- Windows-era items, moot while the target is GNOME (re-open on a Windows target):
+  ~70s OS dead window post-reboot (psr.exe zip outstanding), windows_calc class
+  (WinUI3 date-picker + stuck-popup), Store auto-update pause expiry.
 - Deferred: power-control backend, firmware HID watchdog, automated fail-closed
   vision grading (schema slot exists), superseded adoption (structured-output
   rearchitecture + resolution sync).

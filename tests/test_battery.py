@@ -57,6 +57,36 @@ def test_grade_task_input_handling():
     assert v == {"grade": "fail", "note": "fell over"}, "grade_task fail with note"
 
 
+# void grade (2026-07-22, first-complete-battery review): 'v' excludes an infeasible
+# task from the denominator, but ONLY with a note -- a bare 'v' re-asks. Before this,
+# p/f-only forced the operator to record a protest "pass" on paint_line (no paint app
+# on the GNOME target), which inflated the score to 5/5.
+def test_grade_task_void_requires_note():
+    real_input = builtins.input
+    answers = iter(["v", "v no paint app installed"])
+    builtins.input = lambda prompt="": next(answers)
+    try:
+        v = battery.grade_task({"id": "t3"}, {"finished": False, "answer_text": ""})
+    finally:
+        builtins.input = real_input
+    assert v == {"grade": "void", "note": "no paint app installed"}, \
+        "bare 'v' re-asks; 'v <note>' records a void"
+
+
+def test_payload_void_excluded_from_denominator():
+    tasks = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    results = [{"task_id": "a", "grade": "pass", "note": ""},
+               {"task_id": "b", "grade": "pass", "note": ""},
+               {"task_id": "c", "grade": "void", "note": "infeasible"}]
+    p = battery.make_payload("20260722_000000", "tasks.json", False, tasks, results)
+    assert p["score"] == "2/2 (1 void)", f"void leaves the denominator, stays visible: {p['score']}"
+    assert p["complete"] is True, "voids still count as graded for completeness"
+    # a void can never masquerade as a pass in the numerator
+    only_void = [{"task_id": "a", "grade": "void", "note": "n/a"}]
+    p2 = battery.make_payload("20260722_000000", "tasks.json", False, tasks[:1], only_void)
+    assert p2["score"] == "0/0 (1 void)", f"all-void battery scores 0/0, got {p2['score']}"
+
+
 def test_payload_score_is_fail_closed():
     """Second review #8 (2026-07-21): an abandoned battery must not read as complete --
     the score denominator is ALL tasks, not just the graded ones (a real Ctrl-C

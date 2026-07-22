@@ -1,0 +1,7 @@
+[
+  {"id": "text_editor_type", "instruction": "Open a text editor and type the sentence: the quick brown fox jumps over the lazy dog", "max_steps": 15},
+  {"id": "calc_multiply", "instruction": "Open Calculator and compute 7 times 8", "max_steps": 20},
+  {"id": "settings_display", "instruction": "Open the Settings app and go to the Display settings page", "max_steps": 15},
+  {"id": "editor_save_file", "instruction": "Open a text editor, type the word hello, and save the file as hello.txt", "max_steps": 20},
+  {"id": "top_bar_clock", "instruction": "Read the current time shown in the clock at the top of the screen and tell me what it says", "max_steps": 10}
+]
