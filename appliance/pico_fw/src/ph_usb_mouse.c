@@ -27,11 +27,11 @@
 
 const u8 PH_USB_MOUSE_ABS_DESC[] = {
 	// https://github.com/NicoHood/HID/blob/0835e6a/src/SingleReport/SingleAbsoluteMouse.cpp
-	// Репорт взят отсюда ^^^, но изменен диапазон значений координат перемещений.
-	// Автор предлагает использовать -32768...32767, но семерка почему-то не хочет работать
-	// с отрицательными значениями координат, как не хочет хавать 65536 и 32768.
-	// Так что мы ей скармливаем диапазон 0...32767, и передаем рукожопам из микрософта привет,
-	// потому что линуксы прекрасно работают с любыми двухбайтовыми диапазонами.
+	// The report descriptor was taken from here ^^^, but the movement-coordinate range was changed.
+	// The author suggests using -32768...32767, but Windows 7 for some reason refuses to work
+	// with negative coordinate values, just as it refuses to swallow 65536 and 32768.
+	// So we feed it the range 0...32767, and send our regards to the klutzes at Microsoft,
+	// because Linux works just fine with any two-byte range.
 
 	// Absolute mouse
 	0x05, 0x01,	// USAGE_PAGE (Generic Desktop)

@@ -97,7 +97,7 @@ static void _send_response(u8 code) {
 	ph_com_write(resp);
 
 	if (_reset_required) {
-		watchdog_reboot(0, 0, 100); // Даем немного времени чтобы отправить ответ, а потом ребутимся
+		watchdog_reboot(0, 0, 100); // Give it a little time to send the response, then reboot
 	}
 }
 
@@ -115,7 +115,7 @@ int main(void) {
 	//ph_debug_uart_init();
 	ph_outputs_init();
 	ph_ps2_init();
-	ph_usb_init(); // Тут может быть инициализация USB-CDC для бриджа
+	ph_usb_init(); // USB-CDC init for the bridge could go here
 	ph_com_init(_data_handler, _timeout_handler);
 
 	while (true) {

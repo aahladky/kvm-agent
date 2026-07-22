@@ -81,14 +81,14 @@ void ph_usb_task(void) {
 				bool force = false; \
 				if (online) { \
 					if (!ph_g_usb_##x_dev##_online) { \
-						force = true; /* Если был переход из долгого оффлайна в онлайн */ \
+						force = true; /* If we just came back online from a long offline period */ \
 					} \
 					ph_g_usb_##x_dev##_online = true; \
 					offline_ts = 0; \
 				} else if (prev_online && !online) { \
-					offline_ts = now_ts; /* Начинаем отсчет для долгого оффлайна */ \
+					offline_ts = now_ts; /* Start the long-offline countdown */ \
 				} else if (!prev_online && !online && offline_ts + 50000 < now_ts) { \
-					ph_g_usb_##x_dev##_online = false; /* Долгий оффлайн найден */ \
+					ph_g_usb_##x_dev##_online = false; /* Long offline detected */ \
 				} \
 				prev_online = online;
 
@@ -110,11 +110,11 @@ void ph_usb_task(void) {
 
 void ph_usb_kbd_send_key(u8 key, bool state) {
 	if (_kbd_iface < 0) {
-		return; // Допускаем планирование нажатия, пока устройство не готово
+		return; // Allow scheduling a keypress even while the device isn't ready
 	}
 
 	if (key >= HID_KEY_CONTROL_LEFT && key <= HID_KEY_GUI_RIGHT) { // 0xE0...0xE7 - Modifiers
-		key = 1 << (key & 0x07); // Номер означает сдвиг
+		key = 1 << (key & 0x07); // The key number is the bit-shift amount
 		if (state) {
 			_kbd_mods |= key;
 		} else {

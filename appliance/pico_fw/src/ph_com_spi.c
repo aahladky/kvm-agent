@@ -77,7 +77,7 @@ void ph_com_spi_task(void) {
 }
 
 void ph_com_spi_write(const u8 *data) {
-	// Меджик в нулевом байте разрешает начать ответ
+	// The magic in byte zero gives permission to start the response
 	for (s8 i = 7; i >= 0; --i) {
 		_out_buf[i] = data[i];
 	}
