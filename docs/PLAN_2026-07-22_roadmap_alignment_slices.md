@@ -9,6 +9,12 @@ and Slice C model seam) PENDING, each its own branch. Part 2b's
 keep-the-filename note was superseded later the same day: the roadmap is now
 `docs/ROADMAP.md`. Body below is the approved text, verbatim._
 
+_Status update 2026-07-22 (later the same day): **Slice C EXECUTED**
+(`kvm_agent/models/base.py`, `HoloSession` in `kvm_agent/models/holo.py`,
+`agent_loop_holo.run()`'s `session=` param, golden-transcript test) — see
+`docs/SESSION_2026-07-22_model_seam_slice_c.md`. Suite 71 → 78 green. Slice B
+(firmware Phase 0) remains PENDING, own branch, needs rig time._
+
 ---
 
 # Roadmap ↔ Code Alignment: findings, corrections, and first execution slice

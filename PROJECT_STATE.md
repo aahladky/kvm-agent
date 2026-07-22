@@ -20,7 +20,11 @@ OS-agnostic, undetectable. Pure curiosity project.
   served locally via **llama-swap** (`http://127.0.0.1:9292/v1`, SYCL llama-server on
   the Arc Pro B70, modelctl-managed). History depth: `HOLO_HISTORY_IMAGES=3`
   (native's max_images) is the standing default — operator decision 2026-07-22
-  after the 4/4 battery; the queued history-depth A/B is dropped.
+  after the 4/4 battery; the queued history-depth A/B is dropped. The loop talks to
+  the model only through `kvm_agent.models.base.ModelSession` (`decide`/`commit`,
+  roadmap Phase 1 — `HoloSession` in `kvm_agent/models/holo.py` is the one
+  implementation; `run(session=...)` is how a second one would plug in) — see
+  Solved §3.
 - **HID** — Pi 5 + Pico 2 W **appliance** (`appliance/`): Pico runs `pico_fw/`
   (C/TinyUSB, PiKVM port, CRC16 binary protocol over 3-wire UART); Pi 5 runs
   `hid_bridge.py` (HTTP API, `http://192.168.0.29:8080`). Host client:
@@ -139,6 +143,20 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   rounds landed together — uncontrolled). Run config: GNOME target, native 720p,
   `HOLO_HISTORY_IMAGES=3`. Evidence: `runs/battery_20260721_235153/`; full review
   in `docs/SESSION_2026-07-22_first_complete_battery.md`.
+- **Roadmap Phase 1, the model seam (Slice C, 2026-07-22, pure refactor, no rig
+  time):** `kvm_agent/models/base.py` (`StepDecision`, `ModelSession` Protocol —
+  `decide`/`commit`/`tool_name`/`reset`, deliberately not three propose/ground/
+  verify methods yet); `HoloSession` in `kvm_agent/models/holo.py` owns history,
+  `<observation>`/`<tool_output>` construction, image trim, and the
+  action-kind→native-tool-name map (`ACTION_TO_TOOL_NAME`, out of the loop, where
+  it was an inline dict). `agent_loop_holo.run()` gained `session=` (default a
+  fresh `HoloSession`) so a second `ModelSession` can drive it untouched — proven
+  by a test that hands `run()` a non-Holo stub and asserts `call_holo_full` is
+  never called. Proved a pure refactor via a golden-transcript fixture (a scripted
+  6-step/7-tool-call scenario run against the pre-refactor code, history
+  byte-identical post-refactor). Tests 71 → 78 green. Evidence:
+  `docs/SESSION_2026-07-22_model_seam_slice_c.md` (no `runs/` evidence — offline
+  only, no hardware touched).
 
 ## 4. Open problems
 

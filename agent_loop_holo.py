@@ -58,9 +58,9 @@ from kvm_agent.hardware.env import (
     wait_until_stable,
 )
 from kvm_agent.instrumentation import RunRecorder
+from kvm_agent.models.base import StepDecision
 from kvm_agent.models.holo import (
-    SYSTEM_PROMPT, call_holo, call_holo_full, jpeg_bytes_to_data_url,
-    observation_message, tool_output_message, trim_to_last_n_images,
+    SYSTEM_PROMPT, HoloSession, call_holo, call_holo_full, jpeg_bytes_to_data_url,
 )
 
 MAX_HISTORY_IMAGES = CFG.holo_history_images   # default 3 = native max_images (see config)
@@ -381,11 +381,16 @@ def do(s=1.5):
 
 
 def run(instruction, max_steps=10, target="local", confirm_first=None, record=True, tag="run",
-        no_progress_abort=True):
+        no_progress_abort=True, session=None):
     """Multi-step closed loop, native semantics: ground (against accumulated history) ->
     confirm (first N steps) -> execute the batch sequentially -> re-capture -> thread this
     step's observation + the assistant JSON turn + one <tool_output> per executed call
     into history -> repeat.
+
+    session (roadmap Phase 1 seam, docs/ROADMAP.md Part 3 Slice C): a
+    kvm_agent.models.base.ModelSession instance, defaulting to a fresh HoloSession.
+    The loop never constructs Holo-specific state directly -- swap this to try a
+    second model without touching anything below this line (the Phase-1 gate).
 
     History layout (native's, confirmed against the runtime binary's chat-mapper
     constants and hub.hcompany.ai/agent-loop): each successful step appends
@@ -419,8 +424,13 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         # blind and every step would read as a model failure (second review #12).
         raise ValueError(f"MAX_HISTORY_IMAGES={MAX_HISTORY_IMAGES} would blind the "
                          f"model (HOLO_HISTORY_IMAGES must be >= 1)")
-    history = []
-    LAST["history"] = history
+    session = session or HoloSession(target=target, max_history_images=MAX_HISTORY_IMAGES,
+                                     call_fn=call_holo_full)
+    # Fresh per-run history, whether default-constructed or caller-injected (same
+    # reasoning as the CURSOR/PLAN reset below -- a battery reboots the target between
+    # tasks, so history from an injected session's previous run is wrong by definition).
+    session.reset()
+    LAST["history"] = session.history
     stuck = 0
     frozen = 0          # consecutive executed steps with no visible screen change
     click_repeat = 0    # consecutive steps whose last click landed in ~the same spot
@@ -447,17 +457,18 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         step_instruction = instruction if step_i == 0 else ""
         t0 = time.time()
         try:
-            step, message, usage = call_holo_full(step_instruction, data_url, w, h, target=target,
-                                                  history=history, max_history_images=MAX_HISTORY_IMAGES)
+            decision = session.decide(data_url, w, h, step_instruction)
         except Exception as e:
             # A model-call failure (API error, 180s timeout) must NOT propagate: an
             # unguarded raise skips recorder.finish() (no summary.json) and, via the
             # battery's bare try/finally, kills every remaining task (2026-07-21 review
             # P0-2). Treat it exactly like a dropped step -- it counts against
             # STUCK_LIMIT, gets logged, and the recorder still finishes.
-            step = {"actions": [], "note": None, "thought": None,
-                    "error": f"model call failed: {e}"}
-            message, usage = {}, {}
+            decision = StepDecision(
+                step={"actions": [], "note": None, "thought": None,
+                      "error": f"model call failed: {e}"},
+                message={}, usage={}, data_url=data_url, instruction=step_instruction)
+        step, message, usage = decision.step, decision.message, decision.usage
         dt = time.time() - t0
         LAST["step"] = step
         print(f"[run {dt:.1f}s] step {step_i}: {step.get('note')!r} | {step.get('actions')}")
@@ -482,9 +493,10 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
             input(f"[run] step {step_i}: about to execute {actions} -- Enter to confirm...")
 
         # Execute the batch SEQUENTIALLY (native: one desktop, calls see each other's
-        # effects; on error the remaining calls are skipped). One <tool_output> per
-        # executed call carries our frame-diff what-changed signal.
-        tool_outputs = []
+        # effects; on error the remaining calls are skipped). One tool-result entry
+        # per executed call carries our frame-diff what-changed signal; session.commit()
+        # wraps each into native's <tool_output> shape.
+        results = []
         answer_text = None
         exec_error = False
         guard_refused = False
@@ -492,11 +504,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         screen_touched = False   # has any action of THIS batch touched the screen yet?
         for action in actions:
             kind = action.get("action")
-            tool_name = {"left_click": "click_desktop", "double_click": "double_click_desktop",
-                         "type": "write_desktop", "scroll": "scroll_desktop",
-                         "drag_to": "drag_to_desktop", "move_to": "move_to_desktop",
-                         "hotkey": "hotkey_desktop", "hold_and_tap": "hold_and_tap_key_desktop",
-                         "update_plan": "update_plan", "finished": "answer"}.get(kind, str(kind))
+            tool_name = session.tool_name(kind)
             before = _frame_png()
             # Pre-fire TOCTOU guard (see GUARD_KINDS note at top): `before` IS the
             # fresh pre-fire frame (grabbed just above, after the model's think time);
@@ -510,7 +518,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                     gregion = _region_name(grow, gcol)
                     print(f"[run] step {step_i}: pre-fire guard refused {kind} at "
                           f"({gx},{gy}) -- region tile diff {gscore:.1f} since decision")
-                    tool_outputs.append(tool_output_message(tool_name,
+                    results.append((tool_name,
                         f"NOT executed: the screen changed near the target (region tile "
                         f"diff {gscore:.1f} at {gregion}) between your decision and "
                         f"firing -- the {kind} was not performed and the remaining "
@@ -528,11 +536,11 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                 # run: count it like a dropped step (2026-07-21: 'winkey' crashed a
                 # battery run at step 1 before this existed).
                 print(f"[run] step {step_i}: exec error ({e}) -- batch halted")
-                tool_outputs.append(tool_output_message(tool_name, f"Error: {e}. Remaining calls in this step were not executed."))
+                results.append((tool_name, f"Error: {e}. Remaining calls in this step were not executed."))
                 exec_error = True
                 break
             if kind == "update_plan":
-                tool_outputs.append(tool_output_message(tool_name, "Plan updated."))
+                results.append((tool_name, "Plan updated."))
                 continue
             after = _frame_png()
             score, region, changed_tiles = _frame_diff_detail(before, after)
@@ -570,7 +578,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                     result += " WARNING: " + "; ".join(warns) + \
                               " — the post-action frame may be stale."
                     step.setdefault("warnings", []).extend(warns)
-            tool_outputs.append(tool_output_message(tool_name, result))
+            results.append((tool_name, result))
             if kind == "finished":
                 answer_text = action.get("text", "")
                 break  # terminal: nothing after answer executes
@@ -582,17 +590,15 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         if step.get("note"):
             print(f"[run] note: {step['note']!r}")
 
-        # Thread this step into history: own observation (without re-rendering the
-        # instruction -- it appears on the live call only) + assistant JSON + tool_outputs.
-        # Exec-error steps are threaded TOO (second review #2): the error tool_output is
-        # the only way the model learns its action was rejected and which earlier batch
-        # calls DID execute -- discarding it made the model repeat the invalid action
-        # and burn the budget. Only PARSE failures stay unthreaded (a malformed turn
-        # would confuse the model more than a clean retry).
-        history.append(observation_message(data_url, step_instruction))
-        history.append({"role": "assistant", "content": message.get("content") or ""})
-        history.extend(tool_outputs)
-        trim_to_last_n_images(history, n=MAX_HISTORY_IMAGES)
+        # Thread this step into session history: own observation (without re-rendering
+        # the instruction -- it appears on the live call only) + assistant JSON +
+        # results. Exec-error steps are threaded TOO (second review #2): the error
+        # tool_output is the only way the model learns its action was rejected and
+        # which earlier batch calls DID execute -- discarding it made the model repeat
+        # the invalid action and burn the budget. Only PARSE failures stay unthreaded
+        # (a malformed turn would confuse the model more than a clean retry) -- the
+        # `continue` on step.get("error") above skips this call entirely.
+        session.commit(decision, results)
 
         if answer_text is not None:
             print(f"[run] finished: {answer_text!r}")
