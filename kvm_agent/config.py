@@ -39,8 +39,8 @@ class Config:
     # --- HID action channel: Pi 5 + Pico over wired UART + HTTP bridge ---
     appliance_url: str = _env("APPLIANCE_URL", "http://192.168.0.29:8080")  # Pi 5 hid_bridge
     cam_index: int = int(_env("CAM_INDEX", "0"))
-    screen_w: int = int(_env("SCREEN_W", "1920"))
-    screen_h: int = int(_env("SCREEN_H", "1080"))
+    screen_w: int = int(_env("SCREEN_W", "1280"))
+    screen_h: int = int(_env("SCREEN_H", "720"))
     # Target desktop shell ("gnome" or "windows") — picks verify_hid's round-trip
     # landmarks. The laptop switched to Ubuntu/GNOME on 2026-07-21 (it was Windows 10).
     target_shell: str = _env("TARGET_SHELL", "gnome")

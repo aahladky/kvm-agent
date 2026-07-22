@@ -60,7 +60,7 @@ class FakeEnv:
     def __init__(self):
         self.cam = FakeCam()
         self.r4 = FakeR4()
-        self.screen_width, self.screen_height = 1920, 1080
+        self.screen_width, self.screen_height = 1280, 720
     def observe(self):
         return {"screenshot": _png(0)}
     def close(self):
