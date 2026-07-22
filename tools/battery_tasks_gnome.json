@@ -3,5 +3,7 @@
   {"id": "calc_multiply", "instruction": "Open Calculator and compute 7 times 8", "max_steps": 20},
   {"id": "settings_display", "instruction": "Open the Settings app and go to the Display settings page", "max_steps": 15},
   {"id": "editor_save_file", "instruction": "Open a text editor, type the word hello, and save the file as hello.txt", "max_steps": 20},
+  {"id": "paint_line", "instruction": "Open a paint or drawing application and draw a straight line across the canvas", "max_steps": 20,
+   "setup": "PREINSTALL a paint app on the target (e.g. Drawing or Pinta) and confirm it appears in GNOME search BEFORE this task -- the 2026-07-21 battery voided this task because no paint app existed (operator 2026-07-22: reinstate the Win10 paint task with the app preinstalled). Drag_to exercises the teleport-drag path; if the line doesn't render, that's the known slow-drag gap (appliance.py drag), not the model."},
   {"id": "top_bar_clock", "instruction": "Read the current time shown in the clock at the top of the screen and tell me what it says", "max_steps": 10}
 ]

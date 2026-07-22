@@ -143,6 +143,22 @@ OS-agnostic, undetectable. Pure curiosity project.
   correctness oracle (that stays Phase 2 of the roadmap).
 - **Post-reboot half-dead HID recurs** (I2 class, physical): gate exists
   (`target.verify_hid` + replug loop in battery); automate with the power backend.
+- **Long-idle mouse death needs a manual Pico replug** (operator, 2026-07-22
+  post-rerun). Firmware diagnosis (same day): the suspend paths are asymmetric —
+  kbd (`ph_usb.c:222-230`) requests remote wakeup and KEEPS the report pending
+  for re-send after resume, but the mouse macro (`ph_usb.c:235`) does
+  `tud_remote_wakeup(); _MOUSE_CLEAR; return;` — the event is DROPPED while the
+  UART still PONGs OK (delivered-to-wire ≠ delivered-to-host, the exact lie the
+  camera principle exists for). Remote wakeup IS advertised in the config
+  descriptor (`ph_usb.c:360`), but if the target OS never enabled it on the
+  device, `tud_remote_wakeup()` is a silent no-op and only a replug (re-enumerate)
+  revives the mouse. Inherited upstream PiKVM behavior. Fix candidates, folded
+  into the Phase 0 firmware slice: (a) mouse suspend path retains + re-sends like
+  the kbd path; (b) expose `tud_suspended()` in the PONG so the bridge can refuse
+  or flag commands into a suspended bus instead of ACKing swallowed events;
+  (c) if the target won't honor remote wakeup, a bridge-side zero-delta HID
+  keep-alive to hold off autosuspend (transport-level, not model-level input).
+  Verify against the soak harness's long-idle window before trusting any of it.
 - Windows-era items, moot while the target is GNOME (re-open on a Windows target):
   ~70s OS dead window post-reboot (psr.exe zip outstanding), windows_calc class
   (WinUI3 date-picker + stuck-popup), Store auto-update pause expiry.
