@@ -35,9 +35,11 @@ OS-agnostic, undetectable. Pure curiosity project.
   `set_screen` chain keeps the bases locked either way. Power/reset seam:
   `kvm_agent/hardware/target.py` (v1 MANUAL reboot; WoL/smart-plug backend deferred —
   decide with hardware in front of us). Reset strategy: reboot between tasks; disk
-  image (Clonezilla) as the determinism backstop. NOTE: `verify_hid`'s round-trips
-  are Windows-landmarked (win+r Run dialog, Start-button corner) — on GNOME it can
-  false-pass on ambient change; re-anchor if the target stays Ubuntu.
+  image (Clonezilla) as the determinism backstop. `verify_hid`'s round-trips are
+  shell-anchored via `CFG.target_shell` ("gnome" default since 2026-07-21: Super
+  tap → Activities, Esc closes; Activities corner click, top-left — "windows"
+  keeps win+r/Start for a Windows target); verified live on GNOME 2026-07-21
+  (kbd diff 131.0, mouse diff 134.9).
 - **EVAL** — human-graded battery: `tools/battery.py` + task JSON. The user grades
   pass/fail per task from the recorded evidence; no automated grade exists and no
   uncertain grade can masquerade as a pass (finding #8). Steps Recorder (psr.exe) on

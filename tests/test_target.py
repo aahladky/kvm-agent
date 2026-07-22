@@ -57,16 +57,35 @@ class FakeCam:
         return self._still
 
 
-def test_verify_hid_gate():
+def test_verify_hid_gate_gnome_default():
+    """GNOME landmarks (the current Ubuntu target): keyboard round-trip is a Super
+    tap (opens Activities, Esc closes), mouse round-trip clicks the Activities
+    corner (top-left)."""
     r4 = FakeR4()
     cam = FakeCam([SAME, CHANGED, SAME, CHANGED])
-    ok, detail = target.verify_hid(r4, cam)
+    ok, detail = target.verify_hid(r4, cam, screen=(1920, 1080))
     assert ok is True, "gate passes when both round-trips show change"
-    assert ("combo", "win+r") in r4.calls and ("key", "esc") in r4.calls, \
-        "gate ran the keyboard round-trip (win+r + esc)"
-    assert ("move", 20, 1055) in r4.calls and ("click",) in r4.calls, \
-        "gate ran the mouse round-trip (Start click)"
+    assert ("key", "win") in r4.calls and ("key", "esc") in r4.calls, \
+        "keyboard round-trip is a Super tap (+ esc), OS-portable"
+    moves = [c for c in r4.calls if c[0] == "move"]
+    assert moves and moves[0][2] < 40 and moves[0][1] < 60, \
+        f"mouse round-trip clicks the TOP-left Activities corner, got {moves}"
+    assert ("click",) in r4.calls, "mouse round-trip clicks"
 
+
+def test_verify_hid_gate_windows_shell():
+    """The Windows landmarks remain available for a Windows target."""
+    r4 = FakeR4()
+    cam = FakeCam([SAME, CHANGED, SAME, CHANGED])
+    ok, detail = target.verify_hid(r4, cam, screen=(1920, 1080), shell="windows")
+    assert ok is True, "windows-shell gate passes when both round-trips show change"
+    assert ("combo", "win+r") in r4.calls and ("key", "esc") in r4.calls, \
+        "windows keyboard round-trip (win+r + esc)"
+    assert ("move", 20, 1055) in r4.calls and ("click",) in r4.calls, \
+        "windows mouse round-trip (Start click)"
+
+
+def test_verify_hid_gate_fail_closed():
     r4_dead = FakeR4()
     cam_dead = FakeCam([SAME, SAME, SAME, SAME])
     ok_dead, detail_dead = target.verify_hid(r4_dead, cam_dead)

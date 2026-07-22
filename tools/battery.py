@@ -81,11 +81,19 @@ def main():
     tasks = load_tasks(tasks_path)
     ts = time.strftime("%Y%m%d_%H%M%S")
     print(f"[battery] {len(tasks)} tasks from {tasks_path}")
-    print("[battery] REMINDER: start Steps Recorder (psr.exe) on the laptop (raise its "
-          "100-capture cap in its settings first) and drop its .zip into the battery's "
-          "run dirs afterward — it is the independent ground-truth channel.")
-    raw = input("[battery] Steps Recorder active on the laptop? [y/n]: ")
-    psr_active = raw.strip().lower().startswith("y")
+    if CFG.target_shell == "windows":
+        # Steps Recorder (psr.exe) is the independent ground-truth channel on a
+        # Windows target (what Windows actually received vs what the capture card
+        # saw). It does not exist on the Ubuntu/GNOME target.
+        print("[battery] REMINDER: start Steps Recorder (psr.exe) on the laptop (raise its "
+              "100-capture cap in its settings first) and drop its .zip into the battery's "
+              "run dirs afterward — it is the independent ground-truth channel.")
+        raw = input("[battery] Steps Recorder active on the laptop? [y/n]: ")
+        psr_active = raw.strip().lower().startswith("y")
+    else:
+        print(f"[battery] target shell is {CFG.target_shell!r} — no psr.exe ground-truth "
+              "channel (Windows-only); the camera is the only evidence channel.")
+        psr_active = False
     # One folder per battery (AGENTS.md §1): the summary was previously a loose file
     # at the runs/ root while every other artifact is foldered (2026-07-21 review).
     results_dir = os.path.join(CFG.runs_dir, f"battery_{ts}")

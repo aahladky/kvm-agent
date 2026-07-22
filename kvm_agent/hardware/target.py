@@ -23,17 +23,23 @@ def is_up():
     return True
 
 
-def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0, attempts=2):
+def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0, attempts=2,
+               shell=None):
     """Functional HID gate: prove the keyboard AND mouse collections actually deliver
     to the target OS, camera-verified. The firmware's probe flags can LIE -- 2026-07-21:
     a post-reboot half-dead composite device reported mouse_online=true while every
     click vanished between the laptop's USB host and Windows (the I2 class, physical
     edition; keyboard on the same device worked). The camera is the only truth.
 
-    Keyboard round-trip: Win+R must open the Run dialog; Esc closes it.
-    Mouse round-trip: a Start-button click must open the Start menu; Esc closes it.
-    thresh=20.0 sits far above taskbar widget churn (~5-12) and far below a real
-    dialog/menu appearing (measured 60-200+ on the laptop).
+    Round-trips are anchored per shell (the laptop switched from Windows 10 to
+    Ubuntu/GNOME on 2026-07-21; shell defaults to CFG.target_shell):
+      gnome:   keyboard = Super tap (opens Activities, Esc closes -- also correct on
+               Windows, where Super opens Start); mouse = click the Activities
+               corner (TOP-left).
+      windows: keyboard = Win+R (Run dialog; Esc closes); mouse = click the Start
+               button (BOTTOM-left).
+    thresh=20.0 sits far above taskbar/widget churn (~5-12) and far below a real
+    overview/dialog/menu appearing (measured 60-200+).
 
     Contamination-hardened (same day, second bug): a leftover OPEN Run dialog makes
     win+r a no-op (diff ~0) and an UNFOCUSED one ignores Esc -- reading falsely as
@@ -45,10 +51,14 @@ def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0, attempts
     # no more package->script import of agent_loop_holo._frame_diff_score, which
     # also dragged the loop's import-time side effects (debug-dir makedirs) into
     # every verify_hid caller.
+    from kvm_agent.config import CFG
     from kvm_agent.hardware.env import tile_max_diff_png, wait_until_stable
     # cam.seq is a property (an int), so wrap it -- and a wedged capture must not
     # read as "stable" (second review #1).
     seq_fn = (lambda: cam.seq) if hasattr(cam, "seq") else None
+    shell = shell or CFG.target_shell
+    if shell not in ("gnome", "windows"):
+        raise ValueError(f"unknown shell {shell!r} (expected 'gnome' or 'windows')")
 
     def round_trip(fire):
         """esc -> settle -> before -> fire() -> settle -> diff -> esc -> settle.
@@ -67,15 +77,23 @@ def verify_hid(r4, cam, screen=(1920, 1080), thresh=20.0, settle_s=4.0, attempts
                 break
         return diff
 
-    kbd_diff = round_trip(lambda: r4.combo("win+r"))
-    if kbd_diff <= thresh:
-        return False, f"keyboard NOT delivering (win+r diff {kbd_diff:.1f} <= {thresh})"
+    if shell == "gnome":
+        kbd_probe, kbd_name = lambda: r4.key("win"), "super"
+        # Activities corner, TOP-left (fraction-based: ~2% in, ~1.5% down).
+        mouse_at = (max(10, int(screen[0] * 0.02)), max(10, int(screen[1] * 0.015)))
+    else:
+        kbd_probe, kbd_name = lambda: r4.combo("win+r"), "win+r"
+        mouse_at = (20, screen[1] - 25)   # Start button, bottom-left
 
-    def start_click():
-        r4.move(20, screen[1] - 25)   # Start button, bottom-left
+    kbd_diff = round_trip(kbd_probe)
+    if kbd_diff <= thresh:
+        return False, f"keyboard NOT delivering ({kbd_name} diff {kbd_diff:.1f} <= {thresh})"
+
+    def shell_click():
+        r4.move(*mouse_at)
         r4.click()
 
-    mouse_diff = round_trip(start_click)
+    mouse_diff = round_trip(shell_click)
     if mouse_diff <= thresh:
-        return False, f"mouse NOT delivering (Start click diff {mouse_diff:.1f} <= {thresh})"
-    return True, f"hid ok (kbd diff {kbd_diff:.1f}, mouse diff {mouse_diff:.1f})"
+        return False, f"mouse NOT delivering ({shell} corner click diff {mouse_diff:.1f} <= {thresh})"
+    return True, f"hid ok ({shell}: kbd diff {kbd_diff:.1f}, mouse diff {mouse_diff:.1f})"
