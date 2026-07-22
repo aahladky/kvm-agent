@@ -23,11 +23,21 @@ OS-agnostic, undetectable. Pure curiosity project.
   `kvm_agent/hardware/appliance.py`. `clear_hid` (all-keys-up) runs on connect + close.
 - **CAPTURE** — HDMI capture card via cv2 (V4L2 on the Linux host), `Camera` +
   `FrameBuffer` (monotonic frame seq) in `kvm_agent/hardware/env.py`.
-- **TARGET** — physical **Windows 10 spare laptop**, lid closed, HDMI out → capture
-  card → passthrough to the user's monitor. Power/reset seam:
+- **TARGET** — physical spare laptop (Ubuntu/GNOME as of 2026-07-21; formerly
+  Windows 10), lid closed, HDMI out → capture
+  card → passthrough to the user's monitor. **The laptop renders at 1280x720; the
+  chain (GPU or capture card) upscales to the 1920x1080 the camera delivers** —
+  verified live 2026-07-21: the desktop fills the frame, so pixel FRACTIONS are
+  consistent end-to-end (projection basis == bridge scale == USB wire fraction)
+  and clicks land correctly. Costs are image-quality only (model input and
+  evidence frames are upscaled 720p content). Set `SCREEN_W/H=1280x720` in
+  `.env.local` for native capture, or set the laptop to 1080p — the measure-then-
+  `set_screen` chain keeps the bases locked either way. Power/reset seam:
   `kvm_agent/hardware/target.py` (v1 MANUAL reboot; WoL/smart-plug backend deferred —
   decide with hardware in front of us). Reset strategy: reboot between tasks; disk
-  image (Clonezilla) as the determinism backstop.
+  image (Clonezilla) as the determinism backstop. NOTE: `verify_hid`'s round-trips
+  are Windows-landmarked (win+r Run dialog, Start-button corner) — on GNOME it can
+  false-pass on ambient change; re-anchor if the target stays Ubuntu.
 - **EVAL** — human-graded battery: `tools/battery.py` + task JSON. The user grades
   pass/fail per task from the recorded evidence; no automated grade exists and no
   uncertain grade can masquerade as a pass (finding #8). Steps Recorder (psr.exe) on
