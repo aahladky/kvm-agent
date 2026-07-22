@@ -62,7 +62,7 @@ def build_history(img_url: str) -> list[dict]:
     for _ in range(3):
         history.append(observation_message(img_url))
         history.append({"role": "assistant", "content": _PRIOR_STEP_JSON})
-        history.append(tool_output_message("write_desktop", "Executed. Screen changed (max tile diff 5.2, region center)."))
+        history.append(tool_output_message("write_desktop", "Executed. Screen changed: localized (2/144 tiles, strongest center, max tile diff 5.2)."))
     return history
 
 

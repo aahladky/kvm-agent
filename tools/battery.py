@@ -9,7 +9,7 @@ run artifacts. NO automated grading at this stage: the user is the grader, and n
 None/uncertain grade can ever masquerade as a pass (finding #8 — fail-open grading is
 the anti-pattern this project exists to kill).
 
-    python tools/battery.py tools/battery_tasks_shakedown.json
+    python tools/battery.py tools/battery_tasks_gnome.json
 
 Artifacts (AGENTS.md §1 — everything under runs/):
     runs/battery_<task_id>_<ts>/    per-task RunRecorder dirs (written by run())
@@ -88,9 +88,13 @@ def make_payload(ts, tasks_path, psr_active, tasks, results):
 
 
 def main():
-    tasks_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "tools", "battery_tasks_shakedown.json")  # repo-root-anchored: runs from any CWD
+    # No default task file (2026-07-22): the old default was the WINDOWS shakedown
+    # list, a wrong-OS trap on the GNOME target -- name the target's list explicitly.
+    if len(sys.argv) < 2:
+        sys.exit("usage: python tools/battery.py <task_file.json>\n"
+                 "  e.g. tools/battery_tasks_gnome.json (GNOME target)\n"
+                 "       tools/battery_tasks_shakedown.json (Windows target)")
+    tasks_path = sys.argv[1]
     tasks = load_tasks(tasks_path)
     ts = time.strftime("%Y%m%d_%H%M%S")
     print(f"[battery] {len(tasks)} tasks from {tasks_path}")

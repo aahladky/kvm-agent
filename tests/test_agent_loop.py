@@ -516,6 +516,184 @@ def test_r2_12_hotkey_repeat_count_clamped():
     assert 0 < len(combos) <= 10, f"repeat_count is clamped, fired {len(combos)}"
 
 
+# =========================================================================
+# Pre-fire TOCTOU guard (2026-07-22, SESSION_2026-07-22 finding 2): the screen
+# re-flowed during the model's think time and a click correct against the
+# decision frame activated the row that slid under it (paint_line s09).
+# =========================================================================
+
+# FakeEnv screen is 1280x720; the decision frame is FakeCam's FRAME (270x480 zeros,
+# via _capture_step_frames -> cam.read). The guard's pre-fire frame is observe().
+# Target coordinate (640, 360) -> tile row 4, col 8 on the 9x16 grid; on the metric's
+# 480x270 working size that tile is rows 120:150, cols 240:270.
+
+def _changed_at_target():
+    """A frame whose ONLY change from FRAME sits under the target coordinate."""
+    arr = np.zeros((270, 480, 3), np.uint8)
+    arr[120:150, 240:270] = 255
+    ok, buf = cv2.imencode(".png", arr)
+    return buf.tobytes()
+
+
+def _changed_away_from_target():
+    """Same-magnitude change, but in the far top-left corner tile (row 0, col 0)."""
+    arr = np.zeros((270, 480, 3), np.uint8)
+    arr[0:30, 0:30] = 255
+    ok, buf = cv2.imencode(".png", arr)
+    return buf.tobytes()
+
+
+class GuardEnv(FakeEnv):
+    """observe() pops from a frame queue (each pop = one _frame_png read: the
+    per-action pre-fire grab or a post-action diff frame), then serves base."""
+    def __init__(self, observe_queue=None):
+        super().__init__()
+        self.observe_queue = list(observe_queue or [])
+    def observe(self):
+        if self.observe_queue:
+            return {"screenshot": self.observe_queue.pop(0)}
+        return {"screenshot": _png(0)}
+
+
+def _patch_guard_run(env, model_fn):
+    saved = (al.ENV, al.call_holo_full, al.RunRecorder)
+    al.ENV = env
+    al.call_holo_full = model_fn
+    al.RunRecorder = FakeRecorder
+    FakeRecorder.instances.clear()
+    return saved
+
+
+def _tool_outputs():
+    return [m["content"] for m in al.LAST["history"]
+            if m.get("role") == "user" and isinstance(m.get("content"), str)
+            and m["content"].startswith("<tool_output")]
+
+
+def test_guard_refuses_and_run_continues():
+    """A change under the target between decision and firing: the click must NOT
+    fire, the model is told, the step is threaded, and the run continues."""
+    responses = [
+        ({"actions": [{"action": "left_click", "coordinate": [640, 360]}], "note": None},
+         {"content": "{}"}, {}),
+        ({"actions": [{"action": "finished", "text": "done"}], "note": None},
+         {"content": "{}"}, {}),
+    ]
+    def model(*a, **k):
+        return responses.pop(0)
+    fake = GuardEnv(observe_queue=[_changed_at_target()])
+    saved = _patch_guard_run(fake, model)
+    try:
+        result = al.run("click the row", max_steps=4, confirm_first=0, tag="t_guard")
+    finally:
+        al.ENV, al.call_holo_full, al.RunRecorder = saved
+    assert not any(c[0] == "click" for c in fake.r4.calls), "the guarded click never fired"
+    assert result["finished"] is True, "the run continues (re-observe) after a refusal"
+    outs = _tool_outputs()
+    assert any("NOT executed" in t and "changed near the target" in t for t in outs), \
+        "the model is told the click was refused and why"
+    rec = FakeRecorder.instances[-1]
+    assert rec.steps[0][1].get("executed") is False, "a guard-refused step records executed=False"
+    logged_step = rec.steps[0][0][3]
+    assert any("guard_refusal" in w for w in logged_step.get("warnings", [])), \
+        "the refusal reaches the recorder's step warnings"
+
+
+def test_guard_only_first_action_and_clean_fires():
+    """A clean pre-fire frame lets the click fire, and the guard runs exactly once
+    per batch (actions 2..N were decided anticipating the batch's own effects)."""
+    calls = {"n": 0}
+    real_guard = al.tile_region_max_png
+    def counting_guard(*a, **k):
+        calls["n"] += 1
+        return real_guard(*a, **k)
+    def model(*a, **k):
+        return ({"actions": [{"action": "left_click", "coordinate": [640, 360]},
+                             {"action": "left_click", "coordinate": [100, 100]},
+                             {"action": "finished", "text": "done"}], "note": None},
+                {"content": "{}"}, {})
+    fake = GuardEnv()   # observe always serves base: nothing changed
+    saved = _patch_guard_run(fake, model)
+    al.tile_region_max_png = counting_guard
+    try:
+        result = al.run("click twice", max_steps=2, confirm_first=0, tag="t_guard_clean")
+    finally:
+        al.ENV, al.call_holo_full, al.RunRecorder = saved
+        al.tile_region_max_png = real_guard
+    assert result["finished"] is True
+    assert sum(c[0] == "click" for c in fake.r4.calls) == 2, "both clicks fired"
+    assert calls["n"] == 1, f"guard checks only the batch's first action, ran {calls['n']}x"
+
+
+def test_guard_ignores_change_away_from_target():
+    """A change far from the target region must NOT refuse the click (the guard is
+    regional -- a whole-frame diff would refuse on every clock tick)."""
+    def model(*a, **k):
+        return ({"actions": [{"action": "left_click", "coordinate": [640, 360]},
+                             {"action": "finished", "text": "done"}], "note": None},
+                {"content": "{}"}, {})
+    fake = GuardEnv(observe_queue=[_changed_away_from_target()])
+    saved = _patch_guard_run(fake, model)
+    try:
+        result = al.run("click", max_steps=2, confirm_first=0, tag="t_guard_away")
+    finally:
+        al.ENV, al.call_holo_full, al.RunRecorder = saved
+    assert any(c[0] == "click" for c in fake.r4.calls), "off-target change doesn't refuse"
+    assert result["finished"] is True
+    assert not any("NOT executed" in t for t in _tool_outputs())
+
+
+def test_guard_livelock_aborts_loudly():
+    """A permanently animated target region (spinner/clock under the target) must
+    abort after GUARD_REFUSE_LIMIT consecutive refusals, not refuse forever --
+    and never fire anyway."""
+    def model(*a, **k):
+        return ({"actions": [{"action": "left_click", "coordinate": [640, 360]}], "note": None},
+                {"content": "{}"}, {})
+    fake = GuardEnv(observe_queue=[_changed_at_target()] * 10)
+    saved = _patch_guard_run(fake, model)
+    try:
+        result = al.run("click the spinner", max_steps=8, confirm_first=0, tag="t_guard_live")
+    finally:
+        al.ENV, al.call_holo_full, al.RunRecorder = saved
+    rec = FakeRecorder.instances[-1]
+    assert result == {"finished": False, "answer_text": ""}
+    assert rec.finished is not None and rec.finished[0] is False \
+        and "unstable" in rec.finished[1], f"loud unstable-target abort, got {rec.finished}"
+    assert len(rec.steps) == al.GUARD_REFUSE_LIMIT, \
+        "aborts at the refusal limit, not the whole budget"
+    assert not any(c[0] == "click" for c in fake.r4.calls), "never fires anyway"
+
+
+def test_guard_survives_leading_update_plan():
+    """[update_plan, left_click]: the plan update must not burn the guard -- the
+    click is still the batch's first SCREEN-AFFECTING action."""
+    responses = [
+        ({"actions": [{"action": "update_plan",
+                       "goals": [{"title": "g", "status": "running"}]},
+                      {"action": "left_click", "coordinate": [640, 360]}], "note": None},
+         {"content": "{}"}, {}),
+        ({"actions": [{"action": "finished", "text": "done"}], "note": None},
+         {"content": "{}"}, {}),
+    ]
+    def model(*a, **k):
+        return responses.pop(0)
+    # observe #1 = the update_plan action's pre-fire grab (base), observe #2 = the
+    # click's pre-fire grab (changed at target).
+    fake = GuardEnv(observe_queue=[_png(0), _changed_at_target()])
+    saved = _patch_guard_run(fake, model)
+    try:
+        result = al.run("plan then click", max_steps=4, confirm_first=0, tag="t_guard_plan")
+    finally:
+        al.ENV, al.call_holo_full, al.RunRecorder = saved
+    assert not any(c[0] == "click" for c in fake.r4.calls), \
+        "the click after update_plan is still guarded"
+    outs = _tool_outputs()
+    assert any("Plan updated." in t for t in outs), "the plan update still ACKs"
+    assert any("NOT executed" in t and "changed near the target" in t for t in outs)
+    assert result["finished"] is True, "the run continues after the refusal"
+
+
 if __name__ == "__main__":
     import sys, traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
