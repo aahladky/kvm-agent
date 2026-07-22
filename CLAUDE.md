@@ -12,7 +12,8 @@ Repo layout (cleaned 2026-07-20, corrected 2026-07-21)
 
 Code (~2 MB, tracked):
 - kvm_agent/          — canonical package (config, hardware, instrumentation, llm, models). Active.
-- agent_loop_holo.py  — CURRENT agent loop (Holo3.1, physical Win10 target). Where new work happens.
+- agent_loop_holo.py  — CURRENT agent loop (Holo3.1, physical target — Ubuntu/GNOME
+  as of 2026-07-21; see PROJECT_STATE.md). Where new work happens.
 - appliance/, tools/, tests/, docs/ — current-gen support: appliance code,
   harnesses (battery runner), unit tests, session reports.
 - appliance/pico_fw/  — CURRENT Pico firmware (C/TinyUSB, ported from PiKVM 2026-07-18).

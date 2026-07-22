@@ -139,9 +139,11 @@ OS-agnostic, undetectable. Pure curiosity project.
 - Windows-era items, moot while the target is GNOME (re-open on a Windows target):
   ~70s OS dead window post-reboot (psr.exe zip outstanding), windows_calc class
   (WinUI3 date-picker + stuck-popup), Store auto-update pause expiry.
-- Deferred: power-control backend, firmware HID watchdog, automated fail-closed
-  vision grading (schema slot exists), superseded adoption (structured-output
-  rearchitecture + resolution sync).
+- Deferred: power-control backend, automated fail-closed vision grading (schema
+  slot exists), superseded adoption (structured-output rearchitecture +
+  resolution sync). The firmware HID watchdog left this list 2026-07-22 — it is
+  scheduled as the roadmap's Phase 0 hardening slice (`kvm agent roadmap.md` §4,
+  after the TOCTOU guard).
 
 ## 5. Retired
 
