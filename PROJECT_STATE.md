@@ -127,13 +127,20 @@ OS-agnostic, undetectable. Pure curiosity project.
   it (paint_line s09; blame-ledger row + full frame walk in
   `docs/SESSION_2026-07-22_first_complete_battery.md`). Milder same-disease cases:
   double-click on slow-launching apps (settings s00-s01), acting on a "Searching…"
-  spinner (notepad s02). Fix design: pre-fire target-tile guard — re-grab a frame
-  right before each click, tile-diff the target region vs the decision frame,
-  refuse to fire + re-observe on change. Fold into the signal-redesign session.
+  spinner (notepad s02). **FIX LANDED 2026-07-22 (offline-tested, rig confirmation
+  pending the next battery)**: pre-fire target-tile guard in `agent_loop_holo.run()`
+  — the batch's first screen-affecting coordinate action tile-diffs the 3×3 tile
+  region around its target (decision frame vs the pre-fire grab,
+  `tile_region_max_png` in `kvm_agent.hardware.env`); changed → refuse-to-fire +
+  re-observe (never fire-anyway, never inject); 3 consecutive refusals → loud
+  "target region unstable" abort. Watch the guard-refusal rate on the rerun for
+  threshold calibration. `docs/SESSION_2026-07-22_roadmap_alignment.md`.
 - **Tool-result signal is semantically misleading**: changed/unchanged binary
   confirmed real-but-irrelevant pixels (taskbar focus visuals) as action success
-  at decision-critical steps (2026-07-21). Needs magnitude/region — fold into
-  the structured-output session, together with the TOCTOU guard above.
+  at decision-critical steps (2026-07-21). **Partial fix landed 2026-07-22** with
+  the guard: tool_output now reports localized-vs-widespread + changed-tile count
+  ("41/144 tiles, strongest top-left") — magnitude and spread, still not a
+  correctness oracle (that stays Phase 2 of the roadmap).
 - **Post-reboot half-dead HID recurs** (I2 class, physical): gate exists
   (`target.verify_hid` + replug loop in battery); automate with the power backend.
 - Windows-era items, moot while the target is GNOME (re-open on a Windows target):

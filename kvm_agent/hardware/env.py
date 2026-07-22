@@ -53,6 +53,24 @@ def tile_max_diff_png(png_a, png_b):
     return float(tile_means_png(png_a, png_b).max())
 
 
+def tile_region_max_png(png_a, png_b, x, y, screen_w, screen_h, radius=1):
+    """Pre-fire TOCTOU guard metric (2026-07-22, SESSION_2026-07-22 finding 2): max
+    per-tile diff over the (2*radius+1)^2 tile neighborhood centered on the tile
+    containing screen pixel (x, y) -- did the region around the intended click
+    target change between the model's decision frame and now? Same 9x16 grid as
+    tile_means_png (the single home), neighborhood clamped at frame edges; the 3x3
+    default tolerates targets near tile boundaries and elements spanning tiles.
+
+    Returns (score, target_row, target_col) -- the row/col let the caller name the
+    region without re-deriving the pixel->tile mapping."""
+    tiles = tile_means_png(png_a, png_b)
+    row = min(8, max(0, int(y / screen_h * 9)))
+    col = min(15, max(0, int(x / screen_w * 16)))
+    score = float(tiles[max(0, row - radius):row + radius + 1,
+                        max(0, col - radius):col + radius + 1].max())
+    return score, row, col
+
+
 def model_input_jpeg(frame, target_h):
     """Shared resize+encode core of Camera.model_input_jpeg (BGR array -> JPEG q90 at
     target_h height, aspect preserved) — exported so A/B tooling

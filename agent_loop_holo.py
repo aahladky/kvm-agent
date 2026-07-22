@@ -23,6 +23,12 @@ VERBATIM-NATIVE CHANGES vs the 2026-07-19 structured-output line:
       design. The frame-diff signal is reported to it, never acted on by host code.
       The wait_newer freshness floor (finding #6 pairing) is KEPT -- that is observation
       correctness (the after-frame must postdate the action), not input injection.
+    - Pre-fire TOCTOU guard (2026-07-22): the first screen-affecting coordinate action
+      of a batch is refused (never fired, batch halted, model re-observes) if the tile
+      region around its target changed between the decision frame and the pre-fire
+      frame -- the paint_line s09 race, where GNOME's async search re-flowed during the
+      model's 18.8s think and the click activated the row that slid under it. Gating
+      progression, not injecting action; see GUARD_KINDS / GUARD_REFUSE_LIMIT.
 
 Modeled on live_ctl.py's proven propose-then-confirm shape (ground() proposes, do()
 executes) so review-before-fire stays the default, per CLAUDE.md's "make failure loud"
@@ -48,7 +54,8 @@ from PIL import Image
 from kvm_agent.config import CFG
 from kvm_agent.hardware.appliance import ApplianceError
 from kvm_agent.hardware.env import (
-    PicoEnv, frame_png_bytes, model_input_jpeg, tile_means_png, wait_until_stable,
+    PicoEnv, frame_png_bytes, model_input_jpeg, tile_means_png, tile_region_max_png,
+    wait_until_stable,
 )
 from kvm_agent.instrumentation import RunRecorder
 from kvm_agent.models.holo import (
@@ -70,6 +77,19 @@ FRAME_CHANGE_THRESHOLD = CFG.frame_change_threshold
 NO_PROGRESS_LIMIT = 4   # k consecutive executed steps with no visible change OR the identical
                         # action repeated -> abort as "no progress" (flaw #9). small_target_tray
                         # clicked ~the same coord 6x and burned the whole budget undetected.
+# Pre-fire TOCTOU guard (2026-07-22, SESSION_2026-07-22 finding 2): the screen can
+# re-flow during the model's ~15-20s think, so a click correct against the decision
+# frame lands on whatever slid under it (paint_line s09: GNOME's async search re-flow).
+# Before firing the FIRST screen-affecting coordinate action of a batch, tile-diff the
+# region around the target between the decision frame and a fresh pre-fire frame;
+# changed -> refuse to fire and re-observe. Gating progression, NOT injecting action
+# (the 2026-07-19 anti-contamination rule). Later batch actions are unguarded by
+# design: the model decided them anticipating its own earlier actions' effects, so no
+# reference frame exists for "what it expected the screen to look like".
+GUARD_KINDS = ("left_click", "double_click", "drag_to")   # drag_to: the drop target
+GUARD_REFUSE_LIMIT = 3  # consecutive guard refusals -> abort: the target region is
+                        # unstable across whole decision cycles (spinner/animation).
+                        # Not a model failure -- never counted against STUCK_LIMIT.
 
 ENV = None
 LAST = {"png": None, "step": None, "history": None}
@@ -313,22 +333,30 @@ def _execute(action, settle_s=1.5):
     return {"stalled": stalled, "settle": settle, "noop": None}
 
 
+def _region_name(row, col):
+    """Human-readable location of a tile on the 9x16 grid (shared by the frame-diff
+    detail and the pre-fire guard's refusal message)."""
+    v = "top" if row < 3 else "bottom" if row >= 6 else "middle"
+    h = "left" if col < 5 else "right" if col >= 11 else "center"
+    return "center" if (v, h) == ("middle", "center") else f"{v}-{h}"
+
+
 def _frame_diff_detail(png_a, png_b):
-    """(score, region) for the tile-max diff between two frames.
+    """(score, region, changed_tiles) for the tile-max diff between two frames.
 
     The tile grid itself lives in kvm_agent.hardware.env.tile_means_png (single home,
     2026-07-21 review: the metric was implemented twice with identical hardcoded
-    geometry that could drift apart silently). This wrapper adds WHICH tile peaked,
-    so tool_output payloads can say WHAT changed and roughly WHERE (the 2026-07-21
-    follow-up: a bare changed/unchanged binary let the model type blind on false
-    confirmations -- calc battery, taskbar-focus visuals reading as 'changed')."""
+    geometry that could drift apart silently). This wrapper adds WHICH tile peaked
+    and HOW MANY of the 144 tiles crossed the threshold, so tool_output payloads can
+    say WHAT changed, roughly WHERE, and whether it was localized or widespread (the
+    2026-07-21/22 follow-up: a bare changed/unchanged binary confirmed
+    real-but-irrelevant pixels -- taskbar focus visuals -- as action success at
+    decision-critical steps, and the model typed blind on the false confirmation)."""
     tiles = tile_means_png(png_a, png_b)
     idx = int(tiles.argmax())
     row, col = divmod(idx, 16)
-    v = "top" if row < 3 else "bottom" if row >= 6 else "middle"
-    h = "left" if col < 5 else "right" if col >= 11 else "center"
-    region = "center" if (v, h) == ("middle", "center") else f"{v}-{h}"
-    return float(tiles.max()), region
+    changed_tiles = int((tiles > FRAME_CHANGE_THRESHOLD).sum())
+    return float(tiles.max()), _region_name(row, col), changed_tiles
 
 
 def _frame_diff_score(png_a, png_b):
@@ -397,6 +425,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     frozen = 0          # consecutive executed steps with no visible screen change
     click_repeat = 0    # consecutive steps whose last click landed in ~the same spot
     last_click = None
+    guard_refusals = 0  # consecutive pre-fire guard refusals (see GUARD_REFUSE_LIMIT)
     # Fresh per-run state (second review #12): the battery reboots the target between
     # tasks, so a tracked cursor/plan carried over from the previous run is wrong by
     # definition.
@@ -458,7 +487,9 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         tool_outputs = []
         answer_text = None
         exec_error = False
+        guard_refused = False
         step_changed = False
+        screen_touched = False   # has any action of THIS batch touched the screen yet?
         for action in actions:
             kind = action.get("action")
             tool_name = {"left_click": "click_desktop", "double_click": "double_click_desktop",
@@ -467,6 +498,28 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                          "hotkey": "hotkey_desktop", "hold_and_tap": "hold_and_tap_key_desktop",
                          "update_plan": "update_plan", "finished": "answer"}.get(kind, str(kind))
             before = _frame_png()
+            # Pre-fire TOCTOU guard (see GUARD_KINDS note at top): `before` IS the
+            # fresh pre-fire frame (grabbed just above, after the model's think time);
+            # `png` is the decision frame -- the exact frame the model-input JPEG
+            # derives from (single buffer read, second review #7). Refuse-to-fire on
+            # change near the target; never fire-anyway, never inject a retry.
+            if not screen_touched and kind in GUARD_KINDS and action.get("coordinate"):
+                gx, gy = (int(v) for v in action["coordinate"])
+                gscore, grow, gcol = tile_region_max_png(png, before, gx, gy, w, h)
+                if gscore > FRAME_CHANGE_THRESHOLD:
+                    gregion = _region_name(grow, gcol)
+                    print(f"[run] step {step_i}: pre-fire guard refused {kind} at "
+                          f"({gx},{gy}) -- region tile diff {gscore:.1f} since decision")
+                    tool_outputs.append(tool_output_message(tool_name,
+                        f"NOT executed: the screen changed near the target (region tile "
+                        f"diff {gscore:.1f} at {gregion}) between your decision and "
+                        f"firing -- the {kind} was not performed and the remaining "
+                        f"calls in this step were not executed. Re-examine the next "
+                        f"screenshot before retrying."))
+                    step.setdefault("warnings", []).append(
+                        f"guard_refusal: region tile diff {gscore:.1f} at {gregion}")
+                    guard_refused = True
+                    break
             try:
                 exec_info = _execute(action)
             except ApplianceError as e:
@@ -482,7 +535,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                 tool_outputs.append(tool_output_message(tool_name, "Plan updated."))
                 continue
             after = _frame_png()
-            score, region = _frame_diff_detail(before, after)
+            score, region, changed_tiles = _frame_diff_detail(before, after)
             changed = score > FRAME_CHANGE_THRESHOLD
             step_changed = step_changed or changed
             if exec_info and exec_info.get("noop"):
@@ -493,7 +546,15 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                 result = f"NOT executed: {exec_info['noop']}."
                 step.setdefault("warnings", []).append(exec_info["noop"])
             else:
-                result = (f"Executed. Screen changed (max tile diff {score:.1f}, region {region})."
+                if kind not in ("update_plan", "finished"):
+                    screen_touched = True   # executed, screen-affecting: burns the guard
+                # Magnitude + spread (2026-07-22): "changed" alone confirmed
+                # real-but-irrelevant pixels (taskbar focus visuals) as success --
+                # localized-vs-widespread + tile count give the model something to
+                # judge relevance against.
+                spread = "widespread" if changed_tiles >= 12 else "localized"
+                result = (f"Executed. Screen changed: {spread} ({changed_tiles}/144 tiles, "
+                          f"strongest {region}, max tile diff {score:.1f})."
                           if changed else
                           f"Executed. Screen did not visibly change (max tile diff {score:.1f}).")
             if exec_info:
@@ -515,7 +576,8 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                 break  # terminal: nothing after answer executes
 
         if recorder:
-            recorder.log_step(step_i, png, message, step, usage, dt, executed=not exec_error)
+            recorder.log_step(step_i, png, message, step, usage, dt,
+                              executed=not (exec_error or guard_refused))
 
         if step.get("note"):
             print(f"[run] note: {step['note']!r}")
@@ -538,6 +600,21 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                 recorder.finish(True, note=answer_text)
             return {"finished": True, "answer_text": answer_text}
 
+        if guard_refused:
+            # Not a model failure (the model's click was correct against its decision
+            # frame) -- so no STUCK_LIMIT increment and no no-progress accounting. The
+            # next iteration's fresh capture IS the re-observe. But a permanently
+            # animated target region (spinner, clock, video) would refuse forever:
+            # abort loudly after GUARD_REFUSE_LIMIT consecutive refusals.
+            guard_refusals += 1
+            if guard_refusals >= GUARD_REFUSE_LIMIT:
+                print(f"[run] target region unstable across {guard_refusals} decision "
+                      f"cycles -- aborting")
+                if recorder:
+                    recorder.finish(False, note=f"target region unstable across "
+                                                f"{guard_refusals} decision cycles")
+                return {"finished": False, "answer_text": ""}
+            continue
         if exec_error:
             stuck += 1
             if stuck >= STUCK_LIMIT:
@@ -546,7 +623,8 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                     recorder.finish(False, note="stuck limit hit (exec errors)")
                 return {"finished": False, "answer_text": ""}
             continue
-        stuck = 0   # a cleanly completed step is the ONLY thing that resets the counter
+        stuck = 0           # a cleanly completed step is the ONLY thing that resets these
+        guard_refusals = 0
 
         # no-progress guards (flaw #9): abort instead of silently burning the budget.
         # (a) screen frozen -- consecutive executed steps with no visible change; (b) clustered
