@@ -2,7 +2,8 @@
 
 ## What this session was
 
-`kvm agent roadmap.md` (the design-session synthesis) was checked claim-by-claim
+`kvm agent roadmap.md` (the design-session synthesis; renamed `docs/ROADMAP.md`
+later this day when the file-layout law landed, AGENTS.md §6) was checked claim-by-claim
 against the live tree, the misalignments were fixed or annotated, and the first
 measurement-gated work item landed: the pre-fire target-tile guard from
 SESSION_2026-07-22_first_complete_battery finding 2, plus the tool-result
@@ -67,7 +68,9 @@ transport claim, verified at file:line. Wrong or stale:
 
 - **Rig confirmation**: the apples-to-apples GNOME battery rerun
   (`python tools/battery.py tools/battery_tasks_gnome.json`) — gate: score not
-  worse than 4/4 (1 void), AND grep the run logs for `guard_refusal` rate: high
+  worse than the 4/4 (1 void) baseline (`runs/battery_20260721_235153/`; the
+  motivating TOCTOU walk is `runs/battery_paint_line_20260721_235845/`), AND
+  grep the run logs for `guard_refusal` rate: high
   refusals on static screens = the 3×3 region is too hot for the analog noise
   floor (calibration risk; threshold is the already-calibrated
   `CFG.frame_change_threshold`).
@@ -75,3 +78,18 @@ transport claim, verified at file:line. Wrong or stale:
   (1s HW watchdog + boot-reason PONG flag 0x20, idempotency-aware UART retry
   with the 150ms resync pause, `tools/soak.py` overnight gate), then the
   Phase 1 model seam (`ModelSession.decide/commit`, golden-transcript fixture).
+
+## Post-rerun addendum (operator notes, 2026-07-22)
+
+The battery rerun "largely completed as expected". Two follow-ups recorded:
+
+1. **Long-idle mouse death → manual Pico replug.** Diagnosed same day (details
+   in PROJECT_STATE §4): the firmware's mouse suspend path drops events while
+   PONGing OK (`ph_usb.c:235`, kbd path retains and re-sends); remote wakeup is
+   advertised but its host-side enablement is unverified. Folded into the
+   Phase 0 firmware slice: retain-and-resend for mouse, suspend bit in the
+   PONG, bridge keep-alive as fallback; the soak harness's long-idle window is
+   the test bed.
+2. **paint_line reinstated** in `tools/battery_tasks_gnome.json` with a setup
+   note requiring a preinstalled paint app (Drawing/Pinta) — the Win10-era task
+   returns now that its 2026-07-21 void cause (no app) is addressable by setup.

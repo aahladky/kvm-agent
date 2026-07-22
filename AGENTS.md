@@ -71,3 +71,29 @@ was. Append a row whenever a "model failure" is resolved — in either direction
 | 2026-07-22 | paint_line hit max_steps with a "misclick cascade" (clicked pinta result → junk Firefox Google search); operator note: "model seemed to be unable to select or delete text" | Model clicking/text-editing | NEITHER (evidence: `runs/battery_paint_line_20260721_235845/`, docs/SESSION_2026-07-22): task infeasible (no paint app on the GNOME target) + decide-act TOCTOU race — during the model's ~19s think, GNOME's async search re-flowed (slow App Center snap provider row dropped out), so a click CORRECT against the decision frame (step_09.png, verified by eye + projection check) landed on the "Search online" row that slid up under it. Model never attempted select/delete; its X-button clears worked (steps 3, 13) |
 
 Current score: model 0, our code 4 (+1 shared row, score held pending the signal redesign). Update the score with every row.
+
+## 6. File layout — where words go
+
+Content lives HERE; anything tool-named (CLAUDE.md, GEMINI.md,
+.github/copilot-instructions.md, …) is a POINTER to this file, a few lines max,
+created only for tools actually in use. Mutable prose files, exactly three:
+AGENTS.md (rules), PROJECT_STATE.md (current truth, updated every session),
+docs/ROADMAP.md (direction). Every other doc is append-only, dated, in docs/:
+
+    docs/<TYPE>_<YYYY-MM-DD>_<slug>.md    TYPE = PLAN | SESSION | FINDINGS | REPORT
+
+- PLAN — a design. **Any APPROVED plan gets committed here at approval time,
+  executed or not** — approval is the trigger, not survival of the session;
+  mark the pending parts. Ephemeral tool plan files (hidden dirs) are working
+  copies, never the record.
+- SESSION — what changed in a session and why.
+- FINDINGS — a root cause, with evidence.
+- REPORT — a status or survey.
+- SESSION and FINDINGS docs cite their `runs/` evidence paths.
+
+Trust order when documents disagree: this file > PROJECT_STATE.md > dated docs
+(newest first) > pointer files. The law is machine-enforced by
+`tests/test_docs_layout.py` (name grammar, root cleanliness, pointer size,
+evidence cites for docs dated after 2026-07-22; pre-law files are grandfathered
+by name IN THE TEST — never add to that list). If the lint blocks a legitimate
+new file, change the lint in the same commit; never route around it.
