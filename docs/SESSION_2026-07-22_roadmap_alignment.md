@@ -2,7 +2,8 @@
 
 ## What this session was
 
-`kvm agent roadmap.md` (the design-session synthesis) was checked claim-by-claim
+`kvm agent roadmap.md` (the design-session synthesis; renamed `docs/ROADMAP.md`
+later this day when the file-layout law landed, AGENTS.md §6) was checked claim-by-claim
 against the live tree, the misalignments were fixed or annotated, and the first
 measurement-gated work item landed: the pre-fire target-tile guard from
 SESSION_2026-07-22_first_complete_battery finding 2, plus the tool-result
@@ -67,7 +68,9 @@ transport claim, verified at file:line. Wrong or stale:
 
 - **Rig confirmation**: the apples-to-apples GNOME battery rerun
   (`python tools/battery.py tools/battery_tasks_gnome.json`) — gate: score not
-  worse than 4/4 (1 void), AND grep the run logs for `guard_refusal` rate: high
+  worse than the 4/4 (1 void) baseline (`runs/battery_20260721_235153/`; the
+  motivating TOCTOU walk is `runs/battery_paint_line_20260721_235845/`), AND
+  grep the run logs for `guard_refusal` rate: high
   refusals on static screens = the 3×3 region is too hot for the analog noise
   floor (calibration risk; threshold is the already-calibrated
   `CFG.frame_change_threshold`).

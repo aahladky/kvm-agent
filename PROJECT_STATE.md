@@ -55,6 +55,27 @@ OS-agnostic, undetectable. Pure curiosity project.
   `reasoning_content` to `runs/<tag>_<time>/` (`RunRecorder`). First tool on any
   failed run: `tools/show_reasoning.py`.
 
+### Repo layout (moved here 2026-07-22 from CLAUDE.md, now a pointer per AGENTS.md §6)
+
+Code (~2 MB, tracked):
+- `kvm_agent/` — canonical package (config, hardware, instrumentation, llm, models).
+- `agent_loop_holo.py` — CURRENT agent loop (see LOOP above). Where new work happens.
+- `appliance/`, `tools/`, `tests/`, `docs/` — appliance code (Pi 5 bridge + Pico),
+  harnesses (battery, probes), offline unit tests, dated docs.
+- `appliance/pico_fw/` — CURRENT Pico firmware (C/TinyUSB, ported from PiKVM
+  2026-07-18). The old CircuitPython firmware is RETIRED
+  (`_archive/firmware_old/appliance_pico/`) — never deploy.
+- `docs/native/` — native Holo format reference (+ `docs/FORMAT_NOTES_holo.md`).
+  The prompt template `local-desktop-2026-06-12.j2` in there is a LOAD-BEARING
+  runtime asset loaded by `kvm_agent/models/holo.py`, not documentation.
+- `_archive/old-stack/` — retired generations, reference only; nothing live
+  imports from it.
+
+Data (untracked, gitignored, physically outside the repo since 2026-07-20):
+- `runs` → `~/data/kvm-agent/runs` (symlink; evidence — permanent, never moves)
+- `scratch` → `~/tmp/kvm-agent-scratch` (symlink; auto-deleted after 14 days —
+  promote anything worth keeping into `runs/` or the repo before session end)
+
 ## 3. Solved (verified)
 
 - Win32 focus-transfer bug (2026-07-19, click-to-focus retry in `_execute()`).
@@ -165,7 +186,7 @@ OS-agnostic, undetectable. Pure curiosity project.
 - Deferred: power-control backend, automated fail-closed vision grading (schema
   slot exists), superseded adoption (structured-output rearchitecture +
   resolution sync). The firmware HID watchdog left this list 2026-07-22 — it is
-  scheduled as the roadmap's Phase 0 hardening slice (`kvm agent roadmap.md` §4,
+  scheduled as the roadmap's Phase 0 hardening slice (`docs/ROADMAP.md` §4,
   after the TOCTOU guard).
 
 ## 5. Retired
