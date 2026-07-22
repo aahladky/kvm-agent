@@ -83,9 +83,9 @@ visible cost was GNOME Activities appending each `type` to the existing query
 ## Follow-ups
 
 - Pre-fire target-tile guard (above) — with the magnitude/region tool-result redesign.
-- `HOLO_HISTORY_IMAGES` A/B is still unconducted as a controlled experiment (3 was
-  live here, but vs the Windows 0/20 night everything changed at once).
-- Confirm + record Pico reflash (phantom-wheel fix) and Pi 5 `pikvm_proto.py` deploy
-  status — pending since the second-review round.
+- ~~`HOLO_HISTORY_IMAGES` A/B~~ — RESOLVED 2026-07-22: operator keeps 3 (the
+  default, native's max_images) as standing config; A/B dropped after the 4/4 battery.
+- ~~Confirm Pico reflash + Pi 5 deploy~~ — RESOLVED 2026-07-22: operator confirms
+  both were current BEFORE this battery, so the 4/4 ran on the fixed firmware/proto.
 - Run the GNOME battery (`tools/battery_tasks_gnome.json`) for the first
   apples-to-apples rerun.

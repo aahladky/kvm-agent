@@ -18,7 +18,9 @@ OS-agnostic, undetectable. Pure curiosity project.
   calls in a batch see each other's effects; only the batch's final screenshot goes
   back), observe→act with the frame-seq freshness floor (paired via seq numbers). Model: **Holo3.1-35B**
   served locally via **llama-swap** (`http://127.0.0.1:9292/v1`, SYCL llama-server on
-  the Arc Pro B70, modelctl-managed).
+  the Arc Pro B70, modelctl-managed). History depth: `HOLO_HISTORY_IMAGES=3`
+  (native's max_images) is the standing default — operator decision 2026-07-22
+  after the 4/4 battery; the queued history-depth A/B is dropped.
 - **HID** — Pi 5 + Pico 2 W **appliance** (`appliance/`): Pico runs `pico_fw/`
   (C/TinyUSB, PiKVM port, CRC16 binary protocol over 3-wire UART); Pi 5 runs
   `hid_bridge.py` (HTTP API, `http://192.168.0.29:8080`). Host client:
@@ -105,8 +107,9 @@ OS-agnostic, undetectable. Pure curiosity project.
   AND the `set_screen` push); the freshness floor starts AFTER the HID fire;
   `CURSOR`/`PLAN` reset per run; `repeat_count` clamped; `HOLO_HISTORY_IMAGES=0`
   refused; `finish_reason='length'` logged. Firmware: `ph_usb_send_clear` no
-  longer injects a phantom wheel scroll (upstream PiKVM bug) — **needs a Pico
-  reflash**, and the `pikvm_proto.py` combo change **needs deploying to the Pi 5**.
+  longer injects a phantom wheel scroll (upstream PiKVM bug) — Pico reflash and
+  the Pi 5 `pikvm_proto.py` deploy CONFIRMED done before the 2026-07-21 23:51
+  battery (operator, 2026-07-22).
 - **First honest baseline: COMPLETE** (2026-07-21 23:51 battery, graded to the end).
   Honest score **4/4 (1 void)** — recorded 5/5 pre-void-grade; paint_line was
   infeasible (no paint app on the GNOME target) and force-graded "pass" under the
@@ -131,15 +134,8 @@ OS-agnostic, undetectable. Pure curiosity project.
   confirmed real-but-irrelevant pixels (taskbar focus visuals) as action success
   at decision-critical steps (2026-07-21). Needs magnitude/region — fold into
   the structured-output session, together with the TOCTOU guard above.
-- **Goldfish-memory A/B still unconducted as a controlled experiment**:
-  `HOLO_HISTORY_IMAGES=3` was live in the 2026-07-21 23:51 battery (which passed
-  4/4 feasible), but the target OS changed the same day — nothing isolated the
-  history-depth variable.
 - **Post-reboot half-dead HID recurs** (I2 class, physical): gate exists
   (`target.verify_hid` + replug loop in battery); automate with the power backend.
-- **Pico reflash + Pi 5 deploy still unconfirmed** (second-review round): the
-  phantom-wheel firmware fix needs a reflash and `pikvm_proto.py` needs deploying
-  to the Pi 5 — verify + record which the 2026-07-21 battery actually ran with.
 - Windows-era items, moot while the target is GNOME (re-open on a Windows target):
   ~70s OS dead window post-reboot (psr.exe zip outstanding), windows_calc class
   (WinUI3 date-picker + stuck-popup), Store auto-update pause expiry.
