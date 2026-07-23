@@ -8,6 +8,56 @@ power-control decision (WoL vs smart plug vs hybrid) is deliberately deferred un
 the hardware is in front of us; wol/smartplug backends slot in behind these same two
 functions without touching callers (tools/battery.py).
 """
+import re
+import time
+
+_SAFE_HOME_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+# Named profiles only: task JSON never gets to provide arbitrary shell.
+GNOME_SETTING_RESETS = {
+    "default-color-scheme":
+        "gsettings reset org.gnome.desktop.interface color-scheme",
+}
+
+
+def validate_reset_manifest(cleanup_files=(), setting_resets=()):
+    """Validate the intentionally tiny target-side mutation vocabulary."""
+    files = list(cleanup_files or ())
+    settings = list(setting_resets or ())
+    for name in files:
+        if not isinstance(name, str) or not _SAFE_HOME_FILE.fullmatch(name) or name in (
+                ".", ".."):
+            raise ValueError(f"unsafe cleanup filename {name!r}: expected one simple "
+                             "filename directly under the evaluation user's home")
+    unknown = [name for name in settings if name not in GNOME_SETTING_RESETS]
+    if unknown:
+        raise ValueError(f"unknown GNOME setting reset profile(s): {unknown}")
+    return files, settings
+
+
+def build_gnome_reset_command(cleanup_files=(), setting_resets=(), logout=False):
+    """Build the visible command; failure leaves KVM_RESET_FAILED on screen."""
+    files, settings = validate_reset_manifest(cleanup_files, setting_resets)
+    commands = []
+    if files:
+        quoted = " ".join(f'"$HOME/{name}"' for name in files)
+        commands.append(f"rm -f -- {quoted}")
+    commands.extend(GNOME_SETTING_RESETS[name] for name in settings)
+    commands.append("echo KVM_RESET_OK")
+    commands.append("gnome-session-quit --logout --no-prompt" if logout else "exit")
+    return " && ".join(commands) + " || echo KVM_RESET_FAILED"
+
+
+def reset_gnome_session(r4, cleanup_files=(), setting_resets=(), logout=False,
+                        settle_s=3.0):
+    """Type an allowlisted cleanup into a visible terminal through physical HID."""
+    command = build_gnome_reset_command(cleanup_files, setting_resets, logout=logout)
+    r4.combo("ctrl+alt+t")
+    time.sleep(1.0)
+    r4.type(command)
+    r4.key("enter")
+    time.sleep(settle_s)
+    return command
 
 
 def reboot():

@@ -41,8 +41,46 @@ class FakeR4:
         self.calls = []
     def combo(self, s): self.calls.append(("combo", s))
     def key(self, k): self.calls.append(("key", k))
+    def type(self, text): self.calls.append(("type", text))
     def move(self, x, y): self.calls.append(("move", x, y))
     def click(self): self.calls.append(("click",))
+
+
+def test_reset_manifest_rejects_paths_globs_and_unknown_settings():
+    for unsafe in ("../hello.txt", "/tmp/x", "subdir/file", "*.txt", "$HOME", "..", ""):
+        try:
+            target.validate_reset_manifest([unsafe], [])
+        except ValueError:
+            continue
+        raise AssertionError(f"unsafe cleanup target {unsafe!r} must be rejected")
+    try:
+        target.validate_reset_manifest([], ["arbitrary-shell"])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("task JSON cannot invent a settings command")
+
+
+def test_gnome_reset_command_is_narrow_and_fail_loud():
+    cmd = target.build_gnome_reset_command(
+        ["hello.txt", "notes.txt"], ["default-color-scheme"])
+    assert 'rm -f -- "$HOME/hello.txt" "$HOME/notes.txt"' in cmd
+    assert "gsettings reset org.gnome.desktop.interface color-scheme" in cmd
+    assert cmd.endswith("exit || echo KVM_RESET_FAILED")
+    assert "rm -rf" not in cmd and "$HOME/*" not in cmd
+
+    logout = target.build_gnome_reset_command(["time.txt"], logout=True)
+    assert "gnome-session-quit --logout --no-prompt" in logout
+
+
+def test_gnome_reset_is_typed_through_physical_hid():
+    r4 = FakeR4()
+    command = target.reset_gnome_session(r4, ["report.txt"], settle_s=0)
+    assert r4.calls == [
+        ("combo", "ctrl+alt+t"),
+        ("type", command),
+        ("key", "enter"),
+    ]
 
 
 class FakeCam:

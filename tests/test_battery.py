@@ -19,6 +19,7 @@ def test_load_tasks_and_write_results():
         tasks = battery.load_tasks(good)
         assert len(tasks) == 1 and tasks[0]["id"] == "t1", "load_tasks returns tasks"
         assert tasks[0]["max_steps"] == 15, "max_steps defaults to 15"
+        assert tasks[0]["reset"] == {"cleanup_files": [], "setting_resets": []}
 
         bad = os.path.join(td, "bad.json")
         with open(bad, "w") as f:
@@ -152,8 +153,12 @@ def test_d_c_verifier_grade_fails_closed():
 def test_d_c_cli_defaults_to_gate_and_validates_unattended_contract():
     args = battery.parse_args(["tasks.json"])
     assert args.verify_mode == "gate" and args.human is False
+    assert args.reset_strategy == "manual-power-cycle"
     args = battery.parse_args(["tasks.json", "--no-reboot"])
-    assert args.verify_mode == "gate" and args.no_reboot and args.spot_check_pct == 0
+    assert args.verify_mode == "gate" and args.reset_strategy == "none"
+    assert args.spot_check_pct == 0
+    args = battery.parse_args(["tasks.json", "--reset-strategy", "cleanup-logout"])
+    assert args.reset_strategy == "cleanup-logout" and args.spot_check_pct == 10
     try:
         battery.parse_args(["tasks.json", "off"])
     except SystemExit:
@@ -175,6 +180,14 @@ def test_payload_score_is_fail_closed():
     p2 = battery.make_payload("20260721_000000", "tasks.json", False, tasks[:1], results)
     assert p2["score"] == "1/1" and p2["complete"] is True, \
         "a fully-graded battery reads complete"
+
+
+def test_payload_records_experiment_configuration():
+    cfg = {"verify_mode": "gate", "grader": "verifier",
+           "spot_check_pct": 10.0, "reset_strategy": "cleanup-logout"}
+    payload = battery.make_payload("20260723_000000", "tasks.json", False,
+                                   [{"id": "a"}], [], cfg)
+    assert payload["run_config"] == cfg
 
 
 if __name__ == "__main__":

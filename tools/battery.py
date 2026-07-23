@@ -31,6 +31,7 @@ import agent_loop_holo
 from agent_loop_holo import boot, run, shutdown
 
 VERIFY_MODES = ("off", "shadow", "gate")
+RESET_STRATEGIES = ("manual-power-cycle", "cleanup", "cleanup-logout", "none")
 
 
 def load_tasks(path):
@@ -44,6 +45,11 @@ def load_tasks(path):
         assert isinstance(t.get("instruction"), str) and t["instruction"], \
             f"task {t.get('id')!r} missing instruction"
         t.setdefault("max_steps", 15)
+        reset = t.setdefault("reset", {})
+        assert isinstance(reset, dict), f"task {t['id']!r} reset must be an object"
+        reset.setdefault("cleanup_files", [])
+        reset.setdefault("setting_resets", [])
+        target.validate_reset_manifest(reset["cleanup_files"], reset["setting_resets"])
     return tasks
 
 
@@ -110,17 +116,23 @@ def parse_args(argv=None):
                     help="human-grade this random percentage of verifier agreements "
                          "(default: 10)")
     ap.add_argument("--no-reboot", action="store_true",
-                    help="skip per-task reboot/HID prompts for an unattended run; target "
-                         "state carries between tasks")
+                    help=argparse.SUPPRESS)  # compatibility alias for reset=none
+    ap.add_argument("--reset-strategy", choices=RESET_STRATEGIES,
+                    default="manual-power-cycle",
+                    help="between-task reset (default: manual-power-cycle)")
     args = ap.parse_args(argv)
+    if args.no_reboot:
+        if args.reset_strategy != "manual-power-cycle":
+            ap.error("--no-reboot cannot be combined with --reset-strategy")
+        args.reset_strategy = "none"
     if args.spot_check_pct is None:
-        args.spot_check_pct = 0.0 if args.no_reboot else 10.0
+        args.spot_check_pct = 0.0 if args.reset_strategy == "none" else 10.0
     if not 0 <= args.spot_check_pct <= 100:
         ap.error("--spot-check-pct must be between 0 and 100")
     if args.verify_mode == "off" and not args.human:
         ap.error("verifier-primary grading requires verify_mode shadow or gate; "
                  "use --human with off")
-    if args.no_reboot and args.human:
+    if args.reset_strategy == "none" and args.human:
         ap.error("--no-reboot is the no-human unattended mode and cannot use --human")
     return args
 
@@ -131,7 +143,7 @@ def write_results(path, payload):
     print(f"[battery] results -> {path}")
 
 
-def make_payload(ts, tasks_path, psr_active, tasks, results):
+def make_payload(ts, tasks_path, psr_active, tasks, results, run_config=None):
     """Fail-closed scoring (2026-07-21 second review #8): the denominator is ALL
     tasks, not just the graded ones -- an abandoned battery previously reported
     '1/1', indistinguishable from a finished one (finding #8's fail-open class,
@@ -141,6 +153,7 @@ def make_payload(ts, tasks_path, psr_active, tasks, results):
     voids = sum(r["grade"] == "void" for r in results)
     score = f"{passes}/{len(tasks) - voids}" + (f" ({voids} void)" if voids else "")
     return {"started": ts, "tasks_file": tasks_path, "psr_active": psr_active,
+            "run_config": run_config or {},
             "total_tasks": len(tasks), "graded": len(results),
             "complete": len(results) == len(tasks),
             "results": results,
@@ -151,6 +164,12 @@ def main():
     args = parse_args()
     tasks_path = args.task_file
     verify_mode = args.verify_mode
+    run_config = {
+        "verify_mode": verify_mode,
+        "grader": "human" if args.human else "verifier",
+        "spot_check_pct": args.spot_check_pct,
+        "reset_strategy": args.reset_strategy,
+    }
     # Constructed once for the whole battery, not per task: HoloVerifier is stateless
     # (kvm_agent.models.base.Verifier's contract), so nothing about re-task-ing it is
     # unsafe, and it avoids re-paying object construction 5-6 times per battery.
@@ -178,7 +197,7 @@ def main():
     results_path = os.path.join(results_dir, "results.json")
 
     def payload():
-        return make_payload(ts, tasks_path, psr_active, tasks, results)
+        return make_payload(ts, tasks_path, psr_active, tasks, results, run_config)
 
     # verify=False: the battery runs its OWN HID gate per task, post-reboot, with an
     # interactive replug loop (below) -- a boot-time gate raise here would kill the
@@ -186,20 +205,37 @@ def main():
     # --no-reboot must contain no hidden input(): use boot's one-shot, fail-closed HID
     # gate and then carry state. Normal mode retains the post-reboot interactive replug
     # loop because a reboot can bring up a half-dead composite device.
-    boot(verify=args.no_reboot)
+    boot(verify=args.reset_strategy == "none")
     results = []
     try:
         for i, task in enumerate(tasks):
             print(f"\n[battery] === task {i + 1}/{len(tasks)}: {task['id']} ===")
             if task.get("setup"):
                 print(f"[battery] setup: {task['setup']}")
-            if not args.no_reboot:
+            reset = task["reset"]
+            if args.reset_strategy == "manual-power-cycle":
                 target.reboot()
+            elif args.reset_strategy in ("cleanup", "cleanup-logout"):
+                logout = args.reset_strategy == "cleanup-logout"
+                command = target.reset_gnome_session(
+                    agent_loop_holo.ENV.r4,
+                    cleanup_files=reset["cleanup_files"],
+                    setting_resets=reset["setting_resets"],
+                    logout=logout)
+                print(f"[battery] reset command sent ({args.reset_strategy}): {command}")
+                if logout:
+                    input("[battery] GNOME session logged out. Log into the dedicated "
+                          "evaluation account, confirm the clean desktop is visible, "
+                          "then press Enter... ")
+                else:
+                    input("[battery] Confirm the reset terminal closed and the clean "
+                          "desktop is visible. If KVM_RESET_FAILED remains on screen, "
+                          "stop and fix it; otherwise press Enter... ")
             # Post-reboot HID gate (2026-07-21): a physical reboot can bring the
             # composite HID device up half-dead (keyboard alive, mouse dead, probe
             # flags LYING) -- camera-verified round-trips are the only truth. The
             # operator fixes it by replugging the Pico's USB at the laptop.
-            if not args.no_reboot:
+            if args.reset_strategy != "none":
                 while True:
                     hid_ok, detail = target.verify_hid(agent_loop_holo.ENV.r4,
                                                      agent_loop_holo.ENV.cam,
@@ -224,7 +260,8 @@ def main():
                 result.get("finished") and final_verdict is not None
                 and final_verdict.get("satisfied") is not True)
             sampled = random.random() * 100 < args.spot_check_pct
-            needs_human = not args.no_reboot and (args.human or disagreement or sampled)
+            needs_human = args.reset_strategy != "none" and (
+                args.human or disagreement or sampled)
             human_verdict = grade_task(task, result) if needs_human else None
             if args.human:
                 verdict = human_verdict
@@ -245,7 +282,7 @@ def main():
                             "human_note": (human_verdict or {}).get("note"),
                             "spot_check_reason": (
                                 "deferred-disagreement-no-reboot"
-                                if args.no_reboot and disagreement else
+                                if args.reset_strategy == "none" and disagreement else
                                 "all-human" if args.human else
                                 "model-verifier-disagreement" if disagreement else
                                 "random-agreement-sample" if sampled else None),

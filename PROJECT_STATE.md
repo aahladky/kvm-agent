@@ -312,6 +312,18 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   batteries' full denominator. 165 tests pass. Evidence:
   `runs/d_c_offline_20260723_104436/pytest.txt`,
   `docs/SESSION_2026-07-23_phase2_slice_d_c_gates.md`.
+- **GNOME evaluation-session reset (2026-07-23, CODE-COMPLETE/OFFLINE-VALIDATED,
+  PHYSICAL SMOKE PENDING):** the warm-reboot path is unsuitable on this laptop because
+  it can leave the network adapter offline, while a full shutdown/boot is manual and
+  still preserves files. Battery tasks now carry an allowlisted reset manifest: simple
+  filenames directly under a dedicated eval account's `$HOME`, plus named GNOME-setting
+  profiles implemented in code (task JSON cannot inject shell). `--reset-strategy`
+  selects `manual-power-cycle` (still default), `cleanup`, `cleanup-logout`, or `none`.
+  Cleanup is typed visibly through physical HID; success closes/logs out, failure leaves
+  `KVM_RESET_FAILED` visible, and the operator confirms before the camera-verified HID
+  gate. Battery `results.json` now records verify/grader/sample/reset configuration.
+  169 tests pass. Evidence: `runs/session_reset_offline_20260723_113316/pytest.txt`,
+  `docs/SESSION_2026-07-23_gnome_session_reset.md`.
 - **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
   GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and
   `runs/battery_20260722_222137/` 5/5 (1 void)): the pre-fire target-tile guard
