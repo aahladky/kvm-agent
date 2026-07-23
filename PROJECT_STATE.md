@@ -1,13 +1,15 @@
 # Project State — KVM-over-IP Computer-Use Agent
 
-_Snapshot: 2026-07-23 — Phase 2 slices D-a (the postcondition oracle, RIG-CONFIRMED) and
-D-b (shadow wiring + harder tasks + metrics, RIG-CONFIRMED) done; D-c (flip the gates)
-is CODE-COMPLETE/OFFLINE-VALIDATED and awaits its rig battery; D-d's gate does not clear.
-The serving-layer contract and matrix enrollment are complete.
+_Snapshot: 2026-07-23 — Phase 2 slices D-a (the postcondition oracle), D-b (shadow
+wiring), and D-c (terminal claim gating) are implemented; D-c is
+CODE-COMPLETE/OFFLINE-VALIDATED. The next confidence step is a controlled
+model/harness integration smoke, not a broad desktop-task run. D-d remains deferred
+until trustworthy targeted evidence justifies more control-flow complexity. The
+serving-layer contract and matrix enrollment are complete.
 Supersedes the 2026-07-20 physical-target-move snapshot (git history). Design:
 `docs/PLAN_2026-07-20_physical_target_move.md` and, for the phase now in flight,
-`docs/PLAN_2026-07-22_phase2_subgoal_verification.md`; latest session:
-`docs/SESSION_2026-07-23_phase2_slice_d_b_rig_results.md`._
+`docs/PLAN_2026-07-23_model_harness_integration_testing.md`; latest session:
+`docs/SESSION_2026-07-23_model_harness_testing_baseline.md`._
 
 ## 1. What it is
 
@@ -54,20 +56,23 @@ OS-agnostic, undetectable. Pure curiosity project.
   evidence frames are upscaled 720p content). Set `SCREEN_W/H=1280x720` in
   `.env.local` for native capture, or set the laptop to 1080p — the measure-then-
   `set_screen` chain keeps the bases locked either way. Power/reset seam:
-  `kvm_agent/hardware/target.py` (v1 MANUAL reboot; WoL/smart-plug backend deferred —
-  decide with hardware in front of us). Reset strategy: reboot between tasks; disk
-  image (Clonezilla) as the determinism backstop. `verify_hid`'s round-trips are
+  `kvm_agent/hardware/target.py`; manual full shutdown/boot remains the hardware
+  recovery path because warm reboot can strand the network adapter. The allowlisted
+  active cleanup resets only explicitly owned evaluation files/settings/apps and is
+  not a general desktop rollback; a disk image remains the determinism backstop.
+  `verify_hid`'s round-trips are
   shell-anchored via `CFG.target_shell` ("gnome" default since 2026-07-21: Super
   tap → Activities, Esc closes; Activities corner click, top-left — "windows"
   keeps win+r/Start for a Windows target); verified live on GNOME 2026-07-21
   (kbd diff 131.0, mouse diff 134.9).
-- **EVAL** — human-graded battery: `tools/battery.py` + task JSON
-  (`battery_tasks_gnome.json` for the GNOME target; `_shakedown.json` is the Windows
-  list). The user grades pass/fail/void per task from the recorded evidence — void
-  (infeasible task, note required) leaves the score's denominator but stays visible
-  ("4/4 (1 void)"); no automated grade exists and no uncertain grade can masquerade
-  as a pass (finding #8). Steps Recorder (psr.exe) was the Windows-only independent
-  ground-truth channel — moot on GNOME; the camera is the only evidence channel.
+- **TESTING** — the ordinary gate is the deterministic offline suite (171 tests at the
+  current baseline). Fake sessions already exercise the production loop and transcript
+  contract. The approved missing pieces are four fixed-frame calls through the real
+  `HoloSession`, followed by one controlled physical calibration page with a
+  deterministic visual oracle
+  (`docs/PLAN_2026-07-23_model_harness_integration_testing.md`). Existing broad
+  task-runner tooling is retained for historical/manual capability work only; it is
+  not a development or merge gate.
 - **EVIDENCE** — every run records per-step frames + raw model output +
   `reasoning_content` to `runs/<tag>_<time>/` (`RunRecorder`). First tool on any
   failed run: `tools/show_reasoning.py`.
@@ -100,7 +105,8 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
 - Pico HID reliability (PiKVM firmware port; WiFi-Pico path retired).
 - Harness trust (2026-07-20): tile-max settle metric, frame-seq before/after pairing
   (finding #6 closed), `clear_hid` wiring.
-- Blame ledger: **model 0, our code 3** (`AGENTS.md` §5).
+- Blame ledger: **model 0, our code 4 (+1 shared, score held pending signal
+  redesign)** (`AGENTS.md` §5).
 - Review batch-1 fixes (2026-07-21, from the full-scope repo review): bridge
   screen-size sync at env bring-up (`set_screen` — existed on both ends, called by
   neither; closes the silent click-stretch hole), model-call exceptions contained as
@@ -297,11 +303,13 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   reached` at 15, human-graded pass) shows the model completed the actual terminal action
   with no budget left to screenshot-and-declare — real evidence for subgoal-level
   checkpointing, but *under-confident correct* progress, the mirror of the
-  *confident-wrong* case D-d's gate requires. **D-c is unblocked and next; D-d needs a
-  battery that actually produces its target failure mode.** Evidence:
+  *confident-wrong* case D-d's gate requires. This evidence unblocked the now-implemented
+  D-c. D-d still needs a controlled case that actually exercises its target failure
+  mode. Evidence:
   `docs/SESSION_2026-07-23_phase2_slice_d_b_rig_results.md`.
 - **Roadmap Phase 2, slice D-c — terminal gate + automated grading (2026-07-23,
-  CODE-COMPLETE/OFFLINE-VALIDATED, RIG PENDING):** `verify_mode="gate"` accepts only
+  CODE-COMPLETE/OFFLINE-VALIDATED; CONTROLLED INTEGRATION SMOKE PENDING):**
+  `verify_mode="gate"` accepts only
   `satisfied=True`; False and None refuse the model's `finished` claim, thread the
   oracle evidence back through `<tool_output>`, and continue. Three refusals terminate
   failed with `answer refused by verifier x3`. `tools/battery.py` now defaults to gate
@@ -312,8 +320,8 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   batteries' full denominator. 165 tests pass. Evidence:
   `runs/d_c_offline_20260723_104436/pytest.txt`,
   `docs/SESSION_2026-07-23_phase2_slice_d_c_gates.md`.
-- **GNOME evaluation-session reset (2026-07-23, CODE-COMPLETE/OFFLINE-VALIDATED,
-  PHYSICAL SMOKE PENDING):** the warm-reboot path is unsuitable on this laptop because
+- **GNOME evaluation-session reset (2026-07-23, ACCEPTED ON COMPONENT EVIDENCE):**
+  the warm-reboot path is unsuitable on this laptop because
   it can leave the network adapter offline, while a full shutdown/boot is manual and
   still preserves files. Battery tasks now carry an allowlisted reset manifest: simple
   filenames directly under a dedicated eval account's `$HOME`, plus named GNOME-setting
@@ -333,7 +341,7 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   `KVM_RESET_FAILED`. Root cause was our final hard requirement that the terminal
   process be named `gnome-terminal-server`; the target uses another implementation.
   Fixed by an allowlist of current terminal process names plus `exit` fallback; camera
-  verification remains the authority. Physical re-smoke pending.
+  verification remains the authority.
   **Second active-cleanup smoke reached and passed tasks 1-5, then failed closed before
   task 6** because Pinta's unsaved document survived SIGTERM
   (`runs/battery_20260723_130246/results.json`,
@@ -361,14 +369,13 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   hour-long, unreliable ten-task benchmark to validate one reset component is a test
   design failure, not a release gate. The validated reset evidence is sufficient;
   no further full-battery rerun is required for this change.
-- **Battery operational design debt (2026-07-23, BLOCKS MORE ROUTINE FULL RUNS, NOT
-  FEATURE WORK):** full batteries are benchmarks, never per-change gates. Before the
-  next routine full run, add a sub-minute reset component smoke, task selection/resume,
-  and deferred (non-interactive) random human sampling. Relevant changes use offline
-  gates plus the smallest physical slice that exercises the changed component. The
-  existing full result remains `runs/battery_20260723_135007/results.json` (9/10,
-  10/10 reset events); the incomplete stopped run is explicitly 5/10 with 5/5 reset
-  events and must not be compared as a benchmark.
+- **Testing-method correction (2026-07-23):** the project will validate model/harness
+  integration with four controlled real-model frame contracts and one deterministic
+  physical calibration flow. Relevant changes use offline gates plus only the smallest
+  controlled seam they affect. The stopped run at
+  `runs/battery_20260723_142910/results.json` is incomplete: five tasks were attempted
+  and five reset events passed; it has no comparable aggregate score. Approved design:
+  `docs/PLAN_2026-07-23_model_harness_integration_testing.md`.
 - **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
   GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and
   `runs/battery_20260722_222137/` 5/5 (1 void)): the pre-fire target-tile guard
@@ -483,11 +490,11 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
     actual frame, projection + bridge push). Both are recorded as done in §3
     (native-verbatim LOOP entry; review batch-1 and second-review fixes) — only
     this line disagreed.
-  - ~~automated fail-closed vision grading~~ — the oracle exists and is
-    offline-validated (§3, slice D-a). It does not yet GRADE anything: the battery
-    is still human-graded, and the flip to `grader: "verifier"` is slice D-c, gated
-    on D-b's live false-refusal rate
-    (`docs/PLAN_2026-07-22_phase2_subgoal_verification.md`).
+  - ~~automated fail-closed vision grading~~ — **implemented with D-c**:
+    `verify_mode="gate"` refuses False/None terminal claims and verifier-primary
+    grading exists in the legacy task runner. Confidence in the live model/harness
+    boundary now comes from the controlled integration plan, not another broad run
+    (`docs/PLAN_2026-07-23_model_harness_integration_testing.md`).
 
 ## 5. Retired
 

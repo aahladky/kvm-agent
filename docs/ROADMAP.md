@@ -134,12 +134,14 @@ Each phase: **Goal** / **Do** / **Gate to proceed.** Do them roughly in order; t
 ### Phase 1 — Seal the model seam (no new model)
 - **Goal:** the model becomes a swappable component.
 - **Do:** formalize `holo.py` as *one implementation* of a capability interface (`propose` / `ground` / `verify`); move the native-shaped conversation protocol (history layout, tool_output channel, image trim) fully behind it, so the loop speaks a model-neutral vocabulary.
-- **Gate:** you could stub a second `propose/ground/verify` implementation without touching the loop. Battery scores unchanged (pure refactor).
+- **Gate:** a fake session can drive the loop without touching it, and fixed frames can
+  traverse the real production session/request/parser seam with auditable output.
 
 ### Phase 2 — Subgoal unit + independent verification (the keystone)
 - **Goal:** "long" starts becoming real; verification stops being self-judged.
 - **Do:** restructure the loop from flat-step to **subgoal-gated**. Give the planner a real (non-decorative) plan that the harness sequences. Pull verification into its own call/prompt (still Holo is fine) — a postcondition oracle separate from the actor. Gate progression on it (refuse-to-advance, don't inject retries).
-- **Gate:** confident-wrong progress that the old loop missed now gets caught at a subgoal boundary; battery completion rate up, false-"finished" rate down.
+- **Gate:** controlled positive and negative terminal-state cases prove that
+  confident-wrong completion is refused without blocking a true completion.
 
 ### Phase 3 — Bounded / hierarchical memory
 - **Goal:** kill context bloat; make experience reusable.
@@ -154,7 +156,10 @@ Each phase: **Goal** / **Do** / **Gate to proceed.** Do them roughly in order; t
 ### Phase 5 — Multi-model / hardware decomposition
 - **Goal:** dedicated fast grounder + higher-precision grounding; planner runs rarely.
 - **Do:** split grounder/verifier onto B580 (or co-resident on B70), planner on B70, as separate inference instances (data parallelism — the simple default; see §3's correction on why tensor-parallelism across the two same-gen Battlemage cards is now a real option worth a line item here too, not required). **Only if measurement says so.**
-- **Gate:** (a) small-model grounding holds up on *your analog capture* vs the 35B baseline, measured on the battery; (b) B580 vision-encode latency clears your per-step budget, and 12GB actually fits the family member you need. If either fails → co-resident on B70 (the B580 has no real competing workload to protect it from — §3's correction).
+- **Gate:** (a) small-model grounding holds up on the controlled capture fixtures and
+  explicitly chosen acceptance tasks versus the 35B baseline; (b) B580 vision-encode
+  latency clears the per-step budget, and 12GB fits the required model. If either fails
+  → co-resident on B70.
 
 ### Phase 6 — External tools (last, one at a time)
 - **Goal:** capability the target can't provide.
@@ -163,17 +168,17 @@ Each phase: **Goal** / **Do** / **Gate to proceed.** Do them roughly in order; t
 
 ---
 
-## 5. Measurement — the oracle that replaces "port-and-diff-against-reference"
+## 5. Measurement — controlled seams before capability claims
 
-The harness has no upstream to conform to, so **the battery is your reference.** The methodological shift for every bespoke layer: *author-and-diff-against-battery.* Keep strengthening it as you go.
+The harness has no upstream reference implementation, so each owned boundary needs a
+small controlled oracle. Deterministic fake-session tests prove control flow; fixed
+frames through the real model prove the request/parser contract; one repository-owned
+calibration surface proves capture→model→HID→capture. Real application work is a
+separate capability question, selected only when a concrete claim needs it.
 
-**Operational correction 2026-07-23:** reference does not mean per-change gate. A full
-battery is an intentional benchmark run, never a prerequisite for continuing feature
-work or merging an isolated component fix. Changes use offline tests plus the smallest
-physical slice that exercises the changed boundary. Before more routine full batteries,
-the runner needs a sub-minute reset smoke, task selection/resume, and post-run rather
-than randomly blocking human samples
-(`docs/SESSION_2026-07-23_gnome_session_reset.md`).
+The maintainable implementation is fixed at four live-model frame contracts and one
+physical calibration flow. It is approved in
+`docs/PLAN_2026-07-23_model_harness_integration_testing.md`.
 
 Track (you already log most of this): *[correction 2026-07-22: "most" = steps, completion, per-step latency/tokens, and the refusal-vs-exhaustion split (via `answer_text`). The two metrics below that gate Phases 4/5 are NOT computed — grounding rate has only raw material (frames + the unused `element` descriptions), and false-confirmation is unmeasurable until a verifier exists (Phase 2).]*
 - **Grounding rate** — did the click land on the intended element? (tells you if grounding is the bottleneck → gates Phase 5)
@@ -188,7 +193,9 @@ Track (you already log most of this): *[correction 2026-07-22: "most" = steps, c
 
 - **Everything above is a destination.** Build the piece the day the numbers demand it, not before.
 - **The heavy parts are write-once-run-forever** (HID primitives, settle model, cached macros, deterministic replays) — they don't tax you once they work. **The intelligent/stateful/integration tiers are what tax a lone maintainer** — add them last, one at a time.
-- **The harness is bespoke by necessity** (no reference artifact exists for camera-as-truth + no-software-access). It's where the solo-vs-team gap is *widest*, because integration and long-horizon emergent bugs only surface in full runs. So here: thinnest scope, most rigorous coverage. Everywhere else you can afford ambition.
+- **The harness is bespoke by necessity** (no upstream reference artifact exists for
+  camera-as-truth + no-software-access). Keep it thin and test each owned seam against a
+  controlled artifact before using longer real-world runs to make capability claims.
 - **Port patterns, not code.** Map each hard sub-problem to its studied shape (max-iteration caps, failure-threshold escalation, explicit termination, plan-and-execute vs ReAct, state-machine control) and adopt the *shape* — the code stays yours. You've already reinvented several (stuck limit, no-progress abort, confirm-first); do it deliberately.
 - **Resist heavy frameworks** (e.g., LangGraph). For a solo maintainer whose edge is holding the system in your head, owning your code *plus* someone else's abstraction inverts the benefit — especially when it breaks across the exact camera/HID boundary it was never designed for. Steal the patterns; keep the implementation thin and yours until you hit a specific wall a framework specifically solves.
 - **Keep the surface small enough to hold in your head.** That constraint is not a limitation here — it's the design methodology.
@@ -202,8 +209,19 @@ Track (you already log most of this): *[correction 2026-07-22: "most" = steps, c
 2. **Phase 1 seam** — turn `holo.py` into a `propose/ground/verify` interface; get the native conversation protocol out of the loop. Unblocks everything downstream and costs only a refactor. **DONE 2026-07-22** as `decide`/`commit` (not three methods — see `kvm_agent/models/base.py`'s docstring for why `verify` waits for Phase 2); `docs/SESSION_2026-07-22_model_seam_slice_c.md`.
 3. **Map your existing guards to named patterns** — inventory stuck-limit / no-progress / confirm-first against the studied shapes and see how much "agent harness" is actually left to write. Likely less than the phrase implies. **DONE 2026-07-22** (`docs/REPORT_2026-07-22_harness_pattern_inventory.md`): confirmed — one max-iteration cap, three instances of the same failure-threshold circuit breaker, one human-confirmation gate, and the model's own termination call. The only real gap against the five studied shapes is plan-and-execute, and closing it is Phase 2, not a naming exercise.
 4. **The second-card question** — is it an AI card or a media card? **ANSWERED 2026-07-23** (and the card itself corrected — see §3: it's a B580, not an A770): effectively an AI card. Its actual media workload is a transcode roughly once a month, not a real claim on it, and uptime/24-7 availability isn't a near-term concern for this project. Free for Phase 5's grounder/verifier role whenever measurement calls for it; no layout decision is forced by contention.
-5. **Phase 2 — subgoal unit + independent verification.** **IN PROGRESS 2026-07-23** (`docs/PLAN_2026-07-22_phase2_subgoal_verification.md`): **D-a DONE** — the independent postcondition oracle passed its offline replay and adversarial claim-resistance gates; **D-b DONE AND RIG-CONFIRMED** — shadow wiring, four longer tasks, and metrics landed, with 0/9 live false refusals, so D-c's hard gate clears. **D-c is next** — flip both gates on: in-loop terminal gating (k-strikes → run ends FAILED, loudly) and battery auto-grading with a defined human ground-truth sample. **D-d remains measurement-gated** — `update_plan` was unused (0/76), settling its mechanism as an explicit planner call, but the extended battery was another 10/10 sweep and produced no confident-wrong progress case for the proposed subgoal unit to catch.
+5. **Phase 2 — subgoal unit + independent verification.** **D-a, D-b, and D-c are
+   implemented 2026-07-23** (`docs/PLAN_2026-07-22_phase2_subgoal_verification.md`).
+   D-c's control flow is offline-validated; its next evidence is the controlled
+   model/harness integration work below. **D-d remains deferred** until targeted,
+   trustworthy evidence demonstrates the confident-wrong progression failure it is
+   meant to solve.
+6. **Model/harness integration calibration.** **APPROVED, PENDING**: first add four
+   fixed-frame calls through the real production model seam; then, on its own branch,
+   add one deterministic physical calibration surface. No second loop, retry framework,
+   or broad task campaign
+   (`docs/PLAN_2026-07-23_model_harness_integration_testing.md`).
 
 ---
 
-*Compass, not contract. When in doubt: harden the primitive, keep the harness thin, let the camera and the battery decide.*
+*Compass, not contract. When in doubt: harden the primitive, keep the harness thin,
+and use the smallest deterministic oracle that exercises the boundary.*
