@@ -1,12 +1,12 @@
 # Project State — KVM-over-IP Computer-Use Agent
 
-_Snapshot: 2026-07-23 — Phase 2 slices D-a (the postcondition oracle, offline-validated)
-and D-b (shadow wiring + harder tasks + metrics, offline-validated, rig session pending),
-plus the serving-layer contract.
+_Snapshot: 2026-07-23 — Phase 2 slices D-a (the postcondition oracle, RIG-CONFIRMED) and
+D-b (shadow wiring + harder tasks + metrics, RIG-CONFIRMED, both D-c and D-d gates now
+clear) done, plus the serving-layer contract. D-c (flip the gates) is next.
 Supersedes the 2026-07-20 physical-target-move snapshot (git history). Design:
 `docs/PLAN_2026-07-20_physical_target_move.md` and, for the phase now in flight,
 `docs/PLAN_2026-07-22_phase2_subgoal_verification.md`; latest session:
-`docs/SESSION_2026-07-23_phase2_slice_d_b_shadow_wiring.md`._
+`docs/SESSION_2026-07-23_phase2_slice_d_b_rig_results.md`._
 
 ## 1. What it is
 
@@ -247,7 +247,7 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   (and the pre-fix run `runs/verify_replay_20260722_235815/`),
   `docs/SESSION_2026-07-23_phase2_slice_d_a_verifier.md`.
 - **Roadmap Phase 2, slice D-b — shadow wiring + harder tasks + metrics (2026-07-23,
-  CODE LANDED, OFFLINE-VALIDATED, RIG SESSION PENDING):** `agent_loop_holo.run()` gains
+  RIG-CONFIRMED):** `agent_loop_holo.run()` gains
   `verifier=`/`verify_mode=` (`"off"`|`"shadow"`|`"gate"`). `"off"` (the default) is
   provably byte-identical to pre-D-b `run()` — all six exit points now share one
   `_result()` closure, and in `"off"` mode the return dict has exactly the original two
@@ -278,12 +278,19 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   gap in `--all` mode: several pre-2026-07-21 `battery_<ts>/` dirs predate `results.json`
   and were silently contributing zero rows under a misleadingly "analyzed" label — now
   explicitly skipped and reported. Tests 131 → 157 green.
-  **What's left is exactly one rig session** (the plan's own framing): `python
-  tools/battery.py tools/battery_tasks_gnome.json shadow` then `python
-  tools/battery_metrics.py` — produces the extended-battery baseline, the live
-  false-refusal rate (gates slice D-c), verifier-vs-human agreement, and the
-  does-it-plan-on-long-tasks probe (decides D-d's mechanism), all at once. Evidence:
-  `docs/SESSION_2026-07-23_phase2_slice_d_b_shadow_wiring.md`.
+  **Rig session run 2026-07-23** (`runs/battery_20260723_093442/`,
+  `runs/battery_metrics_20260723_100508/report.json`): extended 10-task battery,
+  `verify_mode="shadow"` — 10/10 human-graded pass, false-"finished" 0/9,
+  **verifier-vs-human agreement 100% (9/9), false-refusal 0/9: D-c's hard gate clears.**
+  Guard-refusal rate 8/76 steps (10.5%). `update_plan`: 0/76 occurrences (0/19 in the
+  pre-existing archive) — **settles D-d's mechanism: explicit planner call, not
+  native-schema harvest.** The one non-"finished" run (`copy_paste_notes`, `max_steps
+  reached` at 15, human-graded pass) shows the model completed the actual terminal
+  action with no budget left to screenshot-and-declare — correct progress with no
+  self-declared checkpoint, invisible to a terminal-only oracle by construction, and the
+  concrete case satisfying D-d's "headroom, not another clean sweep" gate. **D-c and D-d
+  are both unblocked; D-c is next** (smaller, lower-risk). Evidence:
+  `docs/SESSION_2026-07-23_phase2_slice_d_b_rig_results.md`.
 - **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
   GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and
   `runs/battery_20260722_222137/` 5/5 (1 void)): the pre-fire target-tile guard

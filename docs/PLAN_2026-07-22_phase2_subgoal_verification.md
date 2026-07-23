@@ -43,11 +43,24 @@ Cross-validated against the existing archive: `battery_metrics.py`'s guard-refus
 matches the TOCTOU rig-confirmation session's hand count exactly (4/64 steps once the
 one pre-guard battery is excluded); a real archived frame pushed through the actual live
 encode path (`png_to_model_input_jpeg` → `HoloVerifier`) returned the same verdict D-a's
-offline replay already scored for it. Tests 131 → 157 green. **Remaining, per the plan's
-own framing ("one rig session buys everything")**: `python tools/battery.py
-tools/battery_tasks_gnome.json shadow` then `python tools/battery_metrics.py` — produces
-the extended-battery baseline, the live false-refusal rate, verifier-vs-human agreement,
-and the update_plan-on-long-tasks probe, all from one run._
+offline replay already scored for it. Tests 131 → 157 green._
+
+_Status update 2026-07-23: **slice D-b RIG SESSION EXECUTED, both downstream gates PASS**
+(`docs/SESSION_2026-07-23_phase2_slice_d_b_rig_results.md`,
+`runs/battery_20260723_093442/`, `runs/battery_metrics_20260723_100508/report.json`).
+Extended 10-task battery, `verify_mode="shadow"`: 10/10 human-graded pass, false-"finished"
+0/9, **verifier-vs-human agreement 100% (9/9), false-refusal 0/9 — D-c's hard gate
+clears.** Guard-refusal rate 8/76 steps (10.5%), consistent with harder multi-window
+tasks giving the TOCTOU guard more chances to fire; no run lost to it. `update_plan`:
+0/76 occurrences on this battery (0/19 in the pre-existing archive) — **settles D-d's
+mechanism question: explicit planner call, not native-schema harvest.** The one
+non-"finished" run (`copy_paste_notes`, `max_steps reached` at 15, human-graded pass
+anyway) shows the model completed the actual terminal action (Save button click) with no
+budget left to screenshot-and-declare — correct progress with no self-declared
+checkpoint, invisible to a terminal-only oracle by construction. This is the concrete,
+non-hypothetical case D-d's subgoal-boundary checks exist to catch, and satisfies the
+plan's own "headroom, not another clean sweep" gate for D-d. **Both D-c and D-d are now
+unblocked; D-c is next per the plan's ordering (smaller, lower-risk).**_
 
 ---
 
