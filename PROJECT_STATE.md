@@ -198,23 +198,25 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   byte-identical post-refactor). Tests 71 → 78 green. Evidence:
   `docs/SESSION_2026-07-22_model_seam_slice_c.md` (no `runs/` evidence — offline
   only, no hardware touched).
+- **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
+  GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and
+  `runs/battery_20260722_222137/` 5/5 (1 void)): the pre-fire target-tile guard
+  (landed as part of the roadmap-alignment session, `docs/SESSION_2026-07-22_
+  roadmap_alignment.md`) fired 4 times across ~64 steps in the two runs
+  (`runs/battery_editor_save_file_20260722_222710/step_04.json`: region tile
+  diff 70.5 at top-right, refused a stale hamburger-menu click, re-observed,
+  task still passed; 2 similar refusals in `runs/battery_paint_line_20260722_
+  223124/`; 1 in `runs/battery_text_editor_type_20260722_173847/`) — every
+  refusal isolated (never 3-in-a-row, `GUARD_REFUSE_LIMIT` never hit), no task
+  failure attributable to the guard. paint_line voided again
+  (`runs/battery_paint_line_20260722_223124/`, operator: "confusing app ui
+  relying on nonstandard icons without labels") — a genuine Pinta-UI-legibility
+  issue, NOT a guard misfire (its two guard refusals were both legitimate
+  mid-animation catches, confirmed by eye). §7 item 0's roadmap gate closes.
+  Evidence: `docs/SESSION_2026-07-22_toctou_guard_rig_confirmation.md`.
 
 ## 4. Open problems
 
-- **Decide-act TOCTOU staleness** (2026-07-22, first complete battery): the screen
-  can change during the model's ~15-20s think time — GNOME's async search re-flowed
-  and a click correct against the decision frame activated the row that slid under
-  it (paint_line s09; blame-ledger row + full frame walk in
-  `docs/SESSION_2026-07-22_first_complete_battery.md`). Milder same-disease cases:
-  double-click on slow-launching apps (settings s00-s01), acting on a "Searching…"
-  spinner (notepad s02). **FIX LANDED 2026-07-22 (offline-tested, rig confirmation
-  pending the next battery)**: pre-fire target-tile guard in `agent_loop_holo.run()`
-  — the batch's first screen-affecting coordinate action tile-diffs the 3×3 tile
-  region around its target (decision frame vs the pre-fire grab,
-  `tile_region_max_png` in `kvm_agent.hardware.env`); changed → refuse-to-fire +
-  re-observe (never fire-anyway, never inject); 3 consecutive refusals → loud
-  "target region unstable" abort. Watch the guard-refusal rate on the rerun for
-  threshold calibration. `docs/SESSION_2026-07-22_roadmap_alignment.md`.
 - **Tool-result signal is semantically misleading**: changed/unchanged binary
   confirmed real-but-irrelevant pixels (taskbar focus visuals) as action success
   at decision-critical steps (2026-07-21). **Partial fix landed 2026-07-22** with
