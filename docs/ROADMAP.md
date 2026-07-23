@@ -66,7 +66,7 @@
 | Tier | Card | Cadence | State | Faces |
 |---|---|---|---|---|
 | **Planner** (big) | B70 | rare (per subgoal) | stateful | the human + the agent's own world |
-| **Grounder / Verifier** (small) | A770 (or co-resident) | constant (per action) | stateless | the pixels only |
+| **Grounder / Verifier** (small) | B580 (or co-resident) | constant (per action) | stateless | the pixels only |
 | **Harness + HID** | — | always-on | durable | the loop |
 
 The planner holds the *task contract*: takes the goal, owns the plan and task-level state, decides done, writes the report, escalates. The grounder/verifier are pure perceptual functions — (frame, narrow question) → answer, no memory, no task awareness. The harness is deterministic control flow and carries your hard-won plumbing. **Only the planner holds state** — that's what bounds the context problem to one place.
@@ -92,11 +92,11 @@ Rules that make this clean:
 
 - **Holo3.1 is a family** (0.8B → 35B-A3B). The 35B is **MoE (A3B = ~3B active)**: memory-heavy (all experts resident), compute-light/fast. Decomposing *within the family* means the adapter you already paid for largely carries over — near-zero new conformance cost.
 - **B70 (Big Battlemage, 32GB, 608 GB/s, strong XMX) = planner.** MoE profile fits perfectly (32GB holds experts; strong compute for the active path).
-- **A770 (Alchemist, 16GB) = grounder/verifier** — *if* it earns it (see caveats).
-- **Mixed generation → one-model-per-card is the only sane topology.** Don't tensor-parallel across Alchemist + Battlemage; use **data parallelism** (separate vLLM/IPEX-LLM instances, one per GPU). This is Intel's documented pattern for heterogeneous cards anyway.
-- **Arc caveats to measure/plan around:**
-  - A770 hot-path cost is **vision-encoding** (compute-bound, Alchemist's weakest, least-optimized spot). Measure grounding *latency* on A770 before committing the per-click path. Fallback: both Holo models co-resident on the 32GB B70; A770 stays your media card.
-  - The A770 already has a job (photo/video). Deciding grounder-on-A770 claims it full-time.
+- **B580 (Battlemage, 12GB) = grounder/verifier.** *[correction 2026-07-23: this was written as "A770 (Alchemist, 16GB)" — a card mix-up caught by the operator. The actual second card is a B580, SAME generation as the B70 (both Battlemage), 12GB not 16GB. Every A770/Alchemist-specific claim below is corrected or flagged accordingly.]*
+- **Same generation → the mixed-generation constraint is gone; one-model-per-card is still the simple default, not the only sane one.** *[correction 2026-07-23: the original "don't tensor-parallel across Alchemist + Battlemage, use data parallelism" reasoning doesn't apply — both cards are Battlemage. Tensor-parallelism across the pair is now a real option worth a line in Phase 5's measurement, not just data parallelism (separate vLLM/IPEX-LLM instances, one per GPU) — but data parallelism stays the simpler solo-maintainer default until measurement says the extra complexity earns its keep.]*
+- **Arc caveats to measure/plan around** *(the vision-encoding-weakness caveat below was Alchemist-specific and likely does NOT apply to the B580 — Battlemage shares the B70's "strong XMX" characteristics — but re-measure rather than assume; not verified either way yet)*:
+  - Grounding *latency* on the B580 still needs measuring before committing the per-click path (12GB budgets a smaller Holo3.1 family member than the 35B planner — check which size actually fits before assuming one). Fallback if it doesn't clear budget: both Holo models co-resident on the 32GB B70; B580 stays free for other use.
+  - *[correction 2026-07-23: "the A770 already has a job (photo/video), claiming it full-time is a real cost" — WRONG. The second card's actual media workload is a transcode roughly once a month; that's not a real claim on it, and uptime/24-7 availability isn't a near-term concern for this project either. The card is effectively free for the grounder/verifier role whenever Phase 5's measurement calls for it — this was §7 item 4's open question, now answered.]*
   - Vision encoder eats context (budget the haircut). FP8 dynamic-quant-at-load spikes system RAM (~50GB+) — prefer prebuilt GGUF/quantized checkpoints.
 
 ### Two action surfaces & tool use
@@ -153,8 +153,8 @@ Each phase: **Goal** / **Do** / **Gate to proceed.** Do them roughly in order; t
 
 ### Phase 5 — Multi-model / hardware decomposition
 - **Goal:** dedicated fast grounder + higher-precision grounding; planner runs rarely.
-- **Do:** split grounder/verifier onto A770 (or co-resident on B70), planner on B70, as separate inference instances. **Only if measurement says so.**
-- **Gate:** (a) small-model grounding holds up on *your analog capture* vs the 35B baseline, measured on the battery; (b) A770 vision-encode latency clears your per-step budget. If either fails → co-resident on B70, A770 stays media.
+- **Do:** split grounder/verifier onto B580 (or co-resident on B70), planner on B70, as separate inference instances (data parallelism — the simple default; see §3's correction on why tensor-parallelism across the two same-gen Battlemage cards is now a real option worth a line item here too, not required). **Only if measurement says so.**
+- **Gate:** (a) small-model grounding holds up on *your analog capture* vs the 35B baseline, measured on the battery; (b) B580 vision-encode latency clears your per-step budget, and 12GB actually fits the family member you need. If either fails → co-resident on B70 (the B580 has no real competing workload to protect it from — §3's correction).
 
 ### Phase 6 — External tools (last, one at a time)
 - **Goal:** capability the target can't provide.
@@ -193,7 +193,7 @@ Track (you already log most of this): *[correction 2026-07-22: "most" = steps, c
 1. **Phase 0 firmware hardening** — watchdog + lock-step host discipline. Cheap, high-leverage, protects every future long run. **CODE LANDED AND DEPLOYED 2026-07-22/23** (`docs/SESSION_2026-07-22_slice_b_firmware_hardening.md`) — watchdog, host retry, mouse-suspend retain+resend, PONG visibility bits, `tools/soak.py`; BOOTSEL-flashed, deployed to the Pi 5, `/health` + the camera-verified HID gate both passed live. **The overnight soak gate itself is POSTPONED** (operator decision — the inconvenience it guards against doesn't currently justify tying up the rig for 8+ hours); not abandoned, `tools/soak.py --hours 8` whenever the rig is free that long.
 2. **Phase 1 seam** — turn `holo.py` into a `propose/ground/verify` interface; get the native conversation protocol out of the loop. Unblocks everything downstream and costs only a refactor. **DONE 2026-07-22** as `decide`/`commit` (not three methods — see `kvm_agent/models/base.py`'s docstring for why `verify` waits for Phase 2); `docs/SESSION_2026-07-22_model_seam_slice_c.md`.
 3. **Map your existing guards to named patterns** — inventory stuck-limit / no-progress / confirm-first against the studied shapes and see how much "agent harness" is actually left to write. Likely less than the phrase implies.
-4. **Decide the A770 question** — is it an AI card or a media card? That single decision picks your Phase-5 layout (dedicated grounder vs co-resident on B70).
+4. **The second-card question** — is it an AI card or a media card? **ANSWERED 2026-07-23** (and the card itself corrected — see §3: it's a B580, not an A770): effectively an AI card. Its actual media workload is a transcode roughly once a month, not a real claim on it, and uptime/24-7 availability isn't a near-term concern for this project. Free for Phase 5's grounder/verifier role whenever measurement calls for it; no layout decision is forced by contention.
 
 ---
 
