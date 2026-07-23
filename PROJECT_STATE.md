@@ -300,14 +300,24 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
 - Windows-era items, moot while the target is GNOME (re-open on a Windows target):
   ~70s OS dead window post-reboot (psr.exe zip outstanding), windows_calc class
   (WinUI3 date-picker + stuck-popup), Store auto-update pause expiry.
-- Deferred: power-control backend, superseded adoption (structured-output
-  rearchitecture + resolution sync), bridge-side suspend keep-alive (mouse-death
+- Deferred: power-control backend; bridge-side suspend keep-alive (mouse-death
   fix candidate (c) above, pending soak evidence it's actually needed).
-  ~~automated fail-closed vision grading~~ — NO LONGER DEFERRED as of 2026-07-23:
-  the oracle exists and is offline-validated (Solved §3, slice D-a). It does not
-  yet grade anything: the battery is still human-graded, and the flip to
-  `grader: "verifier"` is slice D-c, gated on D-b's live false-refusal rate
-  (`docs/PLAN_2026-07-22_phase2_subgoal_verification.md`).
+- Cleared from Deferred (the list had gone stale; corrected 2026-07-23):
+  - ~~superseded adoption (structured-output rearchitecture + resolution sync)~~ —
+    **both landed 2026-07-21, hours after this line was written that morning**
+    (08:04). Structured output is the live contract: `RESPONSE_SCHEMA` +
+    `response_format=json_schema` (strict) since `9a98d96` 09:30, the
+    native-verbatim rearchitecture; `parse_response` normalizes that shape and
+    nothing else. Resolution sync is the `set_screen` push at env bring-up,
+    `9d01363` 12:59, hardened in `ded07a0` 18:00 (screen size measured from the
+    actual frame, projection + bridge push). Both are recorded as done in §3
+    (native-verbatim LOOP entry; review batch-1 and second-review fixes) — only
+    this line disagreed.
+  - ~~automated fail-closed vision grading~~ — the oracle exists and is
+    offline-validated (§3, slice D-a). It does not yet GRADE anything: the battery
+    is still human-graded, and the flip to `grader: "verifier"` is slice D-c, gated
+    on D-b's live false-refusal rate
+    (`docs/PLAN_2026-07-22_phase2_subgoal_verification.md`).
 
 ## 5. Retired
 
