@@ -39,6 +39,25 @@ def test_load_tasks_and_write_results():
             assert json.load(f)["score"] == "0/0", "write_results round-trips"
 
 
+def test_battery_reset_manifest_unions_all_declared_task_state():
+    tasks = [
+        {"reset": {"cleanup_files": ["hello.txt"],
+                   "setting_resets": [],
+                   "application_reset": "battery-apps"}},
+        {"reset": {"cleanup_files": ["report.txt", "hello.txt"],
+                   "setting_resets": ["default-color-scheme"],
+                   "application_reset": "battery-apps"}},
+        {"reset": {"cleanup_files": ["time.txt"],
+                   "setting_resets": ["default-color-scheme"],
+                   "application_reset": "battery-apps"}},
+    ]
+    assert battery.build_battery_reset_manifest(tasks) == {
+        "cleanup_files": ["hello.txt", "report.txt", "time.txt"],
+        "setting_resets": ["default-color-scheme"],
+        "application_reset": "battery-apps",
+    }
+
+
 # grading: empty input re-asks (a grade can never be silently recorded, finding #8);
 # 'p note' -> pass with note; 'f' -> fail with empty note
 def test_grade_task_input_handling():

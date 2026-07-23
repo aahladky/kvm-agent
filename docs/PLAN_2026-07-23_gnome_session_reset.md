@@ -64,3 +64,11 @@ Offline tests cover manifest validation, shell-command construction, reset-strat
 dispatch, result provenance, and the absence of broad/destructive cleanup. Physical
 confirmation requires the operator to create or select a dedicated evaluation account,
 then run a short cleanup/logout smoke test before another full battery.
+
+## Validation correction — 2026-07-23
+
+The full battery is not a reset gate. The approved physical criterion is the smallest
+component slice that seeds owned state, applies cleanup once, and verifies the result.
+Repeating unrelated actor tasks is neither required nor useful evidence for reset
+correctness. The completed and stopped physical evidence is recorded in
+`docs/SESSION_2026-07-23_gnome_session_reset.md`.

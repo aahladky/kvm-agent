@@ -61,6 +61,33 @@ def load_tasks(path):
     return tasks
 
 
+def build_battery_reset_manifest(tasks):
+    """Merge task-owned reset declarations into one between-task reset.
+
+    A declaration says what a task may leave behind, not merely what must be absent
+    before that same task. Applying only the incoming task's declaration lets outputs
+    from earlier tasks contaminate later ones (the 2026-07-23 physical run exposed
+    report.txt/time.txt and dark mode in copy_paste_notes). Preserve declaration order
+    for a stable, reviewable HID command.
+    """
+    files = list(dict.fromkeys(
+        name for task in tasks for name in task["reset"]["cleanup_files"]))
+    settings = list(dict.fromkeys(
+        name for task in tasks for name in task["reset"]["setting_resets"]))
+    application_resets = list(dict.fromkeys(
+        task["reset"]["application_reset"] for task in tasks))
+    assert len(application_resets) == 1, (
+        "one battery cannot mix application reset profiles: "
+        f"{application_resets}")
+    application_reset = application_resets[0]
+    target.validate_reset_manifest(files, settings, application_reset)
+    return {
+        "cleanup_files": files,
+        "setting_resets": settings,
+        "application_reset": application_reset,
+    }
+
+
 def grade_task(task, result):
     """The human grader. No default and no empty answer — a grade can never be
     silently recorded (finding #8). Input form: 'p <optional note>' / 'f <optional note>' /
@@ -185,6 +212,9 @@ def main():
     # unsafe, and it avoids re-paying object construction 5-6 times per battery.
     verifier = HoloVerifier() if verify_mode != "off" else None
     tasks = load_tasks(tasks_path)
+    battery_reset = build_battery_reset_manifest(tasks)
+    if args.reset_strategy == "cleanup":
+        run_config["reset_manifest"] = battery_reset
     ts = time.strftime("%Y%m%d_%H%M%S")
     print(f"[battery] {len(tasks)} tasks from {tasks_path}")
     if CFG.target_shell == "windows":
@@ -224,15 +254,14 @@ def main():
             print(f"\n[battery] === task {i + 1}/{len(tasks)}: {task['id']} ===")
             if task.get("setup"):
                 print(f"[battery] setup: {task['setup']}")
-            reset = task["reset"]
             if args.reset_strategy == "manual-power-cycle":
                 target.reboot()
             elif args.reset_strategy == "cleanup":
                 command = target.reset_gnome_session(
                     agent_loop_holo.ENV.r4,
-                    cleanup_files=reset["cleanup_files"],
-                    setting_resets=reset["setting_resets"],
-                    application_reset=reset["application_reset"])
+                    cleanup_files=battery_reset["cleanup_files"],
+                    setting_resets=battery_reset["setting_resets"],
+                    application_reset=battery_reset["application_reset"])
                 print(f"[battery] reset command sent (cleanup): {command}")
                 png = agent_loop_holo.ENV.cam.png_bytes()
                 reset_url = jpeg_bytes_to_data_url(

@@ -9,6 +9,7 @@ the hardware is in front of us; wol/smartplug backends slot in behind these same
 functions without touching callers (tools/battery.py).
 """
 import re
+import shlex
 import time
 
 _SAFE_HOME_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -19,26 +20,28 @@ GNOME_SETTING_RESETS = {
         "gsettings reset org.gnome.desktop.interface color-scheme",
 }
 
-# Known applications the GNOME battery owns. Anchored process-command regexes avoid
-# matching unrelated user processes; missing processes are normal and ignored.
+# Known applications the GNOME battery owns. These are command-line regexes rather
+# than executable names because snap applications run through a generic host (Pinta
+# is `dotnet ... /snap/pinta/<rev>/.../Pinta.dll`). Bracketing the first character
+# keeps each regex from matching the pkill command that carries it. Missing processes
+# are normal and ignored.
 GNOME_APP_RESETS = {
     "battery-apps": (
-        "gnome-text-editor",
-        "gnome-calculator",
-        "gnome-control-center",
-        "nautilus",
-        "pinta",
-        "Pinta.exe",
-        "firefox",
+        r"(^|/)[g]nome-text-editor([ /]|$)",
+        r"(^|/)[g]nome-calculator([ /]|$)",
+        r"(^|/)[g]nome-control-center([ /]|$)",
+        r"(^|/)[n]autilus([ /]|$)",
+        r"(^|/)[p]inta([/. ]|$)",
+        r"(^|/)[f]irefox([ /]|$)",
         # Terminal implementations seen across current GNOME distributions. Keep
         # these last: killing the implementation that owns this shell may end command
         # execution immediately, after all files/settings/task apps are already reset.
-        "gnome-terminal-server",
-        "gnome-terminal",
-        "kgx",
-        "gnome-console",
-        "ptyxis",
-        "xterm",
+        r"(^|/)[g]nome-terminal-server([ /]|$)",
+        r"(^|/)[g]nome-terminal([ /]|$)",
+        r"(^|/)[k]gx([ /]|$)",
+        r"(^|/)[g]nome-console([ /]|$)",
+        r"(^|/)[p]tyxis([ /]|$)",
+        r"(^|/)[x]term([ /]|$)",
     ),
 }
 
@@ -72,14 +75,15 @@ def build_gnome_reset_command(cleanup_files=(), setting_resets=(),
         commands.append(f"rm -f -- {quoted}")
     commands.extend(GNOME_SETTING_RESETS[name] for name in settings)
     # One compact shell loop matters over physical HID (~60-90ms per character).
-    # Match an executable path/name followed by whitespace/end. The expanded regex
-    # does not match this shell's space-separated process-name list.
-    processes = " ".join(GNOME_APP_RESETS[application_reset])
+    # The fixed patterns are individually shell-quoted; task JSON can select only a
+    # named profile and cannot supply a pattern.
+    patterns = " ".join(
+        shlex.quote(pattern) for pattern in GNOME_APP_RESETS[application_reset])
     # These are disposable eval-task processes. TERM invites unsaved-document handlers
     # (Pinta survived TERM after paint_line and contaminated task 6); KILL is the reset
     # contract: no save prompt, no graceful refusal, no task state survives.
     commands.append(
-        f'for p in {processes}; do pkill -KILL -i -f "(^|/)$p( |$)" || true; done')
+        f'for p in {patterns}; do pkill -KILL -i -f "$p" || true; done')
     # If none of the allowlisted terminal names matched, `exit` still closes the reset
     # shell. A real cleanup/settings failure occurs before the tolerant process loop and
     # reaches the visible marker. The camera verifier remains authoritative about stale

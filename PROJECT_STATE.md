@@ -338,8 +338,37 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   task 6** because Pinta's unsaved document survived SIGTERM
   (`runs/battery_20260723_130246/results.json`,
   `runs/battery_paint_line_20260723_132752/`). The command did include `pinta` and
-  `Pinta.exe`; graceful termination was the wrong reset primitive. Fixed: code-owned
-  disposable task processes now receive SIGKILL, intentionally bypassing save prompts.
+  `Pinta.exe`; graceful termination was the first wrong reset primitive. A follow-up
+  physical reset still failed before task 1
+  (`runs/battery_20260723_134309/results.json`). Direct target inspection then showed
+  the actual process is snap-hosted:
+  `dotnet ... /snap/pinta/98/lib/pinta/Pinta.dll`
+  (`runs/pinta_reset_diagnosis_20260723_134524/process_probe.png`). The executable-name
+  regex could not cross the slash after the `pinta` snap path segment. Fixed again:
+  code-owned disposable apps now use shell-self-safe command-line patterns that cover
+  snap paths and receive SIGKILL. The full physical battery then recorded **10/10
+  reset events satisfied**, including the decisive reset after Pinta
+  (`runs/battery_20260723_135007/results.json`). Battery score was 9/10:
+  `copy_paste_notes` reached its step limit while editing the save filename
+  (`runs/battery_copy_paste_notes_20260723_142126/`).
+  That run exposed a distinct isolation bug: per-incoming-task cleanup allowed
+  `report.txt`, `time.txt`, and dark mode from earlier tasks to reach later tasks.
+  Reset now applies the ordered union of all task-declared files/settings before every
+  task and records that effective manifest in `run_config`. 171 offline tests pass
+  (`runs/pinta_reset_diagnosis_20260723_134524/isolation_full_pytest.txt`).
+  A follow-up run physically passed its first five union-reset events before being
+  intentionally stopped (`runs/battery_20260723_142910/results.json`): repeating an
+  hour-long, unreliable ten-task benchmark to validate one reset component is a test
+  design failure, not a release gate. The validated reset evidence is sufficient;
+  no further full-battery rerun is required for this change.
+- **Battery operational design debt (2026-07-23, BLOCKS MORE ROUTINE FULL RUNS, NOT
+  FEATURE WORK):** full batteries are benchmarks, never per-change gates. Before the
+  next routine full run, add a sub-minute reset component smoke, task selection/resume,
+  and deferred (non-interactive) random human sampling. Relevant changes use offline
+  gates plus the smallest physical slice that exercises the changed component. The
+  existing full result remains `runs/battery_20260723_135007/results.json` (9/10,
+  10/10 reset events); the incomplete stopped run is explicitly 5/10 with 5/5 reset
+  events and must not be compared as a benchmark.
 - **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
   GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and
   `runs/battery_20260722_222137/` 5/5 (1 void)): the pre-fire target-tile guard

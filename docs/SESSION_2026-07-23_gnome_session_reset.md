@@ -82,3 +82,66 @@ This resets only declared battery-owned files/settings and the GNOME session. It
 a disk snapshot and must never be pointed at a personal account. Procedural/temporal
 oracle flaws in `file_create_rename`, `clock_to_file`, and `copy_paste_notes` are
 separate from reset and remain to be corrected before D-c rig confirmation.
+
+## Physical correction: snap-hosted Pinta
+
+The SIGKILL change was necessary but not sufficient. The next reset attempt still
+failed closed before task 1 with the old Pinta window visible
+(`runs/battery_20260723_134309/results.json`). A target-side process listing captured
+through the physical HID/camera path showed why: Pinta is hosted by `dotnet`, with
+`/snap/pinta/98/lib/pinta/Pinta.dll` in its arguments
+(`runs/pinta_reset_diagnosis_20260723_134524/process_probe.png`). The earlier anchored
+name regex required whitespace or end-of-command immediately after `pinta`, so the
+slash in `/snap/pinta/98` prevented a match.
+
+The application profile now contains fixed command-line regexes, including snap path
+segments, instead of guessed executable names. Each pattern brackets its first
+character so it cannot match the `pkill` command carrying that pattern. Task JSON can
+still select only the named profile and cannot inject regex or shell. Offline coverage
+replays the observed snap Pinta command line, covers snap Firefox, and asserts that no
+profile pattern matches the generated reset shell command itself.
+
+## Full battery and battery-wide isolation correction
+
+The next complete physical battery proved the snap-aware application reset:
+all ten reset events were `satisfied=True`, including the reset immediately after
+`paint_line` that had failed twice before
+(`runs/battery_20260723_135007/results.json`). The task score was 9/10.
+`copy_paste_notes` failed at its 15-step limit while the save dialog was ready for the
+filename replacement (`runs/battery_copy_paste_notes_20260723_142126/`); this was not
+a reset-verifier or Pinta-process failure.
+
+Reviewing that task's exact trace exposed a separate isolation defect. Its first editor
+window opened `time.txt`, and its save dialog showed `report.txt` and `time.txt` from
+earlier tasks. Dark mode also persisted beyond `dark_mode_confirm`. Each task declared
+the state it could create, but the runner applied only the incoming task's declarations
+before that task. Thus reset removed `notes.txt` before `copy_paste_notes` but failed to
+remove outputs owned by preceding tasks.
+
+The runner now treats task reset declarations as ownership declarations and builds one
+ordered battery-wide union. Every cleanup reset removes all declared battery files,
+resets all declared GNOME settings, and terminates the shared named application
+profile. The effective manifest is persisted in `run_config` for review. A regression
+test covers deduplication and stable ordering; the observed snap-process replay and
+shell self-match guard remain. The full offline suite passes 171 tests
+(`runs/pinta_reset_diagnosis_20260723_134524/isolation_full_pytest.txt`).
+
+## Validation-boundary correction
+
+Starting another ten-task battery to validate the battery-wide union was the wrong
+gate. It repeated already-covered actor tasks, could pause unpredictably for random
+human grading, and consumed roughly an hour to answer a reset question that should take
+under a minute. The operator stopped it after five completed tasks; its five reset
+events were all satisfied and its incomplete denominator was preserved as 5/10
+(`runs/battery_20260723_142910/results.json`).
+
+The reset change is accepted on component evidence: the exact snap Pinta process
+capture, replay coverage for that command line, 171 offline tests, the earlier complete
+battery's 10/10 clean reset events (including post-Pinta), and the follow-up run's
+physical use of the battery-wide manifest. Another full battery is not required.
+
+Going forward, a full battery is a benchmark run, not a development or merge gate.
+Reset changes require a sub-minute state-seed/reset/verify smoke. Task changes require
+only the affected task(s). Before another routine full battery, the runner needs
+task selection/resume and must defer random human samples until after execution rather
+than blocking the live run.

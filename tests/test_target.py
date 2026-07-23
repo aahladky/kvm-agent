@@ -3,7 +3,7 @@ test_target.py — OFFLINE test for the manual power/reset seam.
 
     python tests/test_target.py
 """
-import sys, os, builtins
+import sys, os, builtins, re
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from kvm_agent.hardware import target
@@ -74,11 +74,25 @@ def test_gnome_reset_command_is_narrow_and_fail_loud():
     assert "gsettings reset org.gnome.desktop.interface color-scheme" in cmd
     assert cmd.endswith("exit || echo KVM_RESET_FAILED")
     assert "rm -rf" not in cmd and "$HOME/*" not in cmd
-    assert "gnome-text-editor" in cmd and "gnome-control-center" in cmd
-    assert "firefox" in cmd and "Pinta.exe" in cmd
-    assert "gnome-terminal-server" in cmd and "kgx" in cmd and "ptyxis" in cmd
+    assert "[g]nome-text-editor" in cmd and "[g]nome-control-center" in cmd
+    assert "[f]irefox" in cmd and "[p]inta" in cmd
+    assert "[g]nome-terminal-server" in cmd and "[k]gx" in cmd and "[p]tyxis" in cmd
     assert "pkill -KILL -i" in cmd and "pkill -TERM" not in cmd
     assert "gnome-session-quit" not in cmd
+
+
+def test_gnome_reset_patterns_match_snap_pinta_without_matching_reset_shell():
+    patterns = target.GNOME_APP_RESETS["battery-apps"]
+    snap_pinta = (
+        "/snap/pinta/98/usr/bin/dotnet "
+        "/snap/pinta/98/lib/pinta/Pinta.dll")
+    snap_firefox = "/snap/firefox/6500/usr/lib/firefox/firefox"
+    assert any(re.search(pattern, snap_pinta, re.IGNORECASE) for pattern in patterns)
+    assert any(re.search(pattern, snap_firefox, re.IGNORECASE) for pattern in patterns)
+
+    command = target.build_gnome_reset_command()
+    assert not any(re.search(pattern, command, re.IGNORECASE) for pattern in patterns), \
+        "bracketed patterns must not make pkill kill the shell carrying the reset command"
 
 
 def test_gnome_reset_is_typed_through_physical_hid():

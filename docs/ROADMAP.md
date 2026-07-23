@@ -167,6 +167,14 @@ Each phase: **Goal** / **Do** / **Gate to proceed.** Do them roughly in order; t
 
 The harness has no upstream to conform to, so **the battery is your reference.** The methodological shift for every bespoke layer: *author-and-diff-against-battery.* Keep strengthening it as you go.
 
+**Operational correction 2026-07-23:** reference does not mean per-change gate. A full
+battery is an intentional benchmark run, never a prerequisite for continuing feature
+work or merging an isolated component fix. Changes use offline tests plus the smallest
+physical slice that exercises the changed boundary. Before more routine full batteries,
+the runner needs a sub-minute reset smoke, task selection/resume, and post-run rather
+than randomly blocking human samples
+(`docs/SESSION_2026-07-23_gnome_session_reset.md`).
+
 Track (you already log most of this): *[correction 2026-07-22: "most" = steps, completion, per-step latency/tokens, and the refusal-vs-exhaustion split (via `answer_text`). The two metrics below that gate Phases 4/5 are NOT computed — grounding rate has only raw material (frames + the unused `element` descriptions), and false-confirmation is unmeasurable until a verifier exists (Phase 2).]*
 - **Grounding rate** — did the click land on the intended element? (tells you if grounding is the bottleneck → gates Phase 5)
 - **Verifier false-confirmation rate** per subgoal type — the promotion/demotion signal for manager mode (gates Phase 4)
