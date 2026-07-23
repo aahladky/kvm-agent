@@ -25,11 +25,15 @@ OS-agnostic, undetectable. Pure curiosity project.
   (C/TinyUSB, PiKVM port, CRC16 binary protocol over 3-wire UART); Pi 5 runs
   `hid_bridge.py` (HTTP API, `http://192.168.0.29:8080`). Host client:
   `kvm_agent/hardware/appliance.py`. `clear_hid` (all-keys-up) runs on connect + close.
-  Phase 0 hardening (roadmap, Slice B — code landed 2026-07-22, soak-gate pending):
-  1s HW watchdog in `main.c`; host-side `_roundtrip` retry (`pikvm_proto.py`); mouse
-  ABS report retain+resend on USB suspend; `PONG_WATCHDOG_REBOOTED`/
-  `PONG2_USB_SUSPENDED` visibility bits surfaced through `/health` and the wire log.
-  See Solved §3 and `tools/soak.py`.
+  Phase 0 hardening (roadmap, Slice B — code landed AND DEPLOYED 2026-07-22/23,
+  overnight soak-gate POSTPONED by operator, not run): 1s HW watchdog in
+  `main.c`; host-side `_roundtrip` retry (`pikvm_proto.py`); mouse ABS report
+  retain+resend on USB suspend; `PONG_WATCHDOG_REBOOTED`/`PONG2_USB_SUSPENDED`
+  visibility bits surfaced through `/health` and the wire log. Deployed to the
+  live Pico + Pi 5 and functionally verified (`/health` decodes the new fields
+  correctly; `agent_loop_holo.boot()`'s camera-verified HID gate passed: "hid ok
+  (gnome: kbd diff 49.1, mouse diff 49.1)") — the multi-hour unattended soak
+  itself is what's postponed, not the deploy. See Solved §3 and `tools/soak.py`.
 - **CAPTURE** — HDMI capture card via cv2 (V4L2 on the Linux host), `Camera` +
   `FrameBuffer` (monotonic frame seq) in `kvm_agent/hardware/env.py`.
 - **TARGET** — physical spare laptop (Ubuntu/GNOME as of 2026-07-21; formerly
@@ -144,8 +148,9 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   rounds landed together — uncontrolled). Run config: GNOME target, native 720p,
   `HOLO_HISTORY_IMAGES=3`. Evidence: `runs/battery_20260721_235153/`; full review
   in `docs/SESSION_2026-07-22_first_complete_battery.md`.
-- **Roadmap Phase 0, firmware hardening (Slice B, 2026-07-22, code landed, soak
-  gate pending):** HW watchdog (`watchdog_enable(1000, true)` in `main.c`,
+- **Roadmap Phase 0, firmware hardening (Slice B, 2026-07-22/23, code landed AND
+  DEPLOYED, overnight soak gate POSTPONED by operator):** HW watchdog
+  (`watchdog_enable(1000, true)` in `main.c`,
   gated pet, `watchdog_enable_caused_reboot()` read before re-arming — verified
   it and the mode-change reboot use scratch[4], `ph_outputs.c`'s mode persistence
   uses scratch[0], no collision) surfaced as new PONG bit
@@ -160,11 +165,21 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   padding) exposes `tud_suspended()` for visibility. `tools/soak.py` (new): the
   Phase-0 gate harness — probe every 10s, corner-move + camera-liveness check every
   5min, JSONL to `runs/soak_<ts>/`, operator-driven fault injection. Firmware
-  compiles clean (`-Wall -Wextra`, both `cmake` and the real `make` deploy path) —
-  verified in this session; NOT yet flashed/deployed/soaked. Tests 71 → 79 green
-  (`tests/test_pikvm_proto_retry.py`, fake serial). Evidence:
-  `docs/SESSION_2026-07-22_slice_b_firmware_hardening.md` (no `runs/` evidence —
-  offline + build verification only, no hardware touched yet).
+  compiles clean (`-Wall -Wextra`, both `cmake` and the real `make` deploy path).
+  Tests 71 → 79 green (`tests/test_pikvm_proto_retry.py`, fake serial).
+  **DEPLOYED 2026-07-23**: Pico BOOTSEL-flashed (operator), Pi 5
+  `pikvm_proto.py`/`hid_bridge.py` updated (backed up first) + `hid-bridge.service`
+  restarted; `/health` decodes the new fields correctly
+  (`watchdog_rebooted=0 usb_suspended=0` on the fresh flash, as expected —
+  a power-on reset, not a watchdog reset); `agent_loop_holo.boot()`'s
+  camera-verified HID gate PASSED ("hid ok (gnome: kbd diff 49.1, mouse diff
+  49.1)"). The overnight soak itself (`tools/soak.py --hours 8`) is POSTPONED,
+  operator decision — the target needs to sit occupied/semi-attended that long
+  for fault injection, and the bug it guards (long-idle mouse death) is a minor
+  inconvenience, not urgent. Not abandoned, just not run yet. Evidence:
+  `docs/SESSION_2026-07-22_slice_b_firmware_hardening.md` ("Deploy" +
+  "Soak: POSTPONED" sections; no `runs/` evidence — the deploy checks were
+  one-shot health/gate calls, not a recorded run).
 
 ## 4. Open problems
 
@@ -199,18 +214,23 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   camera principle exists for). Remote wakeup IS advertised in the config
   descriptor (`ph_usb.c:360`), but if the target OS never enabled it on the
   device, `tud_remote_wakeup()` is a silent no-op and only a replug (re-enumerate)
-  revives the mouse. Inherited upstream PiKVM behavior. **Fix (a) LANDED 2026-07-22**
-  (Slice B, `docs/SESSION_2026-07-22_slice_b_firmware_hardening.md`): the mouse ABS
-  report path now retains+retries like the kbd path (`_mouse_abs_try_send`,
-  `ph_usb.c`) instead of dropping on suspend; REL mode is untouched (not in this
-  project's live deployment). **Fix (b) LANDED as visibility-only**: `tud_suspended()`
-  exposed as a new PONG2 byte (`PH_PROTO_PONG2_USB_SUSPENDED`, resp[4] — previously
-  always-zero padding), decoded host-side and surfaced in `/health` + the wire log;
-  active refuse-into-a-suspended-bus behavior was NOT added (bigger behavior change,
+  revives the mouse. Inherited upstream PiKVM behavior. **Fix (a) LANDED AND
+  DEPLOYED 2026-07-22/23** (Slice B, `docs/SESSION_2026-07-22_slice_b_firmware_
+  hardening.md`): the mouse ABS report path now retains+retries like the kbd
+  path (`_mouse_abs_try_send`, `ph_usb.c`) instead of dropping on suspend; REL
+  mode is untouched (not in this project's live deployment). **Fix (b) LANDED
+  AND DEPLOYED as visibility-only**: `tud_suspended()` exposed as a new PONG2
+  byte (`PH_PROTO_PONG2_USB_SUSPENDED`, resp[4] — previously always-zero
+  padding), decoded host-side and confirmed live in `/health`; active
+  refuse-into-a-suspended-bus behavior was NOT added (bigger behavior change,
   unproven need). **Fix (c) (bridge-side keep-alive) DEFERRED** — speculative,
-  build only if the soak shows (a)+(b) aren't enough. Verify all of this against
-  the soak harness's long-idle window (`tools/soak.py`, new 2026-07-22) before
-  trusting it — not yet run.
+  build only if the bug recurs after (a)+(b). Both deployed fixes passed the
+  camera-verified HID gate post-deploy (2026-07-23), but the actual long-idle
+  window they target is UNTESTED — the `tools/soak.py` overnight gate that would
+  exercise it is POSTPONED (operator decision: the inconvenience it guards
+  against, a manual replug, doesn't currently justify tying up the rig for
+  8+ hours). Watch for recurrence on ordinary runs in the meantime; if it
+  recurs, that's evidence fix (c) is needed even without a soak.
 - Windows-era items, moot while the target is GNOME (re-open on a Windows target):
   ~70s OS dead window post-reboot (psr.exe zip outstanding), windows_calc class
   (WinUI3 date-picker + stuck-popup), Store auto-update pause expiry.

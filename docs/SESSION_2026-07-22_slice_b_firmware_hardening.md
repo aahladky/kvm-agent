@@ -6,8 +6,10 @@ Slice B from `docs/PLAN_2026-07-22_roadmap_alignment_slices.md` Part 3: the
 roadmap's Phase 0 ("harden the primitive for unattended runs"), scope grown by
 the long-idle mouse-death diagnosis (`PROJECT_STATE.md` §4, found during the
 post-guard-rerun operator notes). Code + offline tests + a firmware build
-verification only — the gate itself (BOOTSEL flash, Pi 5 deploy, overnight
-soak) needs the operator at the physical rig and did not run this session.
+verification landed first; the operator then flashed the Pico and the deploy
+was completed and functionally verified same session (see "Deploy" below). The
+overnight soak itself (the actual Phase-0 gate) is POSTPONED, operator
+decision — see "Deploy" for why.
 
 ## Changes
 
@@ -109,13 +111,51 @@ retry exhaustion, which would already mean the link is essentially dead either
 way — but it's exactly the kind of thing the soak should surface if it's a real
 problem in practice.
 
+## Deploy (same session, after the operator flashed the Pico)
+
+Completed and functionally verified:
+- Backed up the Pi 5's running `pikvm_proto.py`/`hid_bridge.py` (timestamped
+  `.bak.20260723_023236`), scp'd the new versions, syntax-checked remotely.
+- `sudo systemctl restart hid-bridge` — clean restart, `hid-bridge.service`
+  active against the freshly-flashed Pico.
+- `/health`: `{"ok": true, "pico_acking": true, "probe": "PROBE caps=0 num=0
+  scroll=0 kbd=1 mouse=1 watchdog_rebooted=0 usb_suspended=0", ...}` — the two
+  new PONG fields decode correctly end-to-end (host `decode_code` → bridge
+  `_cmd_probe`'s ack string), and read as expected for a just-BOOTSEL-flashed
+  board (a USB/power-on reset, not a watchdog reset, so `watchdog_rebooted=0`
+  is correct, not a false negative).
+- `agent_loop_holo.boot()` (the camera-verified HID gate, `target.verify_hid`):
+  **passed** — `hid ok (gnome: kbd diff 49.1, mouse diff 49.1)`. Both HID
+  collections camera-confirmed delivering to the target OS, not just
+  self-reporting online.
+
+This is real evidence the Slice B changes work correctly against actual
+hardware (new firmware bits decode right, the retry/watchdog code didn't break
+anything, the appliance is fully functional) — it just isn't the multi-hour
+soak.
+
+## Soak: POSTPONED (operator decision, 2026-07-23)
+
+The overnight (`--hours 8`) soak needs the target laptop occupied and
+semi-attended (for fault injection) the whole time; the operator judged that
+cost not worth paying right now, since the bug it's guarding against (long-idle
+mouse death) is a minor inconvenience (a manual Pico replug) rather than
+anything urgent. Deploy already stands on its own merits (camera-verified HID
+gate passed) — the fixes are live and are already a strict improvement over
+what was running before, soak or no soak. Run `python tools/soak.py --hours 8`
+(with operator-driven fault injection during the window) whenever the rig is
+free for an unattended stretch; nothing about postponing it puts the current
+deploy at risk.
+
 ## Follow-ups
 
-- **The soak itself** — `python tools/soak.py --hours 8` (or longer) after the
-  deploy steps above; gate = zero unexplained failure lines, every one mapping
-  to an operator-injected fault.
-- If the mouse-death symptom recurs after (a)+(b), build fix candidate (c)
-  (bridge-side keep-alive) — deferred, not preemptively built.
+- **The soak** — postponed, not abandoned; run `python tools/soak.py --hours 8`
+  next time the rig can sit unattended (or semi-attended for fault injection)
+  that long. Gate = zero unexplained failure lines, every one mapping to an
+  operator-injected fault.
+- If the mouse-death symptom recurs even after (a)+(b) (now deployed and live),
+  build fix candidate (c) (bridge-side keep-alive) — still deferred, not
+  preemptively built.
 - Roadmap Phase 1 (model seam) landed the same day on a separate branch,
   independent of this one (disjoint files) — see
   `docs/SESSION_2026-07-22_model_seam_slice_c.md`.
