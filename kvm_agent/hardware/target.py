@@ -60,6 +60,21 @@ def reset_gnome_session(r4, cleanup_files=(), setting_resets=(), logout=False,
     return command
 
 
+def login_gdm(r4, password, settle_s=8.0):
+    """Log back into the just-logged-out GNOME account through HID.
+
+    GDM normally leaves that account selected with its password field focused. The
+    password is runtime-only; this function neither returns nor logs it. The caller
+    must run the camera-verified HID gate afterward, which also proves the desktop
+    became interactive instead of trusting this blind keystroke sequence.
+    """
+    if not isinstance(password, str) or not password:
+        raise ValueError("a non-empty runtime login password is required")
+    r4.type(password)
+    r4.key("enter")
+    time.sleep(settle_s)
+
+
 def reboot():
     """Full restart of the physical target between battery tasks. v1: the operator
     does it by hand; their Enter IS the readiness signal (desktop up and settled)."""

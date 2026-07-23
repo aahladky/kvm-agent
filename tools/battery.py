@@ -16,6 +16,7 @@ Artifacts (AGENTS.md §1 — everything under runs/):
     runs/battery_<ts>/results.json  grades + provenance for the whole battery
 """
 import argparse
+import getpass
 import json
 import os
 import random
@@ -120,6 +121,9 @@ def parse_args(argv=None):
     ap.add_argument("--reset-strategy", choices=RESET_STRATEGIES,
                     default="manual-power-cycle",
                     help="between-task reset (default: manual-power-cycle)")
+    ap.add_argument("--auto-login", action="store_true",
+                    help="with cleanup-logout, prompt once for the disposable account "
+                         "password and type it at GDM after every logout")
     args = ap.parse_args(argv)
     if args.no_reboot:
         if args.reset_strategy != "manual-power-cycle":
@@ -134,6 +138,8 @@ def parse_args(argv=None):
                  "use --human with off")
     if args.reset_strategy == "none" and args.human:
         ap.error("--no-reboot is the no-human unattended mode and cannot use --human")
+    if args.auto_login and args.reset_strategy != "cleanup-logout":
+        ap.error("--auto-login requires --reset-strategy cleanup-logout")
     return args
 
 
@@ -169,12 +175,16 @@ def main():
         "grader": "human" if args.human else "verifier",
         "spot_check_pct": args.spot_check_pct,
         "reset_strategy": args.reset_strategy,
+        "auto_login": args.auto_login,
     }
     # Constructed once for the whole battery, not per task: HoloVerifier is stateless
     # (kvm_agent.models.base.Verifier's contract), so nothing about re-task-ing it is
     # unsafe, and it avoids re-paying object construction 5-6 times per battery.
     verifier = HoloVerifier() if verify_mode != "off" else None
     tasks = load_tasks(tasks_path)
+    login_password = (getpass.getpass(
+        "[battery] disposable GNOME account password (runtime only): ")
+        if args.auto_login else None)
     ts = time.strftime("%Y%m%d_%H%M%S")
     print(f"[battery] {len(tasks)} tasks from {tasks_path}")
     if CFG.target_shell == "windows":
@@ -224,9 +234,14 @@ def main():
                     logout=logout)
                 print(f"[battery] reset command sent ({args.reset_strategy}): {command}")
                 if logout:
-                    input("[battery] GNOME session logged out. Log into the dedicated "
-                          "evaluation account, confirm the clean desktop is visible, "
-                          "then press Enter... ")
+                    if args.auto_login:
+                        target.login_gdm(agent_loop_holo.ENV.r4, login_password)
+                        print("[battery] GDM credentials sent; camera/HID gate will "
+                              "prove the desktop is interactive")
+                    else:
+                        input("[battery] GNOME session logged out. Log into the dedicated "
+                              "evaluation account, confirm the clean desktop is visible, "
+                              "then press Enter... ")
                 else:
                     input("[battery] Confirm the reset terminal closed and the clean "
                           "desktop is visible. If KVM_RESET_FAILED remains on screen, "

@@ -38,6 +38,12 @@ explicitly owns:
 
 The default remains `manual-power-cycle` until the dedicated account is ready.
 
+_Implementation refinement approved 2026-07-23:_ `cleanup-logout --auto-login` prompts
+once for the disposable account password using hidden terminal input, types it at GDM
+after each logout, waits for the desktop, then uses the existing camera/HID gate as the
+proof of login. The credential is runtime-only and never enters source, task JSON,
+results, or command-line arguments.
+
 ## Initial task manifests
 
 - remove `hello.txt` before `editor_save_file`;

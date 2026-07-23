@@ -83,6 +83,18 @@ def test_gnome_reset_is_typed_through_physical_hid():
     ]
 
 
+def test_gdm_login_types_runtime_password_without_returning_it():
+    r4 = FakeR4()
+    assert target.login_gdm(r4, "throwaway-secret", settle_s=0) is None
+    assert r4.calls == [("type", "throwaway-secret"), ("key", "enter")]
+    try:
+        target.login_gdm(r4, "", settle_s=0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("empty login credential must fail before HID")
+
+
 class FakeCam:
     """png_bytes() pops a scripted sequence; read() returns a constant frame so
     wait_until_stable sees instant stability."""

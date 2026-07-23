@@ -159,6 +159,15 @@ def test_d_c_cli_defaults_to_gate_and_validates_unattended_contract():
     assert args.spot_check_pct == 0
     args = battery.parse_args(["tasks.json", "--reset-strategy", "cleanup-logout"])
     assert args.reset_strategy == "cleanup-logout" and args.spot_check_pct == 10
+    args = battery.parse_args(
+        ["tasks.json", "--reset-strategy", "cleanup-logout", "--auto-login"])
+    assert args.auto_login is True
+    try:
+        battery.parse_args(["tasks.json", "--auto-login"])
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("auto-login without cleanup-logout must fail")
     try:
         battery.parse_args(["tasks.json", "off"])
     except SystemExit:
