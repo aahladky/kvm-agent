@@ -72,11 +72,11 @@ def test_gnome_reset_command_is_narrow_and_fail_loud():
         ["hello.txt", "notes.txt"], ["default-color-scheme"])
     assert 'rm -f -- "$HOME/hello.txt" "$HOME/notes.txt"' in cmd
     assert "gsettings reset org.gnome.desktop.interface color-scheme" in cmd
-    assert cmd.endswith(
-        "pkill -TERM -f '(^|/)gnome-terminal-server( |$)' || echo KVM_RESET_FAILED")
+    assert cmd.endswith("exit || echo KVM_RESET_FAILED")
     assert "rm -rf" not in cmd and "$HOME/*" not in cmd
     assert "gnome-text-editor" in cmd and "gnome-control-center" in cmd
     assert "firefox" in cmd and "Pinta.exe" in cmd
+    assert "gnome-terminal-server" in cmd and "kgx" in cmd and "ptyxis" in cmd
     assert "gnome-session-quit" not in cmd
 
 

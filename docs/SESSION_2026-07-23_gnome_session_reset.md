@@ -44,6 +44,16 @@ stateless verifier a narrow reset question: no failure terminal, task window, lo
 lock screen may remain. Every verdict is persisted under `reset_events` before the task,
 and False/None aborts the battery loudly. The ordinary camera/HID gate follows it.
 
+The first active-session physical smoke (`runs/battery_20260723_125911/results.json`)
+correctly failed closed before task 1, but exposed another harness assumption: the reset
+command required a final `gnome-terminal-server` process match, and this target's
+terminal uses a different process name. Since every earlier `pkill` is explicitly
+failure-tolerant, that final match was the only possible source of the visible
+`KVM_RESET_FAILED`. Fixed by including the common GNOME terminal implementations in
+the code-owned application profile and making no-match fall back to the shell's own
+`exit`. The camera verifier—not a process name—remains the proof that no terminal
+window survived.
+
 ## Operator setup and physical smoke
 
 Create or select a dedicated standard GNOME user containing no personal files. Log into

@@ -328,6 +328,12 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   is REMOVED rather than patched. 169 offline tests pass. Evidence:
   `runs/active_session_reset_20260723_125102/pytest_final.txt`,
   `docs/SESSION_2026-07-23_gnome_session_reset.md`.
+  **First active-cleanup physical smoke failed closed before task 1**:
+  `runs/battery_20260723_125911/results.json` recorded the verifier seeing
+  `KVM_RESET_FAILED`. Root cause was our final hard requirement that the terminal
+  process be named `gnome-terminal-server`; the target uses another implementation.
+  Fixed by an allowlist of current terminal process names plus `exit` fallback; camera
+  verification remains the authority. Physical re-smoke pending.
 - **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
   GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and
   `runs/battery_20260722_222137/` 5/5 (1 void)): the pre-fire target-tile guard

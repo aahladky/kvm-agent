@@ -30,6 +30,15 @@ GNOME_APP_RESETS = {
         "pinta",
         "Pinta.exe",
         "firefox",
+        # Terminal implementations seen across current GNOME distributions. Keep
+        # these last: killing the implementation that owns this shell may end command
+        # execution immediately, after all files/settings/task apps are already reset.
+        "gnome-terminal-server",
+        "gnome-terminal",
+        "kgx",
+        "gnome-console",
+        "ptyxis",
+        "xterm",
     ),
 }
 
@@ -68,13 +77,12 @@ def build_gnome_reset_command(cleanup_files=(), setting_resets=(),
     processes = " ".join(GNOME_APP_RESETS[application_reset])
     commands.append(
         f'for p in {processes}; do pkill -TERM -f "(^|/)$p( |$)" || true; done')
-    # Last, terminate the terminal server itself. On success this closes every stale
-    # terminal window including the reset shell; on failure the shell survives and
-    # prints the marker the camera verifier is explicitly looking for.
-    terminal_pattern = "(^|/)gnome-terminal-server( |$)"
-    return (" && ".join(commands)
-            + f" && pkill -TERM -f '{terminal_pattern}'"
-            + " || echo KVM_RESET_FAILED")
+    # If none of the allowlisted terminal names matched, `exit` still closes the reset
+    # shell. A real cleanup/settings failure occurs before the tolerant process loop and
+    # reaches the visible marker. The camera verifier remains authoritative about stale
+    # windows; process naming is never trusted as proof.
+    commands.append("exit")
+    return " && ".join(commands) + " || echo KVM_RESET_FAILED"
 
 
 def reset_gnome_session(r4, cleanup_files=(), setting_resets=(),
