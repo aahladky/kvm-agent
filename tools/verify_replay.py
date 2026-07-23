@@ -133,7 +133,43 @@ def frame_data_url(png_path):
     return jpeg_bytes_to_data_url(model_input_jpeg(frame, CFG.holo_model_input_res))
 
 
-def build_cases(runs_dir):
+GENERIC_CLAIM = ("# Task Completed Successfully\n\nAll requirements have been fulfilled. "
+                 "The task is complete and verified on screen.")
+
+
+def adversarial_variants(cases):
+    """Pair every unfinished-screen frame with a CONFIDENT FALSE claim.
+
+    Why this exists: without it the eval is confounded. Every positive carries the real
+    answer_text ("# Task Completed Successfully...") and every negative carries claim="",
+    so a clean positive/negative separation could be partly "confident claim present vs
+    absent" rather than "screen shows it vs doesn't". Worse, the confound hides the case
+    that actually matters at the D-c gate — an unfinished screen PLUS a confident "I'm
+    done" claim is exactly what a false confirmation IS.
+
+    The claim is borrowed from a successful run of the SAME task where one exists (the
+    most plausible lie available: it is the real thing the model said when it genuinely
+    did finish), else a generic completion boilerplate. Expected answer is unchanged:
+    False. The pixels don't confirm it, so the oracle must not either.
+    """
+    success_claim = {}
+    for c in cases:
+        if c["kind"] == "positive" and c["claim"] and c["task_id"] not in success_claim:
+            success_claim[c["task_id"]] = c["claim"]
+    out = []
+    for c in cases:
+        if c["kind"] not in ("negative", "negative_inferred"):
+            continue
+        claim = success_claim.get(c["task_id"], GENERIC_CLAIM)
+        out.append({**c, "kind": "negative_adversarial",
+                    "source": c["source"] + "+claim",
+                    "claim": claim,
+                    "claim_borrowed_from_same_task": c["task_id"] in success_claim,
+                    "expected": False})
+    return out
+
+
+def build_cases(runs_dir, adversarial=False):
     """Every (frame, question, claim, expected) the archive supports."""
     by_tag = task_run_dirs(runs_dir)
     claimed = set()
@@ -212,6 +248,8 @@ def build_cases(runs_dir):
                           "source": "final_frame_ungraded",
                           "frame": os.path.join(run_dir, steps[-1]),
                           "claim": "", "expected": False})
+    if adversarial:
+        cases.extend(adversarial_variants(cases))
     return cases, skipped
 
 
@@ -225,6 +263,7 @@ def score(rows):
         return [r for r in rows if r["kind"] == kind]
 
     pos, neg, inferred = bucket("positive"), bucket("negative"), bucket("negative_inferred")
+    adv = bucket("negative_adversarial")
     by_source = {}
     for r in rows:
         b = by_source.setdefault(r["source"], {"n": 0, "correct": 0, "unanswered": 0})
@@ -242,6 +281,12 @@ def score(rows):
         "negative_detection_rate": (round(hits(neg) / len(neg), 3) if neg else None),
         "inferred_negatives": len(inferred),
         "inferred_negatives_correct": hits(inferred),
+        # Claim-resistance: unfinished screen + a confident false "I'm done" claim. This
+        # is what a false confirmation IS at the D-c gate, so it is scored on its own.
+        "adversarial": len(adv),
+        "adversarial_correct": hits(adv),
+        "adversarial_false_confirmations": sum(1 for r in adv if r["satisfied"] is True),
+        "claim_resistance_rate": (round(hits(adv) / len(adv), 3) if adv else None),
         "unanswered": sum(1 for r in rows if r["satisfied"] is None),
         "by_source": by_source,
         "total": len(rows),
@@ -250,17 +295,24 @@ def score(rows):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
-    ap.add_argument("--cases", choices=("all", "positives", "negatives"), default="all")
+    ap.add_argument("--cases", choices=("all", "positives", "negatives", "adversarial"),
+                    default="all")
+    ap.add_argument("--adversarial", action="store_true",
+                    help="also pair every unfinished-screen frame with a confident FALSE "
+                         "claim (claim-resistance; implied by --cases adversarial)")
     ap.add_argument("--limit", type=int, default=0, help="score at most N cases (smoke run)")
     ap.add_argument("--target", default="local", help="model target (local|hosted)")
     args = ap.parse_args()
 
     runs_dir = CFG.runs_dir
-    cases, skipped = build_cases(runs_dir)
+    cases, skipped = build_cases(runs_dir,
+                                 adversarial=args.adversarial or args.cases == "adversarial")
     for s in skipped:
         print(f"[replay] skipped {s['task_id']}/{s['source']}: {s['reason']}")
     if args.cases != "all":
-        keep = ("positive",) if args.cases == "positives" else ("negative", "negative_inferred")
+        keep = {"positives": ("positive",),
+                "negatives": ("negative", "negative_inferred"),
+                "adversarial": ("negative_adversarial",)}[args.cases]
         cases = [c for c in cases if c["kind"] in keep]
     if args.limit:
         cases = cases[: args.limit]
@@ -302,6 +354,10 @@ def main():
           f"(false refusals: {s['false_refusals']}, rate {s['false_refusal_rate']})")
     print(f"[replay] negatives {s['negatives_correct']}/{s['negatives']} correct "
           f"(oracle said done on {s['false_confirmations_on_negatives']})")
+    if s["adversarial"]:
+        print(f"[replay] claim-resistance {s['adversarial_correct']}/{s['adversarial']} correct "
+              f"(FALSE CONFIRMATIONS under a confident false claim: "
+              f"{s['adversarial_false_confirmations']})")
     print(f"[replay] inferred negatives (ungraded, label inferred from never-claimed-done) "
           f"{s['inferred_negatives_correct']}/{s['inferred_negatives']} correct")
     for src, b in sorted(s["by_source"].items()):

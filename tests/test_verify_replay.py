@@ -18,7 +18,10 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tools.verify_replay import build_cases, resolve_run_dir, score, task_run_dirs
+from tools.verify_replay import (
+    GENERIC_CLAIM, adversarial_variants, build_cases, resolve_run_dir, score,
+    task_run_dirs,
+)
 
 
 def _run_dir(root, name, goal, steps=2, success=True):
@@ -164,6 +167,60 @@ def test_resolve_run_dir_never_reaches_back_before_its_battery():
         "a dir predating the battery cannot belong to it"
     assert resolve_run_dir(by_tag, set(), "battery_x", "20260101_000000") == \
         "battery_x_20260101_000000"
+
+
+def test_adversarial_variants_pair_unfinished_screens_with_a_confident_false_claim():
+    """Without these the eval is confounded: every positive carries a claim and every
+    negative carries none, so the separation could be reading claim-presence rather than
+    pixels — and the case that gates D-c (unfinished screen + confident "I'm done") would
+    go untested."""
+    root = _archive()
+    try:
+        cases, _ = build_cases(root, adversarial=True)
+        adv = [c for c in cases if c["kind"] == "negative_adversarial"]
+        base = [c for c in cases if c["kind"] in ("negative", "negative_inferred")]
+        assert len(adv) == len(base), "every unfinished-screen frame gets a claimed twin"
+        assert all(c["expected"] is False for c in adv), \
+            "a claim does not change the truth: the pixels still don't show it done"
+        assert all(c["claim"] for c in adv)
+        assert all(c["source"].endswith("+claim") for c in adv)
+    finally:
+        shutil.rmtree(root)
+
+
+def test_adversarial_claim_is_borrowed_from_the_same_task_when_one_exists():
+    """The most plausible lie available is the real thing the model said when it genuinely
+    did finish that same task."""
+    root = _archive()
+    try:
+        # editor has a graded-pass run (claim "saved it"); painter has none.
+        cases, _ = build_cases(root, adversarial=True)
+        adv = {c["task_id"]: c for c in cases if c["kind"] == "negative_adversarial"}
+        assert adv["editor"]["claim"] == "saved it"
+        assert adv["editor"]["claim_borrowed_from_same_task"] is True
+        assert adv["painter"]["claim"] == GENERIC_CLAIM
+        assert adv["painter"]["claim_borrowed_from_same_task"] is False
+    finally:
+        shutil.rmtree(root)
+
+
+def test_adversarial_cases_are_off_by_default():
+    root = _archive()
+    try:
+        cases, _ = build_cases(root)
+        assert not any(c["kind"] == "negative_adversarial" for c in cases)
+    finally:
+        shutil.rmtree(root)
+
+
+def test_adversarial_variants_never_derive_from_a_positive():
+    """A positive's frame genuinely shows completion; pairing it with a claim and
+    expecting False would be a fabricated failure."""
+    adv = adversarial_variants([
+        {"kind": "positive", "task_id": "t", "source": "final_frame", "claim": "done"},
+        {"kind": "negative", "task_id": "t", "source": "step_00", "claim": ""},
+    ])
+    assert len(adv) == 1 and adv[0]["source"] == "step_00+claim"
 
 
 def test_score_keeps_inferred_negatives_out_of_the_headline_numbers():

@@ -9,6 +9,23 @@ with longer tasks AND move grading toward automation, human out of the loop;
 loudly; (3) in D-d the plan scopes what the ACTOR sees (true plan-and-execute),
 not gate-only. Body below is the approved text, verbatim._
 
+_Status update 2026-07-23: **slice D-a EXECUTED, its gate PASSES**
+(`docs/SESSION_2026-07-23_phase2_slice_d_a_verifier.md`, branch `slice-d-a-verifier`).
+29/29 on the human-graded set — 14/14 positives, **false-refusal rate 0.0** — plus 80/80
+claim-resistance under a confident false claim, 0 unanswered, median 4.2s per check.
+Evidence: `runs/verify_replay_20260723_000637/`, `runs/verify_replay_20260723_002007/`.
+Two results feed forward and REFINE the slices below, which are otherwise unchanged:
+(1) **D-b task authoring** — the one real oracle miss confirmed *the target exists*
+rather than *the action's effect* on a task phrased as an action ("click the WiFi icon"),
+so new battery tasks must state an END STATE. (2) **D-d, upgraded from preference to
+correctness requirement** — that miss occurred with NO claim attached, and the same case
+answered correctly once a claim was present, so the failure mode is action-phrased
+postcondition + claimless check, which is exactly how a subgoal check runs. D-d must
+**reject or rewrite** action-phrased subgoal postconditions at the harvest point, not
+merely prefer state phrasing; native's prompt asks for verb-first goal titles, so action
+phrasing is the DEFAULT output. (3) D-c's stated gate (false-refusal ≈ 0) is met offline
+on replayed frames; D-b's shadow run is what confirms it live._
+
 ---
 
 

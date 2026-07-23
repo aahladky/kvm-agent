@@ -219,14 +219,29 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   **29/29 on human-graded cases — 14/14 positives (false-refusal rate 0.0, the number
   gating slice D-c) and 15/15 negatives (0 false confirmations)**, plus 64/65 on ungraded
   failed runs; 0 unanswered; median 4.2s and ~1.4k prompt tokens per check (~1/3 of an
-  actor step). Two findings: three apparent misses were the LABEL being wrong (an
-  observation task's postcondition already holds at `step_00` — now excluded with the
-  reason recorded), and the one real miss confirmed *the target exists* rather than *the
-  action's effect* on an action-phrased task ("click the WiFi icon"), which is why D-b's
-  new tasks and D-d's subgoal postconditions must be phrased as END STATES.
+  actor step). **Claim-resistance 80/80, 0 false confirmations**
+  (`runs/verify_replay_20260723_002007/`, `--cases adversarial`): every unfinished-screen
+  frame re-run with a confident FALSE "task complete" claim attached, because otherwise
+  the eval is confounded (every positive carried a claim, every negative carried none) and
+  the case that gates D-c — unfinished screen + confident claim — goes untested. The
+  oracle does not fold to a confident lie.
+  Two findings: three apparent misses were the LABEL being wrong (an observation task's
+  postcondition already holds at `step_00` — now excluded with the reason recorded), and
+  the one real miss (`small_target_tray`) confirmed *the target exists* rather than *the
+  action's effect* on an action-phrased task ("click the WiFi icon") **with no claim
+  attached** — the same case answered correctly once a claim was present ("no icon that
+  has been clicked or activated"). So the failure mode is specifically action-phrased
+  postcondition + claimless check, which is exactly how a SUBGOAL check runs (no `answer`
+  text at a subgoal boundary). D-b's new tasks must be phrased as END STATES, and D-d must
+  *reject or rewrite* action-phrased subgoal postconditions at harvest — native's prompt
+  asks for verb-first goal titles, so action phrasing is the default output, not an edge
+  case. A test also caught a real contract violation: `call_holo_verify` built its client
+  outside its own try/except, so a client-construction failure propagated instead of
+  becoming `satisfied=None` (fixed; `_target_config` stays outside — a bad target is a
+  caller bug, not a model-side failure).
   **Honest limit**: no archived run has a false `finished` claim, so the negatives measure
   unfinished-screen recognition, NOT a true false-confirmation rate — that needs D-b.
-  Tests 86 → 110 green. Evidence: `runs/verify_replay_20260723_000637/results.json`
+  Tests 86 → 116 green. Evidence: `runs/verify_replay_20260723_000637/results.json`
   (and the pre-fix run `runs/verify_replay_20260722_235815/`),
   `docs/SESSION_2026-07-23_phase2_slice_d_a_verifier.md`.
 - **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples

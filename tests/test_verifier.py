@@ -20,10 +20,25 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import kvm_agent.models.holo as holo
 from kvm_agent.models.base import Verdict, Verifier
 from kvm_agent.models.holo import (
-    VERIFY_SCHEMA, HoloVerifier, parse_verdict, verify_message,
+    VERIFY_SCHEMA, HoloVerifier, call_holo_verify, parse_verdict, verify_message,
 )
+
+
+class _NullLog:
+    """REQUEST_LOG stand-in: keeps the suite from appending to runs/logs/."""
+
+    def __init__(self):
+        self.records = []
+
+    def write(self, record):
+        self.records.append(record)
+
+    @staticmethod
+    def _redact(messages):
+        return messages
 
 
 def _msg(payload):
@@ -169,6 +184,58 @@ def test_check_is_stateless_across_calls():
     verifier.check("frame_b", 1280, 720, "task two")
     assert calls == [("frame_a", "task one", "first"), ("frame_b", "task two", "")]
     assert not hasattr(verifier, "history")
+
+
+def test_endpoint_failure_becomes_satisfied_none_not_a_raise_and_not_a_pass():
+    """The fail-visible contract AT THE NETWORK BOUNDARY — the path most likely to fire in
+    a long unattended run (timeout, connection drop, llama-swap mid-swap). It must produce
+    satisfied=None: a raise would force every call site to invent its own opinion about
+    what a failure means, and a True would launder a missing check into a passing one."""
+    saved_client, saved_log = holo.openai_client, holo.REQUEST_LOG
+    holo.REQUEST_LOG = _NullLog()
+    def exploding_client(*a, **k):
+        raise TimeoutError("read timed out")
+    holo.openai_client = exploding_client
+    try:
+        v = call_holo_verify("data:x", "did it save?")
+        assert v.satisfied is None, "an endpoint failure must never be a verdict"
+        assert v.answered is False
+        assert "read timed out" in v.evidence, "the reason must survive into the record"
+        assert v.wall_time_s >= 0
+        assert holo.REQUEST_LOG.records and "error" in holo.REQUEST_LOG.records[0], \
+            "the failure is logged, not swallowed"
+    finally:
+        holo.openai_client, holo.REQUEST_LOG = saved_client, saved_log
+
+
+def test_a_bad_response_body_becomes_satisfied_none_end_to_end():
+    """Same contract one layer up: the call succeeds but the body is junk."""
+    class _Resp:
+        class _Choice:
+            class _Msg:
+                @staticmethod
+                def model_dump():
+                    return {"content": "I think it probably worked?"}
+            message = _Msg()
+        choices = [_Choice()]
+        usage = None
+
+    class _Client:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kwargs):
+                    return _Resp()
+
+    saved_client, saved_log = holo.openai_client, holo.REQUEST_LOG
+    holo.REQUEST_LOG = _NullLog()
+    holo.openai_client = lambda *a, **k: _Client()
+    try:
+        v = call_holo_verify("data:x", "did it save?")
+        assert v.satisfied is None
+        assert "not JSON" in v.evidence
+    finally:
+        holo.openai_client, holo.REQUEST_LOG = saved_client, saved_log
 
 
 def test_a_raising_call_fn_is_not_swallowed_into_a_pass():

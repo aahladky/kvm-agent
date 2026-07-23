@@ -21,6 +21,23 @@ Holo-backed oracle works at all. It does.
 median 1406 prompt / 69 completion tokens — cheap enough for a per-subgoal gate, and
 roughly a third of an actor step (~15s).
 
+## Claim-resistance: the confound, and closing it
+
+The table above has a hole that a review caught: **every positive carries the real
+`answer_text` claim and every negative carries `claim=""`**, so a clean separation could
+partly be reading *claim present vs absent* rather than *pixels show it vs don't*. Worse,
+the confound hides the case that actually gates D-c — an unfinished screen **plus** a
+confident "I'm done" claim is what a false confirmation IS.
+
+Testable offline, from data already on disk. `--cases adversarial` pairs every
+unfinished-screen frame with a confident false claim (borrowed from a successful run of
+the *same* task where one exists — the most plausible lie available — else a generic
+completion boilerplate), expected answer unchanged: False.
+
+**Result: 80/80 correct, 0 false confirmations** (`runs/verify_replay_20260723_002007/`).
+The oracle does not fold to a confident false claim. The D-c gate criterion
+(false-refusal ≈ 0) is therefore not resting on a confounded number.
+
 ## What the eval set is, and its honest limit
 
 Built entirely from `runs/`: `runs/battery_<ts>/results.json` carries `run_tag` + human
@@ -61,10 +78,24 @@ network/WiFi icon in the system tray"*. The oracle answered satisfied=True with 
 **the target exists** rather than **the action's effect**.
 
 The task is phrased as an *action*, not an *end state*, so there was no checkable
-postcondition to find. Two concrete consequences for later slices, both cheap:
+postcondition to find. This is the project's **one empirical false confirmation** — and
+note it needed no misleading claim to produce: `claim=""`, pure pixel misjudgment.
+
+The adversarial run sharpened it further. The same frame and task, with a confident false
+claim attached, answered **False**: *"there is no visible network/WiFi icon that has been
+**clicked or activated**"*. Having a claim to check against pushed the oracle to look for
+the action's effect instead of the target's existence. So the failure mode is specifically
+**action-phrased postcondition + no claim** — and that is exactly the configuration a
+subgoal check runs in, because there is no `answer` text at a subgoal boundary.
+
+Consequences, one per slice:
 - **D-b task authoring**: new battery tasks state an end state ("the network flyout is
   open"), never a bare action ("click the icon").
-- **D-d subgoal postconditions**: same rule, enforced at the point the plan is harvested.
+- **D-d, upgraded from preference to correctness requirement**: subgoal postconditions
+  must be *rejected or rewritten* when action-phrased, enforced at the point the plan is
+  harvested. An `update_plan` goal titled "Click the Save button" would be systematically
+  false-confirmed by a claimless check — and native's prompt asks for verb-first titles,
+  so action phrasing is the *default* output, not an edge case.
 
 Note the failure was *legible* — the evidence string names exactly the wrong reason. That
 is the property that makes an automated grade auditable, and it's why `evidence` is
@@ -96,11 +127,18 @@ recorded for every verdict including the passing ones.
 - **`tools/verify_replay.py`** (new): the offline eval. Incremental writes so an
   interrupt never loses calls already paid for; per-source score breakdown; inferred
   negatives kept out of the headline numbers.
-- **Tests 86 → 110 green** (offline, no endpoint): `tests/test_verifier.py` (16 —
-  Protocol conformance, message statelessness, the untrusted-claim block, and the whole
-  fail-visible surface incl. `{"satisfied": "false"}` never coercing to True) and
-  `tests/test_verify_replay.py` (8 — the labelling logic, since a mislabelled eval set
-  produces confident nonsense, as this session demonstrated).
+- **Tests 86 → 116 green** (offline, endpoint never touched by the suite):
+  `tests/test_verifier.py` (18 — Protocol conformance, message statelessness, the
+  untrusted-claim block, and the whole fail-visible surface incl. `{"satisfied": "false"}`
+  never coercing to True) and `tests/test_verify_replay.py` (12 — the labelling logic,
+  since a mislabelled eval set produces confident nonsense, as this session demonstrated).
+
+**A test found a real contract violation.** `call_holo_verify` promises never to raise for
+a model-side failure, but constructed the OpenAI client *outside* its try/except — so a
+client-construction failure (import, bad base_url, llama-swap mid-swap) propagated instead
+of becoming `satisfied=None`. That is the path most likely to fire in a long unattended
+run. Construction moved inside the guard; `_target_config` deliberately stays outside
+(an unknown target is a caller bug, not a model-side failure).
 
 ## Verification
 
@@ -108,7 +146,9 @@ recorded for every verdict including the passing ones.
 - `python tests/test_verifier.py` / `test_verify_replay.py` — dual-mode script runs pass.
 - `python -m kvm_agent.models.holo` self-test — 11/11 fixtures, all 10 tools, projection
   check OK (unchanged: the actor path was not touched).
-- `python tools/verify_replay.py` — `runs/verify_replay_20260723_000637/`.
+- `python tools/verify_replay.py` — `runs/verify_replay_20260723_000637/` (main eval).
+- `python tools/verify_replay.py --cases adversarial` —
+  `runs/verify_replay_20260723_002007/` (claim-resistance, 80/80).
 
 ## Follow-ups
 

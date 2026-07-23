@@ -769,14 +769,21 @@ def call_holo_verify(image_data_url: str, question: str, claim: str = "",
     usage and http_ms for verification are captured from day one without a second
     logging path.
     """
+    # _target_config stays OUTSIDE the guard: an unknown target is a caller bug, not a
+    # model-side failure, and the contract only promises to absorb the latter.
     base_url, model, api_key = _target_config(target)
-    client = openai_client(base_url=base_url, api_key=api_key or "unused")
     messages = verify_message(image_data_url, question, claim)
     log = {"kind": "verify", "target": target, "model": model,
            "messages": REQUEST_LOG._redact(messages), "question": question, "claim": claim,
            "response_format": VERIFY_SCHEMA, "temperature": temperature}
     t0 = time.time()
     try:
+        # Client CONSTRUCTION is inside the guard too (2026-07-23: a test of the contract
+        # caught it outside). openai_client imports and builds the SDK client and can
+        # raise on its own -- and "the oracle could not be reached" is exactly the
+        # model-side failure satisfied=None exists for, whether it fails at connect or
+        # at request time.
+        client = openai_client(base_url=base_url, api_key=api_key or "unused")
         resp = client.chat.completions.create(
             model=model, messages=messages, response_format=VERIFY_SCHEMA,
             max_tokens=max_tokens, temperature=temperature,
