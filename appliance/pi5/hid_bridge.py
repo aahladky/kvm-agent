@@ -62,12 +62,15 @@ CMD_LOG = None    # CommandLogger, set in main()
 
 def _wire_info(link_result):
     """link_result is whatever a PicoHidLink method returned: a _roundtrip() dict
-    ({"code","raw","ms"}) for every real command now (2026-07-19 -- see
-    pikvm_proto.py's higher-level methods, which used to return None and discard this)."""
+    ({"code","raw","ms","retries"}) for every real command now (2026-07-19 -- see
+    pikvm_proto.py's higher-level methods, which used to return None and discard this).
+    `retries` (2026-07-22, Phase 0 firmware hardening) surfaces host-side retry
+    activity in every response and the wire log, not just on outright failure."""
     if link_result is None:
         return None
-    info = decode_code(link_result["code"])
+    info = decode_code(link_result["code"], link_result.get("raw"))
     info["wire_ms"] = link_result["ms"]
+    info["retries"] = link_result.get("retries", 0)
     return info
 
 
@@ -148,8 +151,13 @@ def _cmd_probe(q):
     # kbd/mouse flags = the firmware's view of whether each HID collection is online at
     # the target OS. The composite device can come up HALF-dead (keyboard alive, mouse
     # dead -- seen live 2026-07-18), so both must be surfaced for reset verification.
+    # watchdog_rebooted/usb_suspended (2026-07-22, Phase 0 firmware hardening): a
+    # hang or a suspended-bus event must be visible in /health, not just buried in
+    # the wire log -- "make failure loud" applies to the appliance's own state too.
     ack = (f"PROBE caps={p['caps']} num={p['num']} scroll={p['scroll']} "
-           f"kbd={int(p['kbd_online'])} mouse={int(p['mouse_online'])}")
+           f"kbd={int(p['kbd_online'])} mouse={int(p['mouse_online'])} "
+           f"watchdog_rebooted={int(p['watchdog_rebooted'])} "
+           f"usb_suspended={int(p.get('usb_suspended', 0))}")
     return ack, p
 
 

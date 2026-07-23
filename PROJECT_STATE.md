@@ -25,6 +25,11 @@ OS-agnostic, undetectable. Pure curiosity project.
   (C/TinyUSB, PiKVM port, CRC16 binary protocol over 3-wire UART); Pi 5 runs
   `hid_bridge.py` (HTTP API, `http://192.168.0.29:8080`). Host client:
   `kvm_agent/hardware/appliance.py`. `clear_hid` (all-keys-up) runs on connect + close.
+  Phase 0 hardening (roadmap, Slice B — code landed 2026-07-22, soak-gate pending):
+  1s HW watchdog in `main.c`; host-side `_roundtrip` retry (`pikvm_proto.py`); mouse
+  ABS report retain+resend on USB suspend; `PONG_WATCHDOG_REBOOTED`/
+  `PONG2_USB_SUSPENDED` visibility bits surfaced through `/health` and the wire log.
+  See Solved §3 and `tools/soak.py`.
 - **CAPTURE** — HDMI capture card via cv2 (V4L2 on the Linux host), `Camera` +
   `FrameBuffer` (monotonic frame seq) in `kvm_agent/hardware/env.py`.
 - **TARGET** — physical spare laptop (Ubuntu/GNOME as of 2026-07-21; formerly
@@ -139,6 +144,27 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   rounds landed together — uncontrolled). Run config: GNOME target, native 720p,
   `HOLO_HISTORY_IMAGES=3`. Evidence: `runs/battery_20260721_235153/`; full review
   in `docs/SESSION_2026-07-22_first_complete_battery.md`.
+- **Roadmap Phase 0, firmware hardening (Slice B, 2026-07-22, code landed, soak
+  gate pending):** HW watchdog (`watchdog_enable(1000, true)` in `main.c`,
+  gated pet, `watchdog_enable_caused_reboot()` read before re-arming — verified
+  it and the mode-change reboot use scratch[4], `ph_outputs.c`'s mode persistence
+  uses scratch[0], no collision) surfaced as new PONG bit
+  `PH_PROTO_PONG_WATCHDOG_REBOOTED` (0x20, the only free bit in resp[1]). Host
+  `pikvm_proto.PicoHidLink._roundtrip` retries: NACK (well-framed rejection) retries
+  ANY command; an ambiguous (no/garbled) response retries only idempotent commands
+  {PING, CLEAR_HID, KBD_KEY, MOUSE_ABS, MOUSE_BUTTON}, never MOUSE_WHEEL (relative
+  delta); 150ms pre-retry pause doubles as the firmware's 100ms UART resync
+  trigger; `retries` count in every response + the wire log. Mouse ABS
+  retain+resend (see Open Problems' long-idle mouse-death entry) mirrors kbd's
+  existing pattern; `PH_PROTO_PONG2_USB_SUSPENDED` (resp[4], previously always-zero
+  padding) exposes `tud_suspended()` for visibility. `tools/soak.py` (new): the
+  Phase-0 gate harness — probe every 10s, corner-move + camera-liveness check every
+  5min, JSONL to `runs/soak_<ts>/`, operator-driven fault injection. Firmware
+  compiles clean (`-Wall -Wextra`, both `cmake` and the real `make` deploy path) —
+  verified in this session; NOT yet flashed/deployed/soaked. Tests 71 → 79 green
+  (`tests/test_pikvm_proto_retry.py`, fake serial). Evidence:
+  `docs/SESSION_2026-07-22_slice_b_firmware_hardening.md` (no `runs/` evidence —
+  offline + build verification only, no hardware touched yet).
 
 ## 4. Open problems
 
@@ -173,21 +199,25 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   camera principle exists for). Remote wakeup IS advertised in the config
   descriptor (`ph_usb.c:360`), but if the target OS never enabled it on the
   device, `tud_remote_wakeup()` is a silent no-op and only a replug (re-enumerate)
-  revives the mouse. Inherited upstream PiKVM behavior. Fix candidates, folded
-  into the Phase 0 firmware slice: (a) mouse suspend path retains + re-sends like
-  the kbd path; (b) expose `tud_suspended()` in the PONG so the bridge can refuse
-  or flag commands into a suspended bus instead of ACKing swallowed events;
-  (c) if the target won't honor remote wakeup, a bridge-side zero-delta HID
-  keep-alive to hold off autosuspend (transport-level, not model-level input).
-  Verify against the soak harness's long-idle window before trusting any of it.
+  revives the mouse. Inherited upstream PiKVM behavior. **Fix (a) LANDED 2026-07-22**
+  (Slice B, `docs/SESSION_2026-07-22_slice_b_firmware_hardening.md`): the mouse ABS
+  report path now retains+retries like the kbd path (`_mouse_abs_try_send`,
+  `ph_usb.c`) instead of dropping on suspend; REL mode is untouched (not in this
+  project's live deployment). **Fix (b) LANDED as visibility-only**: `tud_suspended()`
+  exposed as a new PONG2 byte (`PH_PROTO_PONG2_USB_SUSPENDED`, resp[4] — previously
+  always-zero padding), decoded host-side and surfaced in `/health` + the wire log;
+  active refuse-into-a-suspended-bus behavior was NOT added (bigger behavior change,
+  unproven need). **Fix (c) (bridge-side keep-alive) DEFERRED** — speculative,
+  build only if the soak shows (a)+(b) aren't enough. Verify all of this against
+  the soak harness's long-idle window (`tools/soak.py`, new 2026-07-22) before
+  trusting it — not yet run.
 - Windows-era items, moot while the target is GNOME (re-open on a Windows target):
   ~70s OS dead window post-reboot (psr.exe zip outstanding), windows_calc class
   (WinUI3 date-picker + stuck-popup), Store auto-update pause expiry.
 - Deferred: power-control backend, automated fail-closed vision grading (schema
   slot exists), superseded adoption (structured-output rearchitecture +
-  resolution sync). The firmware HID watchdog left this list 2026-07-22 — it is
-  scheduled as the roadmap's Phase 0 hardening slice (`docs/ROADMAP.md` §4,
-  after the TOCTOU guard).
+  resolution sync), bridge-side suspend keep-alive (mouse-death fix candidate (c)
+  above, pending soak evidence it's actually needed).
 
 ## 5. Retired
 

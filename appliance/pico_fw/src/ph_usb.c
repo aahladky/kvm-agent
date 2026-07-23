@@ -42,6 +42,7 @@
 u8 ph_g_usb_kbd_leds = 0;
 bool ph_g_usb_kbd_online = true;
 bool ph_g_usb_mouse_online = true;
+bool ph_g_usb_suspended = false;
 
 static int _kbd_iface = -1;
 static int _mouse_iface = -1;
@@ -55,8 +56,22 @@ static s16 _mouse_abs_x = 0;
 static s16 _mouse_abs_y = 0;
 #define _MOUSE_CLEAR { _mouse_buttons = 0; }
 
+// ABS report retain+resend (2026-07-22, Phase 0 firmware hardening, long-idle
+// mouse-death diagnosis, PROJECT_STATE.md): mirrors _kbd_sync_report's existing
+// retain-and-retry pattern below. Before this fix, a report attempted while the
+// bus was suspended was DROPPED (the old _CHECK_MOUSE macro: tud_remote_wakeup(),
+// _MOUSE_CLEAR, return -- no retry), while the UART still PONGed OK: delivered-
+// to-wire silently became "delivered", exactly the lie the camera principle
+// exists for. ABS only -- REL mode is not in this project's live deployment
+// (GPIO defaults select ABS at boot, ph_outputs.c) and replaying a stale relative
+// delta after an arbitrary suspend gap has different, unverified semantics; fix
+// that path if/when REL is actually used. _mouse_rel_send_report is unchanged.
+static bool _mouse_abs_sent = true;
+static s8 _mouse_pending_v = 0;   // wheel delta: transient, must replay EXACTLY once
+
 
 static void _kbd_sync_report(bool new);
+static void _mouse_abs_try_send(void);
 static void _mouse_abs_send_report(s8 h, s8 v);
 static void _mouse_rel_send_report(s8 x, s8 y, s8 h, s8 v);
 
@@ -70,6 +85,7 @@ void ph_usb_init(void) {
 void ph_usb_task(void) {
 	if (ph_g_is_bridge || PH_O_IS_KBD_USB || PH_O_IS_MOUSE_USB) {
 		tud_task();
+		ph_g_usb_suspended = tud_suspended();
 
 		static u64 next_ts = 0;
 		const u64 now_ts = time_us_64();
@@ -100,6 +116,10 @@ void ph_usb_task(void) {
 			if (_mouse_iface >= 0) {
 				CHECK_IFACE(mouse);
 				(void)force;
+				// Retry a pending ABS report every tick, same cadence as kbd's
+				// _kbd_sync_report(force) above -- see _mouse_abs_try_send()'s own
+				// comment for why this exists.
+				_mouse_abs_try_send();
 			}
 
 #			undef CHECK_IFACE
@@ -230,15 +250,23 @@ static void _kbd_sync_report(bool new) {
 	}
 }
 
+// Used only by _mouse_rel_send_report now -- _mouse_abs_send_report/_try_send below
+// have their own retain+retry logic instead of dropping on suspend (see the
+// _mouse_abs_sent comment above).
 #define _CHECK_MOUSE(x_mode) { \
 		if (_mouse_iface < 0 || !PH_O_IS_MOUSE_USB_##x_mode) { _MOUSE_CLEAR; return; } \
 		if (tud_suspended()) { tud_remote_wakeup(); _MOUSE_CLEAR; return; } \
 	}
 
 
-static void _mouse_abs_send_report(s8 h, s8 v) {
-	(void)h; // Horizontal scrolling is not supported due BIOS/UEFI compatibility reasons
-	_CHECK_MOUSE(ABS);
+static void _mouse_abs_try_send(void) {
+	if (_mouse_iface < 0 || !PH_O_IS_MOUSE_USB_ABS || _mouse_abs_sent) {
+		return;
+	}
+	if (tud_suspended()) {
+		tud_remote_wakeup();
+		return; // retried on the next ph_usb_task() tick -- NOT dropped, NOT cleared
+	}
 	u16 x = ((s32)_mouse_abs_x + 32768) / 2;
 	u16 y = ((s32)_mouse_abs_y + 32768) / 2;
 	if (PH_O_MOUSE(USB_W98)) {
@@ -250,8 +278,22 @@ static void _mouse_abs_send_report(s8 h, s8 v) {
 		u16 x;
 		u16 y;
 		s8 v;
-	} report = {_mouse_buttons, x, y, v};
-	tud_hid_n_report(_mouse_iface, 0, &report, sizeof(report));
+	} report = {_mouse_buttons, x, y, _mouse_pending_v};
+	_mouse_abs_sent = tud_hid_n_report(_mouse_iface, 0, &report, sizeof(report));
+	if (_mouse_abs_sent) {
+		_mouse_pending_v = 0; // delta consumed -- never replay a stale scroll tick
+	}
+}
+
+static void _mouse_abs_send_report(s8 h, s8 v) {
+	(void)h; // Horizontal scrolling is not supported due BIOS/UEFI compatibility reasons
+	if (_mouse_iface < 0 || !PH_O_IS_MOUSE_USB_ABS) {
+		_MOUSE_CLEAR;
+		return;
+	}
+	_mouse_pending_v = v;
+	_mouse_abs_sent = false;
+	_mouse_abs_try_send();
 }
 
 static void _mouse_rel_send_report(s8 x, s8 y, s8 h, s8 v) {

@@ -107,6 +107,17 @@ MAGIC, MAGIC_RESP = 0x33, 0x34
 PONG_OK = 0x80
 PONG_CAPS, PONG_SCROLL, PONG_NUM = 0x01, 0x02, 0x04
 PONG_KBD_OFFLINE, PONG_MOUSE_OFFLINE = 0x08, 0x10
+# 2026-07-22, Phase 0 firmware hardening (docs/ROADMAP.md): an unpetted-hang
+# watchdog reboot, distinct from the deliberate SET_KBD/SET_MOUSE mode-change
+# reboot -- this host defines no SET_KBD/SET_MOUSE commands (see CMD_* below), so
+# for THIS host a watchdog-rebooted PONG always means a genuine hang, never a
+# deliberate mode change.
+PONG_WATCHDOG_REBOOTED = 0x20
+# resp[4] extended flags -- previously always-zero padding (ph_proto.h), so this
+# is a fresh byte, not a bit stolen from resp[1]/resp[2]/resp[3]'s existing
+# semantics. Long-idle mouse-death diagnosis (PROJECT_STATE.md): lets the bridge
+# tell "delivered to a suspended bus" apart from a genuine ACK.
+PONG2_USB_SUSPENDED = 0x01
 
 CMD_PING = 0x01
 CMD_CLEAR_HID = 0x10
@@ -115,26 +126,47 @@ CMD_MOUSE_ABS = 0x12
 CMD_MOUSE_BUTTON = 0x13
 CMD_MOUSE_WHEEL = 0x14
 
+# Host retry (2026-07-22, Phase 0 firmware hardening): commands whose payload is a
+# full absolute-state assertion, so re-sending an identical frame after an
+# ambiguous (no/garbled) response is safe -- the pico ends up in the same state
+# either way. CMD_MOUSE_WHEEL is EXCLUDED: its payload is a relative delta, so a
+# spurious retry could double-scroll if the first attempt actually landed.
+IDEMPOTENT_CMDS = frozenset({CMD_PING, CMD_CLEAR_HID, CMD_KBD_KEY, CMD_MOUSE_ABS, CMD_MOUSE_BUTTON})
+MAX_RETRIES = 2
+# > the firmware's 100ms UART idle-gap resync window (ph_com_uart.c) -- the pause
+# doubles as the resync trigger, buying self-healing framing for free.
+RETRY_PAUSE_S = 0.150
+
 _BTN_LEFT_SEL, _BTN_LEFT_ST = 0x80, 0x08
 _BTN_RIGHT_SEL, _BTN_RIGHT_ST = 0x40, 0x04
 _BTN_MIDDLE_SEL, _BTN_MIDDLE_ST = 0x20, 0x02
 
 
-def decode_code(code):
+def decode_code(code, raw=None):
     """Decode the Pico's response `code` byte into the target-side state it reports on
     EVERY successful response, not just probe/ping (2026-07-19). kbd_online/mouse_online
     reflect whether the USB HOST (the Windows guest) currently has each HID collection
     enumerated -- this is the closest thing to a genuine "did the target receive this"
     signal available without installing anything on the target. Previously only ping()/
     probe() looked at this; every other command (_roundtrip via mouse_abs/kbd_key/etc.)
-    got it back too but hid_bridge.py discarded it. See hid_bridge.py's command logging."""
-    return {
+    got it back too but hid_bridge.py discarded it. See hid_bridge.py's command logging.
+
+    `raw` (2026-07-22, Phase 0 firmware hardening): the full 8-byte response, if the
+    caller has it -- decodes resp[4]'s usb_suspended bit too. Optional (defaults to
+    omitting that key) so callers that only ever had the `code` byte don't need to
+    change; every real caller in this codebase now passes the full response (see
+    probe() and hid_bridge.py's _wire_info)."""
+    info = {
         "caps": 1 if code & PONG_CAPS else 0,
         "num": 1 if code & PONG_NUM else 0,
         "scroll": 1 if code & PONG_SCROLL else 0,
         "kbd_online": not (code & PONG_KBD_OFFLINE),
         "mouse_online": not (code & PONG_MOUSE_OFFLINE),
+        "watchdog_rebooted": bool(code & PONG_WATCHDOG_REBOOTED),
     }
+    if raw is not None and len(raw) > 4:
+        info["usb_suspended"] = bool(raw[4] & PONG2_USB_SUSPENDED)
+    return info
 
 
 def crc16(data):
@@ -161,6 +193,18 @@ class ProtoError(RuntimeError):
     pass
 
 
+class _NackError(ProtoError):
+    """A well-framed response came back with a non-OK code (CRC_ERROR/INVALID_ERROR/
+    TIMEOUT_ERROR) -- the pico definitely received and rejected the request. Internal
+    to _roundtrip's retry logic (see its docstring); never raised past PicoHidLink."""
+
+
+class _AmbiguousError(ProtoError):
+    """No/garbled response (short read, bad magic, CRC mismatch) -- we genuinely don't
+    know whether the pico received/executed the command. Internal to _roundtrip's
+    retry logic (see its docstring); never raised past PicoHidLink."""
+
+
 class PicoHidLink:
     """One persistent UART link speaking PiKVM's binary frame protocol. Thread-safe;
     every public call is a blocking request/response round trip."""
@@ -173,7 +217,11 @@ class PicoHidLink:
         time.sleep(0.2)
         self.ser.reset_input_buffer()
 
-    def _roundtrip(self, cmd, payload=b""):
+    def _attempt(self, cmd, payload):
+        """One wire round trip, no retry. Raises _AmbiguousError for a no/garbled
+        response (we genuinely don't know if the pico saw it) or _NackError for a
+        well-framed error code (the pico definitely saw AND rejected it) -- _roundtrip
+        below decides which of those is safe to retry."""
         req = _frame(cmd, payload)
         with self.lock:
             self.ser.reset_input_buffer()
@@ -182,15 +230,42 @@ class PicoHidLink:
             resp = self.ser.read(8)
             ms = (time.time() - t0) * 1000.0
         if len(resp) != 8:
-            raise ProtoError(f"short/no response ({len(resp)} bytes)")
+            raise _AmbiguousError(f"short/no response ({len(resp)} bytes)")
         if resp[0] != MAGIC_RESP:
-            raise ProtoError(f"bad magic 0x{resp[0]:02x}")
+            raise _AmbiguousError(f"bad magic 0x{resp[0]:02x}")
         if crc16(resp[:6]) != ((resp[6] << 8) | resp[7]):
-            raise ProtoError("crc mismatch")
+            raise _AmbiguousError("crc mismatch")
         code = resp[1]
         if not (code & PONG_OK):
-            raise ProtoError(f"pico error code=0x{code:02x}")
+            raise _NackError(f"pico error code=0x{code:02x}")
         return {"code": code, "raw": resp, "ms": round(ms, 1)}
+
+    def _roundtrip(self, cmd, payload=b""):
+        """_attempt() with retry (2026-07-22, Phase 0 firmware hardening): a NACK
+        (well-framed error code) is safe to retry for ANY command -- the pico
+        definitely saw the request, nothing is ambiguous about re-sending the exact
+        same frame. An AMBIGUOUS failure (no/garbled response) only retries
+        IDEMPOTENT_CMDS -- a non-idempotent command (MOUSE_WHEEL) surfaces
+        immediately instead of guessing, so a possibly-already-delivered relative
+        scroll delta never fires twice. RETRY_PAUSE_S is deliberately longer than
+        the firmware's 100ms UART idle-gap resync window (ph_com_uart.c), so the
+        pause doubles as the resync trigger."""
+        idempotent = cmd in IDEMPOTENT_CMDS
+        last_exc = None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                result = self._attempt(cmd, payload)
+                result["retries"] = attempt
+                return result
+            except _NackError as e:
+                last_exc = e
+            except _AmbiguousError as e:
+                last_exc = e
+                if not idempotent:
+                    raise ProtoError(str(e)) from e
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_PAUSE_S)
+        raise ProtoError(f"{last_exc} (exhausted after {MAX_RETRIES + 1} attempts)")
 
     # -- primitives --
     def ping(self):
@@ -288,7 +363,8 @@ class PicoHidLink:
         return self.mouse_button(_BTN_LEFT_SEL)
 
     def probe(self):
-        return decode_code(self.ping()["code"])
+        r = self.ping()
+        return decode_code(r["code"], r.get("raw"))
 
 
 def _px_to_proto(px, screen_dim):

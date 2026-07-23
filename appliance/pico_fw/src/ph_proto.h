@@ -41,7 +41,19 @@
 #define PH_PROTO_PONG_NUM				((u8)0b00000100)
 #define PH_PROTO_PONG_KBD_OFFLINE		((u8)0b00001000)
 #define PH_PROTO_PONG_MOUSE_OFFLINE		((u8)0b00010000)
+// 0b00100000 (0x20) was the only unused bit here (RESET_REQUIRED already claims
+// 0x40) -- added 2026-07-22, Phase 0 firmware hardening (docs/ROADMAP.md): loudly
+// surface an unpetted-hang watchdog reboot, distinct from the deliberate
+// mode-change RESET_REQUIRED reboot below.
+#define PH_PROTO_PONG_WATCHDOG_REBOOTED	((u8)0b00100000)
 #define PH_PROTO_PONG_RESET_REQUIRED	((u8)0b01000000)
+
+// resp[4] (2026-07-22): previously always zero-padding (see main.c's _send_response),
+// so this is free real estate rather than a bit stolen from resp[2]/resp[3]'s
+// existing capability/output-mode semantics. Added for the long-idle mouse-suspend
+// diagnosis (PROJECT_STATE.md): exposes tud_suspended() so the host can tell
+// "delivered to wire, dropped by a suspended USB bus" apart from a genuine ACK.
+#define PH_PROTO_PONG2_USB_SUSPENDED	((u8)0b00000001)
 
 // Complex request/response flags
 #define PH_PROTO_OUT1_DYNAMIC			((u8)0b10000000)

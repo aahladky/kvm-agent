@@ -28,6 +28,11 @@
 extern u8 ph_g_usb_kbd_leds;
 extern bool ph_g_usb_kbd_online;
 extern bool ph_g_usb_mouse_online;
+// tud_suspended(), refreshed every ph_usb_task() tick (2026-07-22, long-idle
+// mouse-death diagnosis, PROJECT_STATE.md) -- lets main.c surface bus-suspended
+// state in the PONG (PH_PROTO_PONG2_USB_SUSPENDED) without pulling tusb.h into
+// main.c just for this one read.
+extern bool ph_g_usb_suspended;
 
 
 void ph_usb_init(void);

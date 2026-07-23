@@ -36,6 +36,10 @@
 
 
 static bool _reset_required = false;
+// Set once at boot from watchdog_enable_caused_reboot() (main(), below) -- true only
+// after a genuinely unpetted hang, never after the deliberate mode-change reboot
+// (which clears the same scratch register via watchdog_reboot(), see main()'s comment).
+static bool _watchdog_rebooted = false;
 
 
 static u8 _handle_request(const u8 *data) { // 8 bytes
@@ -82,12 +86,18 @@ static void _send_response(u8 code) {
 		if (_reset_required) {
 			resp[1] |= PH_PROTO_PONG_RESET_REQUIRED;
 		}
+		if (_watchdog_rebooted) {
+			resp[1] |= PH_PROTO_PONG_WATCHDOG_REBOOTED;
+		}
 		resp[2] = PH_PROTO_OUT1_DYNAMIC;
 
 		resp[1] |= ph_cmd_get_offlines();
 		resp[1] |= ph_cmd_kbd_get_leds();
 		resp[2] |= ph_g_outputs_active;
 		resp[3] |= ph_g_outputs_avail;
+		if (ph_g_usb_suspended) {
+			resp[4] |= PH_PROTO_PONG2_USB_SUSPENDED;
+		}
 	} else {
 		resp[1] = code;
 	}
@@ -118,11 +128,29 @@ int main(void) {
 	ph_usb_init(); // USB-CDC init for the bridge could go here
 	ph_com_init(_data_handler, _timeout_handler);
 
+	// HW watchdog (2026-07-22, Phase 0 firmware hardening, docs/ROADMAP.md): a wedged
+	// main loop must not silently kill the whole input channel for the rest of a
+	// long run. watchdog_enable_caused_reboot() MUST be read before watchdog_enable()
+	// below -- both write the SAME scratch register (pico-sdk hardware_watchdog),
+	// and the deliberate mode-change reboot above (watchdog_reboot(0,0,100) in
+	// _send_response(), only reachable via SET_KBD/SET_MOUSE -- dead paths, this
+	// host never sends them) ALSO writes it (to 0, clearing the enable-magic), so
+	// this correctly reads false after that deliberate reboot and true only after
+	// a genuine unpetted hang. Verified: ph_outputs.c's mode-persistence uses
+	// scratch[0], a different register -- no collision.
+	_watchdog_rebooted = watchdog_enable_caused_reboot();
+	watchdog_enable(1000, true); // 1s budget; pet every loop iteration below
+
 	while (true) {
 		ph_usb_task();
 		ph_ps2_task();
 		if (!_reset_required) {
 			ph_com_task();
+			// Gated on !_reset_required (same guard as ph_com_task above): during the
+			// mode-change grace window the watchdog is already re-armed for a 100ms
+			// reboot by watchdog_reboot() -- petting here would fight that deliberate
+			// reboot instead of letting it fire on schedule.
+			watchdog_update();
 			//ph_debug_act_pulse(100);
 		}
 	}

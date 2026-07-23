@@ -9,6 +9,16 @@ and Slice C model seam) PENDING, each its own branch. Part 2b's
 keep-the-filename note was superseded later the same day: the roadmap is now
 `docs/ROADMAP.md`. Body below is the approved text, verbatim._
 
+_Status update 2026-07-22 (later the same day): **Slice B code landed**
+(`kvm_agent`-adjacent firmware/host changes — `appliance/pico_fw/src/{main.c,
+ph_proto.h,ph_usb.c,ph_usb.h}`, `appliance/pi5/{pikvm_proto.py,hid_bridge.py}`,
+`tools/soak.py`) — see `docs/SESSION_2026-07-22_slice_b_firmware_hardening.md`.
+Suite 71 → 79 green; firmware compiles clean. **The soak gate itself (BOOTSEL
+flash, Pi 5 deploy, overnight run) is PENDING** — operator-driven, own branch.
+Slice C (model seam) landed the same day on a separate branch
+(`docs/SESSION_2026-07-22_model_seam_slice_c.md`) — the two are independent
+(disjoint files), so either can merge first._
+
 ---
 
 # Roadmap ↔ Code Alignment: findings, corrections, and first execution slice
