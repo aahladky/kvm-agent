@@ -318,15 +318,15 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   still preserves files. Battery tasks now carry an allowlisted reset manifest: simple
   filenames directly under a dedicated eval account's `$HOME`, plus named GNOME-setting
   profiles implemented in code (task JSON cannot inject shell). `--reset-strategy`
-  selects `manual-power-cycle` (still default), `cleanup`, `cleanup-logout`, or `none`.
-  Cleanup is typed visibly through physical HID; success closes/logs out, failure leaves
-  `KVM_RESET_FAILED` visible, and the operator confirms before the camera-verified HID
-  gate. `cleanup-logout --auto-login` reads the disposable password from gitignored
-  `.env.local` (`TARGET_LOGIN_PASSWORD`, hidden-prompt fallback), types it at GDM, and
-  relies on that same camera/HID gate to prove login. Battery `results.json` records
-  verify/grader/sample/reset/auto-login configuration, never the credential.
-  170 tests pass. Evidence:
-  `runs/session_reset_offline_20260723_113316/pytest_auto_login.txt`,
+  selects `manual-power-cycle` (still default), active-session `cleanup`, or `none`.
+  Cleanup is typed visibly through physical HID, terminates only a fixed allowlist of
+  battery apps, and exits its terminal only on success; failure leaves
+  `KVM_RESET_FAILED`. A stateless camera-verifier check of the clean desktop is recorded
+  in `results.json.reset_events` before every task and gates the ordinary HID check.
+  The first `cleanup-logout --auto-login` attempt failed twice before task 1
+  (`runs/battery_20260723_123637/`, `runs/battery_20260723_124319/`) and that strategy
+  is REMOVED rather than patched. 169 offline tests pass. Evidence:
+  `runs/active_session_reset_20260723_125102/pytest_final.txt`,
   `docs/SESSION_2026-07-23_gnome_session_reset.md`.
 - **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
   GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and

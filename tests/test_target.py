@@ -59,6 +59,12 @@ def test_reset_manifest_rejects_paths_globs_and_unknown_settings():
         pass
     else:
         raise AssertionError("task JSON cannot invent a settings command")
+    try:
+        target.validate_reset_manifest([], [], "arbitrary-apps")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("task JSON cannot invent process-kill commands")
 
 
 def test_gnome_reset_command_is_narrow_and_fail_loud():
@@ -66,11 +72,12 @@ def test_gnome_reset_command_is_narrow_and_fail_loud():
         ["hello.txt", "notes.txt"], ["default-color-scheme"])
     assert 'rm -f -- "$HOME/hello.txt" "$HOME/notes.txt"' in cmd
     assert "gsettings reset org.gnome.desktop.interface color-scheme" in cmd
-    assert cmd.endswith("exit || echo KVM_RESET_FAILED")
+    assert cmd.endswith(
+        "pkill -TERM -f '(^|/)gnome-terminal-server( |$)' || echo KVM_RESET_FAILED")
     assert "rm -rf" not in cmd and "$HOME/*" not in cmd
-
-    logout = target.build_gnome_reset_command(["time.txt"], logout=True)
-    assert "gnome-session-quit --logout --no-prompt" in logout
+    assert "gnome-text-editor" in cmd and "gnome-control-center" in cmd
+    assert "firefox" in cmd and "Pinta.exe" in cmd
+    assert "gnome-session-quit" not in cmd
 
 
 def test_gnome_reset_is_typed_through_physical_hid():
@@ -81,18 +88,6 @@ def test_gnome_reset_is_typed_through_physical_hid():
         ("type", command),
         ("key", "enter"),
     ]
-
-
-def test_gdm_login_types_runtime_password_without_returning_it():
-    r4 = FakeR4()
-    assert target.login_gdm(r4, "throwaway-secret", settle_s=0) is None
-    assert r4.calls == [("type", "throwaway-secret"), ("key", "enter")]
-    try:
-        target.login_gdm(r4, "", settle_s=0)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("empty login credential must fail before HID")
 
 
 class FakeCam:

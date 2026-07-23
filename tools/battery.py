@@ -16,7 +16,6 @@ Artifacts (AGENTS.md §1 — everything under runs/):
     runs/battery_<ts>/results.json  grades + provenance for the whole battery
 """
 import argparse
-import getpass
 import json
 import os
 import random
@@ -27,12 +26,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from kvm_agent.config import CFG
 from kvm_agent.hardware import target
-from kvm_agent.models.holo import HoloVerifier
+from kvm_agent.hardware.env import png_to_model_input_jpeg
+from kvm_agent.models.holo import HoloVerifier, jpeg_bytes_to_data_url
 import agent_loop_holo
 from agent_loop_holo import boot, run, shutdown
 
 VERIFY_MODES = ("off", "shadow", "gate")
-RESET_STRATEGIES = ("manual-power-cycle", "cleanup", "cleanup-logout", "none")
+RESET_STRATEGIES = ("manual-power-cycle", "cleanup", "none")
+RESET_QUESTION = (
+    "Is this a clean GNOME desktop ready for a new test? Answer true only if there is "
+    "no terminal window (especially no KVM_RESET_FAILED), no Text Editor, Calculator, "
+    "Settings, Files, or Pinta task window open, and this is not a login or lock screen. "
+    "The normal GNOME top bar, dock, desktop background, and desktop icons are allowed.")
 
 
 def load_tasks(path):
@@ -50,7 +55,9 @@ def load_tasks(path):
         assert isinstance(reset, dict), f"task {t['id']!r} reset must be an object"
         reset.setdefault("cleanup_files", [])
         reset.setdefault("setting_resets", [])
-        target.validate_reset_manifest(reset["cleanup_files"], reset["setting_resets"])
+        reset.setdefault("application_reset", "battery-apps")
+        target.validate_reset_manifest(reset["cleanup_files"], reset["setting_resets"],
+                                       reset["application_reset"])
     return tasks
 
 
@@ -121,9 +128,6 @@ def parse_args(argv=None):
     ap.add_argument("--reset-strategy", choices=RESET_STRATEGIES,
                     default="manual-power-cycle",
                     help="between-task reset (default: manual-power-cycle)")
-    ap.add_argument("--auto-login", action="store_true",
-                    help="with cleanup-logout, prompt once for the disposable account "
-                         "password and type it at GDM after every logout")
     args = ap.parse_args(argv)
     if args.no_reboot:
         if args.reset_strategy != "manual-power-cycle":
@@ -138,8 +142,6 @@ def parse_args(argv=None):
                  "use --human with off")
     if args.reset_strategy == "none" and args.human:
         ap.error("--no-reboot is the no-human unattended mode and cannot use --human")
-    if args.auto_login and args.reset_strategy != "cleanup-logout":
-        ap.error("--auto-login requires --reset-strategy cleanup-logout")
     return args
 
 
@@ -149,7 +151,8 @@ def write_results(path, payload):
     print(f"[battery] results -> {path}")
 
 
-def make_payload(ts, tasks_path, psr_active, tasks, results, run_config=None):
+def make_payload(ts, tasks_path, psr_active, tasks, results, run_config=None,
+                 reset_events=None):
     """Fail-closed scoring (2026-07-21 second review #8): the denominator is ALL
     tasks, not just the graded ones -- an abandoned battery previously reported
     '1/1', indistinguishable from a finished one (finding #8's fail-open class,
@@ -160,6 +163,7 @@ def make_payload(ts, tasks_path, psr_active, tasks, results, run_config=None):
     score = f"{passes}/{len(tasks) - voids}" + (f" ({voids} void)" if voids else "")
     return {"started": ts, "tasks_file": tasks_path, "psr_active": psr_active,
             "run_config": run_config or {},
+            "reset_events": reset_events or [],
             "total_tasks": len(tasks), "graded": len(results),
             "complete": len(results) == len(tasks),
             "results": results,
@@ -175,17 +179,12 @@ def main():
         "grader": "human" if args.human else "verifier",
         "spot_check_pct": args.spot_check_pct,
         "reset_strategy": args.reset_strategy,
-        "auto_login": args.auto_login,
     }
     # Constructed once for the whole battery, not per task: HoloVerifier is stateless
     # (kvm_agent.models.base.Verifier's contract), so nothing about re-task-ing it is
     # unsafe, and it avoids re-paying object construction 5-6 times per battery.
     verifier = HoloVerifier() if verify_mode != "off" else None
     tasks = load_tasks(tasks_path)
-    login_password = None
-    if args.auto_login:
-        login_password = CFG.target_login_password or getpass.getpass(
-            "[battery] disposable GNOME account password: ")
     ts = time.strftime("%Y%m%d_%H%M%S")
     print(f"[battery] {len(tasks)} tasks from {tasks_path}")
     if CFG.target_shell == "windows":
@@ -206,9 +205,11 @@ def main():
     results_dir = os.path.join(CFG.runs_dir, f"battery_{ts}")
     os.makedirs(results_dir, exist_ok=True)
     results_path = os.path.join(results_dir, "results.json")
+    reset_events = []
 
     def payload():
-        return make_payload(ts, tasks_path, psr_active, tasks, results, run_config)
+        return make_payload(ts, tasks_path, psr_active, tasks, results, run_config,
+                            reset_events)
 
     # verify=False: the battery runs its OWN HID gate per task, post-reboot, with an
     # interactive replug loop (below) -- a boot-time gate raise here would kill the
@@ -226,27 +227,29 @@ def main():
             reset = task["reset"]
             if args.reset_strategy == "manual-power-cycle":
                 target.reboot()
-            elif args.reset_strategy in ("cleanup", "cleanup-logout"):
-                logout = args.reset_strategy == "cleanup-logout"
+            elif args.reset_strategy == "cleanup":
                 command = target.reset_gnome_session(
                     agent_loop_holo.ENV.r4,
                     cleanup_files=reset["cleanup_files"],
                     setting_resets=reset["setting_resets"],
-                    logout=logout)
-                print(f"[battery] reset command sent ({args.reset_strategy}): {command}")
-                if logout:
-                    if args.auto_login:
-                        target.login_gdm(agent_loop_holo.ENV.r4, login_password)
-                        print("[battery] GDM credentials sent; camera/HID gate will "
-                              "prove the desktop is interactive")
-                    else:
-                        input("[battery] GNOME session logged out. Log into the dedicated "
-                              "evaluation account, confirm the clean desktop is visible, "
-                              "then press Enter... ")
-                else:
-                    input("[battery] Confirm the reset terminal closed and the clean "
-                          "desktop is visible. If KVM_RESET_FAILED remains on screen, "
-                          "stop and fix it; otherwise press Enter... ")
+                    application_reset=reset["application_reset"])
+                print(f"[battery] reset command sent (cleanup): {command}")
+                png = agent_loop_holo.ENV.cam.png_bytes()
+                reset_url = jpeg_bytes_to_data_url(
+                    png_to_model_input_jpeg(png, CFG.holo_model_input_res))
+                reset_verifier = verifier or HoloVerifier()
+                reset_verdict = reset_verifier.check(
+                    reset_url, agent_loop_holo.ENV.screen_width,
+                    agent_loop_holo.ENV.screen_height, RESET_QUESTION)
+                event = {"task_id": task["id"], **reset_verdict.to_dict()}
+                reset_events.append(event)
+                write_results(results_path, payload())
+                print(f"[battery] reset verify: satisfied={reset_verdict.satisfied} "
+                      f"({reset_verdict.evidence[:120]})")
+                if reset_verdict.satisfied is not True:
+                    raise RuntimeError(
+                        f"desktop reset not verified for {task['id']}: "
+                        f"{reset_verdict.evidence}")
             # Post-reboot HID gate (2026-07-21): a physical reboot can bring the
             # composite HID device up half-dead (keyboard alive, mouse dead, probe
             # flags LYING) -- camera-verified round-trips are the only truth. The

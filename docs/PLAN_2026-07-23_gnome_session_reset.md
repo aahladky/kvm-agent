@@ -30,20 +30,21 @@ explicitly owns:
 ## Reset strategies
 
 - `manual-power-cycle` — existing operator full shutdown/boot prompt, then HID gate.
-- `cleanup` — task-declared file/settings cleanup through a visible terminal, close the
-  terminal, then HID gate. No process/session reset.
-- `cleanup-logout` — cleanup, GNOME logout, operator logs into the dedicated evaluation
-  account, then HID gate. This clears session state without a warm reboot.
+- `cleanup` — task-declared file/settings cleanup through a visible terminal, terminate
+  the code-allowlisted battery applications, close the terminal, then independently
+  verify the clean desktop from the camera. No logout or process-wide session reset.
 - `none` — disclosed state carryover; replaces the ambiguous `--no-reboot` behavior.
 
 The default remains `manual-power-cycle` until the dedicated account is ready.
 
-_Implementation refinement approved 2026-07-23:_ `cleanup-logout --auto-login` reads
-the disposable account password from gitignored `.env.local`
-(`TARGET_LOGIN_PASSWORD`), falling back to a hidden prompt when unset. It types the
-credential at GDM after each logout, waits for the desktop, then uses the existing
-camera/HID gate as the proof of login. The credential never enters tracked source,
-task JSON, results, or command-line arguments.
+_Implementation correction 2026-07-23:_ `cleanup-logout --auto-login` failed twice
+before the first task (`runs/battery_20260723_123637/`,
+`runs/battery_20260723_124319/`; both result directories are empty). The repeated GDM
+transition is the wrong reliability boundary for a high-volume battery and is removed,
+not patched. Routine isolation is now active-session `cleanup`: kill only known battery
+apps, clean declared artifacts/settings, close the terminal on success, and ask the
+stateless camera verifier whether a failure terminal or task window remains. The
+verdict is recorded before each task and failure aborts loudly.
 
 ## Initial task manifests
 

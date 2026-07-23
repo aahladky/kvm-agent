@@ -19,8 +19,23 @@ GNOME_SETTING_RESETS = {
         "gsettings reset org.gnome.desktop.interface color-scheme",
 }
 
+# Known applications the GNOME battery owns. Anchored process-command regexes avoid
+# matching unrelated user processes; missing processes are normal and ignored.
+GNOME_APP_RESETS = {
+    "battery-apps": (
+        "gnome-text-editor",
+        "gnome-calculator",
+        "gnome-control-center",
+        "nautilus",
+        "pinta",
+        "Pinta.exe",
+        "firefox",
+    ),
+}
 
-def validate_reset_manifest(cleanup_files=(), setting_resets=()):
+
+def validate_reset_manifest(cleanup_files=(), setting_resets=(),
+                            application_reset="battery-apps"):
     """Validate the intentionally tiny target-side mutation vocabulary."""
     files = list(cleanup_files or ())
     settings = list(setting_resets or ())
@@ -32,47 +47,47 @@ def validate_reset_manifest(cleanup_files=(), setting_resets=()):
     unknown = [name for name in settings if name not in GNOME_SETTING_RESETS]
     if unknown:
         raise ValueError(f"unknown GNOME setting reset profile(s): {unknown}")
-    return files, settings
+    if application_reset not in GNOME_APP_RESETS:
+        raise ValueError(f"unknown GNOME application reset profile: {application_reset!r}")
+    return files, settings, application_reset
 
 
-def build_gnome_reset_command(cleanup_files=(), setting_resets=(), logout=False):
+def build_gnome_reset_command(cleanup_files=(), setting_resets=(),
+                              application_reset="battery-apps"):
     """Build the visible command; failure leaves KVM_RESET_FAILED on screen."""
-    files, settings = validate_reset_manifest(cleanup_files, setting_resets)
+    files, settings, application_reset = validate_reset_manifest(
+        cleanup_files, setting_resets, application_reset)
     commands = []
     if files:
         quoted = " ".join(f'"$HOME/{name}"' for name in files)
         commands.append(f"rm -f -- {quoted}")
     commands.extend(GNOME_SETTING_RESETS[name] for name in settings)
-    commands.append("echo KVM_RESET_OK")
-    commands.append("gnome-session-quit --logout --no-prompt" if logout else "exit")
-    return " && ".join(commands) + " || echo KVM_RESET_FAILED"
+    # One compact shell loop matters over physical HID (~60-90ms per character).
+    # Match an executable path/name followed by whitespace/end. The expanded regex
+    # does not match this shell's space-separated process-name list.
+    processes = " ".join(GNOME_APP_RESETS[application_reset])
+    commands.append(
+        f'for p in {processes}; do pkill -TERM -f "(^|/)$p( |$)" || true; done')
+    # Last, terminate the terminal server itself. On success this closes every stale
+    # terminal window including the reset shell; on failure the shell survives and
+    # prints the marker the camera verifier is explicitly looking for.
+    terminal_pattern = "(^|/)gnome-terminal-server( |$)"
+    return (" && ".join(commands)
+            + f" && pkill -TERM -f '{terminal_pattern}'"
+            + " || echo KVM_RESET_FAILED")
 
 
-def reset_gnome_session(r4, cleanup_files=(), setting_resets=(), logout=False,
-                        settle_s=3.0):
+def reset_gnome_session(r4, cleanup_files=(), setting_resets=(),
+                        application_reset="battery-apps", settle_s=3.0):
     """Type an allowlisted cleanup into a visible terminal through physical HID."""
-    command = build_gnome_reset_command(cleanup_files, setting_resets, logout=logout)
+    command = build_gnome_reset_command(
+        cleanup_files, setting_resets, application_reset)
     r4.combo("ctrl+alt+t")
     time.sleep(1.0)
     r4.type(command)
     r4.key("enter")
     time.sleep(settle_s)
     return command
-
-
-def login_gdm(r4, password, settle_s=8.0):
-    """Log back into the just-logged-out GNOME account through HID.
-
-    GDM normally leaves that account selected with its password field focused. The
-    password is runtime-only; this function neither returns nor logs it. The caller
-    must run the camera-verified HID gate afterward, which also proves the desktop
-    became interactive instead of trusting this blind keystroke sequence.
-    """
-    if not isinstance(password, str) or not password:
-        raise ValueError("a non-empty runtime login password is required")
-    r4.type(password)
-    r4.key("enter")
-    time.sleep(settle_s)
 
 
 def reboot():

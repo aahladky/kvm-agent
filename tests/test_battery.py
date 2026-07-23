@@ -19,7 +19,9 @@ def test_load_tasks_and_write_results():
         tasks = battery.load_tasks(good)
         assert len(tasks) == 1 and tasks[0]["id"] == "t1", "load_tasks returns tasks"
         assert tasks[0]["max_steps"] == 15, "max_steps defaults to 15"
-        assert tasks[0]["reset"] == {"cleanup_files": [], "setting_resets": []}
+        assert tasks[0]["reset"] == {
+            "cleanup_files": [], "setting_resets": [],
+            "application_reset": "battery-apps"}
 
         bad = os.path.join(td, "bad.json")
         with open(bad, "w") as f:
@@ -157,17 +159,8 @@ def test_d_c_cli_defaults_to_gate_and_validates_unattended_contract():
     args = battery.parse_args(["tasks.json", "--no-reboot"])
     assert args.verify_mode == "gate" and args.reset_strategy == "none"
     assert args.spot_check_pct == 0
-    args = battery.parse_args(["tasks.json", "--reset-strategy", "cleanup-logout"])
-    assert args.reset_strategy == "cleanup-logout" and args.spot_check_pct == 10
-    args = battery.parse_args(
-        ["tasks.json", "--reset-strategy", "cleanup-logout", "--auto-login"])
-    assert args.auto_login is True
-    try:
-        battery.parse_args(["tasks.json", "--auto-login"])
-    except SystemExit:
-        pass
-    else:
-        raise AssertionError("auto-login without cleanup-logout must fail")
+    args = battery.parse_args(["tasks.json", "--reset-strategy", "cleanup"])
+    assert args.reset_strategy == "cleanup" and args.spot_check_pct == 10
     try:
         battery.parse_args(["tasks.json", "off"])
     except SystemExit:
@@ -193,10 +186,12 @@ def test_payload_score_is_fail_closed():
 
 def test_payload_records_experiment_configuration():
     cfg = {"verify_mode": "gate", "grader": "verifier",
-           "spot_check_pct": 10.0, "reset_strategy": "cleanup-logout"}
+           "spot_check_pct": 10.0, "reset_strategy": "cleanup"}
     payload = battery.make_payload("20260723_000000", "tasks.json", False,
-                                   [{"id": "a"}], [], cfg)
+                                   [{"id": "a"}], [], cfg,
+                                   [{"task_id": "a", "satisfied": True}])
     assert payload["run_config"] == cfg
+    assert payload["reset_events"][0]["satisfied"] is True
 
 
 if __name__ == "__main__":
