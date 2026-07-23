@@ -1,9 +1,26 @@
 # PLAN 2026-07-23 — Enroll holo3.1 in llama-swap's matrix (PROPOSED, external config)
 
-_Not applied. This edits `/home/aaron/services/llama-swap/config.yaml`, which is
-**outside this repo** (managed by `modelctl`, git-versioned separately). Written up as a
-reviewable diff per the operator's request; apply by hand after reading, and back the
-file up first per that project's own guardrail (`~/config-backups/<date>/`)._
+_This edits `/home/aaron/services/llama-swap/config.yaml`, which is **outside this repo**
+(managed by `modelctl`, git-versioned separately). Written up as a reviewable diff per the
+operator's request._
+
+_**STATUS 2026-07-23: APPLIED AND VERIFIED WORKING** (operator applied the three lines;
+`evict_costs: holo: 1` as recommended). One wrinkle worth recording: the edit did **not**
+take effect on save. llama-swap runs without `--watch-config`, and the process had been up
+since 2026-07-21 14:39 while the config was modified 2026-07-23 08:38 — so the running
+server still held the old config in memory, and a behavioural re-test showed holo3.1 still
+evicting fast-7b. Reading the file would have said "fixed"; only the eviction test said
+otherwise. After `systemctl --user reload-or-restart llama-swap` (08:45:51):_
+
+```
+warm fast-7b   -> resident: ['fast-7b']
+warm holo3.1   -> resident: ['fast-7b', 'holo3.1']     <- both, was ['holo3.1'] before
+call fast-7b   -> resident: ['fast-7b', 'holo3.1']     <- reverse direction holds too
+```
+
+_Evidence: `runs/serving_probe_20260723_084700/probe.json` (holo3.1 resident,
+co-resident=fast-7b, mmproj present, exit 0). The eviction hole is closed and Phase 5's
+co-residency prerequisite is satisfied._
 
 ## The problem, reproduced
 

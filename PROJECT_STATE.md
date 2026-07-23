@@ -283,20 +283,24 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   proven endpoint-independent (`HOLO_LOCAL_URL=http://127.0.0.1:1/v1` → 131 passed, same
   runtime). Evidence: `runs/serving_probe_20260723_075311/probe.json`,
   `docs/SESSION_2026-07-23_serving_contract.md`.
+  **The eviction hole this found is CLOSED (2026-07-23, operator-applied):** holo3.1 was
+  absent from llama-swap's `matrix:` — the one step `modelctl` deliberately leaves to a
+  human, never done after `modelctl pull` — so any other consumer of the box evicted it
+  mid-run at a ~13-17s reload that lands as LATENCY, never an error (never actually
+  observed in a real run: every >median+12s step in the archive is step 0, a cold load).
+  Three lines added (`vars: holo`, `evict_costs: holo: 1`, `sets: holo_stack: holo & f7`),
+  per `docs/PLAN_2026-07-23_serving_matrix_enrollment.md`. **The edit alone did nothing** —
+  llama-swap runs without `--watch-config`, so the two-day-old process still held the old
+  config and a behavioural re-test showed the eviction unchanged; reading the file said
+  "fixed", only the test said otherwise. After a unit reload, both models stay resident in
+  both directions (`['fast-7b', 'holo3.1']`). This also satisfies Phase 5's co-residency
+  prerequisite, since holo3.1 runs `--split-mode none` (B70 alone) and so fits the
+  existing `X & f7` pattern. Evidence: `runs/serving_probe_20260723_084700/probe.json`.
 
 ## 4. Open problems
 
-- **holo3.1 is absent from llama-swap's `matrix:` and can be evicted mid-run**
-  (2026-07-23). Matrix membership is the one step `modelctl` deliberately leaves to a
-  human, and it was never done after `modelctl pull`. Reproduced both directions: one
-  `say ok` to `fast-7b` evicted holo3.1; warming holo3.1 evicted `fast-7b`. Cost of the
-  reload is ~13-17s and, against the 180s client timeout, it lands as LATENCY, never an
-  error. **Not yet observed in any real run** — every >median+12s step in the battery
-  archive is step 0 (a cold load), not a mid-run eviction. Fix is three lines in a config
-  outside this repo, written up as a reviewable diff in
-  `docs/PLAN_2026-07-23_serving_matrix_enrollment.md` (PROPOSED, not applied); it also
-  happens to be Phase 5's co-residency prerequisite, since holo3.1 runs `--split-mode
-  none` (B70 alone) and so fits the existing `X & f7` co-residency pattern.
+- ~~holo3.1 absent from llama-swap's `matrix:`, evictable mid-run~~ — **CLOSED
+  2026-07-23** (see Solved §3's serving entry).
 
 - **Tool-result signal is semantically misleading**: changed/unchanged binary
   confirmed real-but-irrelevant pixels (taskbar focus visuals) as action success

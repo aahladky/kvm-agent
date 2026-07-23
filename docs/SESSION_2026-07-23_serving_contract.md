@@ -123,9 +123,14 @@ endpoint (`HOLO_LOCAL_URL=http://127.0.0.1:1/v1` → 131 passed, 10.9s).
 
 ## Follow-ups
 
-- **Apply `docs/PLAN_2026-07-23_serving_matrix_enrollment.md`** (operator, external
-  config, three lines). It closes the eviction hole and is simultaneously the Phase 5
-  co-residency prerequisite.
+- ~~Apply `docs/PLAN_2026-07-23_serving_matrix_enrollment.md`~~ — **DONE 2026-07-23**,
+  operator-applied and verified: both models now stay resident in both directions
+  (`['fast-7b', 'holo3.1']`), `runs/serving_probe_20260723_084700/probe.json`. The
+  wrinkle worth remembering: the config edit did nothing until the unit was reloaded
+  (llama-swap runs without `--watch-config`, and the process was two days older than the
+  file). Reading the config said "fixed"; only the behavioural eviction re-test caught
+  it — the same reason the camera outranks the firmware's online flags, one layer up.
+  Phase 5's co-residency prerequisite is now satisfied.
 - **The grounding model itself is still not due.** Roadmap §5 gates it on grounding rate,
   which remains uncomputed — but the slice D-a oracle makes it measurable offline over
   the existing archive ("is `<element>` at this coordinate?" is the same shape as a
