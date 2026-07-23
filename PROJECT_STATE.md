@@ -1,8 +1,9 @@
 # Project State — KVM-over-IP Computer-Use Agent
 
 _Snapshot: 2026-07-23 — Phase 2 slices D-a (the postcondition oracle, RIG-CONFIRMED) and
-D-b (shadow wiring + harder tasks + metrics, RIG-CONFIRMED; D-c's gate clears, D-d's does
-not yet) done, plus the serving-layer contract. D-c (flip the gates) is next.
+D-b (shadow wiring + harder tasks + metrics, RIG-CONFIRMED) done; D-c (flip the gates)
+is CODE-COMPLETE/OFFLINE-VALIDATED and awaits its rig battery; D-d's gate does not clear.
+The serving-layer contract and matrix enrollment are complete.
 Supersedes the 2026-07-20 physical-target-move snapshot (git history). Design:
 `docs/PLAN_2026-07-20_physical_target_move.md` and, for the phase now in flight,
 `docs/PLAN_2026-07-22_phase2_subgoal_verification.md`; latest session:
@@ -299,6 +300,18 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   *confident-wrong* case D-d's gate requires. **D-c is unblocked and next; D-d needs a
   battery that actually produces its target failure mode.** Evidence:
   `docs/SESSION_2026-07-23_phase2_slice_d_b_rig_results.md`.
+- **Roadmap Phase 2, slice D-c — terminal gate + automated grading (2026-07-23,
+  CODE-COMPLETE/OFFLINE-VALIDATED, RIG PENDING):** `verify_mode="gate"` accepts only
+  `satisfied=True`; False and None refuse the model's `finished` claim, thread the
+  oracle evidence back through `<tool_output>`, and continue. Three refusals terminate
+  failed with `answer refused by verifier x3`. `tools/battery.py` now defaults to gate
+  mode and verifier-primary grading; missing/unanswered verdicts fail, human grading is
+  retained behind `--human`, disagreements plus 10% of agreements are spot-checked,
+  and `--no-reboot` is a genuinely no-prompt state-carryover mode. Metrics use only the
+  human ground-truth sample for false-confirmation/refusal and preserve incomplete
+  batteries' full denominator. 165 tests pass. Evidence:
+  `runs/d_c_offline_20260723_104436/pytest.txt`,
+  `docs/SESSION_2026-07-23_phase2_slice_d_c_gates.md`.
 - **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
   GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and
   `runs/battery_20260722_222137/` 5/5 (1 void)): the pre-fire target-tile guard
@@ -356,14 +369,12 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
 - ~~holo3.1 absent from llama-swap's `matrix:`, evictable mid-run~~ — **CLOSED
   2026-07-23** (see Solved §3's serving entry).
 
-- **Review follow-ups (2026-07-23):** `tools/battery_metrics.py` reconstructs
-  completion from the rows already graded pass/fail instead of retaining the battery's
-  fail-closed `total_tasks`/`graded`/`complete` contract, so an interrupted 10-task
-  battery with one recorded pass can be reported as 1/1 (100%); fix with D-c, whose
-  automated grading depends on honest denominators. `parse_serving_cmd` removes every
-  backslash and whitespace-splits a shell command; replace that lossy parser with
-  shell-aware tokenization before a quoted/escaped model path makes the serving
-  snapshot lie. Full review: `docs/REPORT_2026-07-23_codebase_review.md`.
+- **Review follow-ups (2026-07-23):** ~~incomplete batteries could report 1/1~~ —
+  **FIXED WITH D-c**: metrics retain `total_tasks`/`graded`/`complete`. Remaining:
+  `parse_serving_cmd` removes every backslash and whitespace-splits a shell command;
+  replace that lossy parser with shell-aware tokenization before a quoted/escaped model
+  path makes the serving snapshot lie. Full review:
+  `docs/REPORT_2026-07-23_codebase_review.md`.
 
 - **Tool-result signal is semantically misleading**: changed/unchanged binary
   confirmed real-but-irrelevant pixels (taskbar focus visuals) as action success

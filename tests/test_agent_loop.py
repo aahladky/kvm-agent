@@ -802,18 +802,6 @@ def test_d_b_unknown_verify_mode_rejected_loudly():
         raise AssertionError(f"verify_mode={bad!r} must be rejected")
 
 
-def test_d_b_gate_mode_is_not_implemented_yet():
-    """Slice D-c's mode. Must be rejected LOUDLY (NotImplementedError), never silently
-    behaving like 'shadow' or 'off' -- a silent no-op here would hide that the gate
-    everyone assumes is active isn't."""
-    for verifier in (None, _StubVerifier()):
-        try:
-            al.run("x", max_steps=1, verify_mode="gate", verifier=verifier)
-        except NotImplementedError:
-            continue
-        raise AssertionError("verify_mode='gate' must raise NotImplementedError")
-
-
 def test_d_b_shadow_requires_a_verifier():
     """Checked EAGERLY (before any steps run), not only when a `finished` claim
     happens to occur -- a run that never finishes would otherwise let a missing
@@ -905,6 +893,93 @@ def test_d_b_verified_finish_present_and_none_on_every_abort_path():
     assert result["finished"] is False
     assert "verified_finish" in result and result["verified_finish"] is None
     assert stub.calls == [], "no finished claim was ever made -- the verifier is never called"
+
+
+# --- roadmap Phase 2 slice D-c: terminal verification gate ---
+
+class _SequenceVerifier(_StubVerifier):
+    def __init__(self, answers):
+        super().__init__()
+        self.answers = iter(answers)
+
+    def check(self, data_url, w, h, question, claim=""):
+        satisfied, evidence = next(self.answers)
+        self.satisfied, self.evidence = satisfied, evidence
+        return super().check(data_url, w, h, question, claim)
+
+
+def test_d_c_gate_requires_a_verifier():
+    try:
+        al.run("x", max_steps=1, verify_mode="gate", verifier=None)
+    except ValueError as e:
+        assert "requires a verifier" in str(e)
+        return
+    raise AssertionError("verify_mode='gate' with verifier=None must fail eagerly")
+
+
+def test_d_c_refusal_is_threaded_and_run_continues_to_acceptance():
+    stub = _SequenceVerifier([
+        (False, "document is still untitled"),
+        (True, "document title and contents are visible"),
+    ])
+    saved = _patch_run(_finish_now)
+    try:
+        result = al.run("save the document", max_steps=2, confirm_first=0,
+                        tag="t_gate_continue", verify_mode="gate", verifier=stub)
+    finally:
+        _restore_run(saved)
+    assert result["finished"] is True
+    assert result["verification_refusals"] == 1
+    assert result["verified_finish"]["satisfied"] is True
+    outs = _tool_outputs()
+    assert any("NOT accepted" in text and "still untitled" in text for text in outs), \
+        "the actor must see why its first finished claim was refused"
+    assert len(stub.calls) == 2
+
+
+def test_d_c_satisfied_claim_finishes_immediately():
+    stub = _StubVerifier(satisfied=True, evidence="postcondition visible")
+    saved = _patch_run(_finish_now)
+    try:
+        result = al.run("x", max_steps=2, confirm_first=0, tag="t_gate_accept",
+                        verify_mode="gate", verifier=stub)
+    finally:
+        _restore_run(saved)
+    assert result["finished"] is True
+    assert result["verification_refusals"] == 0
+    assert FakeRecorder.instances[-1].finished == (True, "done")
+
+
+def test_d_c_k_refusals_abort_loudly():
+    stub = _StubVerifier(satisfied=False, evidence="postcondition absent")
+    saved = _patch_run(_finish_now)
+    try:
+        result = al.run("x", max_steps=al.VERIFY_REFUSE_LIMIT + 1, confirm_first=0,
+                        tag="t_gate_limit", verify_mode="gate", verifier=stub)
+    finally:
+        _restore_run(saved)
+    assert result["finished"] is False
+    assert result["verification_refusals"] == al.VERIFY_REFUSE_LIMIT
+    assert result["verified_finish"]["satisfied"] is False
+    assert FakeRecorder.instances[-1].finished == (
+        False, f"answer refused by verifier x{al.VERIFY_REFUSE_LIMIT}")
+
+
+def test_d_c_verifier_error_is_a_refusal_not_a_pass():
+    class _RaisingVerifier:
+        def check(self, *a, **k):
+            raise RuntimeError("verifier unavailable")
+    saved = _patch_run(_finish_now)
+    try:
+        result = al.run("x", max_steps=1, confirm_first=0, tag="t_gate_error",
+                        verify_mode="gate", verifier=_RaisingVerifier())
+    finally:
+        _restore_run(saved)
+    assert result["finished"] is False
+    assert result["verification_refusals"] == 1
+    assert result["verified_finish"]["satisfied"] is None
+    assert "verifier unavailable" in result["verified_finish"]["evidence"]
+    assert FakeRecorder.instances[-1].finished == (False, "max_steps reached")
 
 
 if __name__ == "__main__":

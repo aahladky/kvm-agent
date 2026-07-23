@@ -39,8 +39,10 @@ def _run_dir(root, name, steps, summary_extra=None):
     return d
 
 
-def _battery(root, ts, rows):
-    _write(os.path.join(root, f"battery_{ts}", "results.json"), {"results": rows})
+def _battery(root, ts, rows, **extra):
+    _write(os.path.join(root, f"battery_{ts}", "results.json"),
+           {"results": rows, "total_tasks": len(rows), "graded": len(rows),
+            "complete": True, **extra})
 
 
 def _archive():
@@ -76,7 +78,8 @@ def test_completion_rate_excludes_voids_from_denominator():
         analysis = bm.analyze_battery(os.path.join(root, "battery_20260101_000000"), root)
         report = bm.aggregate([analysis])
         c = report["completion_rate"]
-        assert c == {"passes": 1, "denominator": 2, "voids": 1, "pct": 50.0}
+        assert c == {"passes": 1, "denominator": 2, "voids": 1,
+                     "recorded_grades": 3, "complete": True, "pct": 50.0}
     finally:
         shutil.rmtree(root)
 
@@ -121,6 +124,47 @@ def test_verifier_agreement_and_false_refusal_and_confirmation():
         assert v["agreement_pct"] == 50.0   # a and b agree, d and e don't
         assert v["false_refusals"]["count"] == 1 and v["false_refusals"]["tasks"] == ["d"]
         assert v["false_confirmations"]["count"] == 1 and v["false_confirmations"]["tasks"] == ["e"]
+        assert v["basis"] == "human ground-truth sample only"
+    finally:
+        shutil.rmtree(root)
+
+
+def test_completion_rate_keeps_missing_tasks_in_denominator():
+    """An interrupted ten-task battery with one pass must read 1/10, never 1/1."""
+    root = tempfile.mkdtemp(prefix="battery_metrics_test_")
+    try:
+        _battery(root, "20260101_000000", [
+            {"task_id": "a", "run_tag": "battery_a", "grade": "pass",
+             "finished": True, "answer_text": "done"},
+        ], total_tasks=10, graded=1, complete=False)
+        _run_dir(root, "battery_a_20260101_000100",
+                 [{"wall_time_s": 5.0, "action": {}}])
+        analysis = bm.analyze_battery(os.path.join(root, "battery_20260101_000000"), root)
+        c = bm.aggregate([analysis])["completion_rate"]
+        assert c["passes"] == 1 and c["denominator"] == 10 and c["pct"] == 10.0
+        assert c["recorded_grades"] == 1 and c["complete"] is False
+    finally:
+        shutil.rmtree(root)
+
+
+def test_d_c_verifier_metrics_use_only_human_spot_check_sample():
+    root = tempfile.mkdtemp(prefix="battery_metrics_test_")
+    try:
+        _battery(root, "20260101_000000", [
+            {"task_id": "sampled", "run_tag": "battery_sampled", "grade": "pass",
+             "grader": "verifier", "human_grade": "fail", "auto_grade": "pass",
+             "finished": True},
+            {"task_id": "not_sampled", "run_tag": "battery_not_sampled", "grade": "pass",
+             "grader": "verifier", "human_grade": None, "auto_grade": "pass",
+             "finished": True},
+        ])
+        _run_dir(root, "battery_sampled_20260101_000100", [])
+        _run_dir(root, "battery_not_sampled_20260101_000200", [])
+        analysis = bm.analyze_battery(os.path.join(root, "battery_20260101_000000"), root)
+        v = bm.aggregate([analysis])["verifier"]
+        assert v["n_compared"] == 1
+        assert v["false_confirmations"]["count"] == 1
+        assert v["false_confirmations"]["tasks"] == ["sampled"]
     finally:
         shutil.rmtree(root)
 

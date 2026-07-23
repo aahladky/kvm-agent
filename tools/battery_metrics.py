@@ -10,7 +10,8 @@ metrics (docs/ROADMAP.md), none of which were computed anywhere before this tool
     python tools/battery_metrics.py --all             # every battery ever run, merged
 
 Computes, per battery (and merged across all with --all):
-  - completion rate (reuses the battery's own pass/void-aware score string)
+  - completion rate (retains the battery's fail-closed all-task denominator, including
+    tasks missing from an interrupted run; voids remain excluded but visible)
   - steps-to-completion distribution (finished vs aborted runs, separately)
   - false-"finished" rate: model claimed done (finished=True) but the human graded it
     fail -- confident-wrong progress the OLD flat loop accepted uncontested. THIS is
@@ -148,6 +149,12 @@ def analyze_battery(battery_dir, runs_dir):
         rows.append({"row": row, "run": run_name, "summary": summary, "steps": steps})
     return {"battery_dir": os.path.basename(battery_dir),
             "score": payload.get("score"), "tasks_file": payload.get("tasks_file"),
+            "total_tasks": payload.get("total_tasks", len(payload.get("results", []))),
+            "graded": payload.get("graded", len(payload.get("results", []))),
+            "complete": payload.get("complete",
+                                    len(payload.get("results", []))
+                                    == payload.get("total_tasks",
+                                                   len(payload.get("results", [])))),
             "rows": rows}
 
 
@@ -157,6 +164,8 @@ def aggregate(analyses):
     graded = [r for r in rows if r["row"].get("grade") in ("pass", "fail")]
     passes = sum(1 for r in graded if r["row"]["grade"] == "pass")
     voids = sum(1 for r in rows if r["row"].get("grade") == "void")
+    total_tasks = sum(a["total_tasks"] for a in analyses)
+    recorded_grades = sum(a["graded"] for a in analyses)
 
     steps_finished = [r["summary"].get("steps_taken") for r in rows if r["row"].get("finished")]
     steps_aborted = [r["summary"].get("steps_taken") for r in rows if not r["row"].get("finished")]
@@ -168,12 +177,22 @@ def aggregate(analyses):
     # Verifier agreement -- only over rows that HAVE an auto_grade (shadow ran and the
     # task actually reached a finished claim) AND a human pass/fail (voids excluded,
     # same reasoning as grade_task's own denominator).
-    verified = [r for r in graded if r["row"].get("auto_grade") in ("pass", "fail")]
-    agreement = [r for r in verified if r["row"]["auto_grade"] == r["row"]["grade"]]
-    false_refusals = [r for r in verified
-                      if r["row"]["auto_grade"] == "fail" and r["row"]["grade"] == "pass"]
-    false_confirmations = [r for r in verified
-                           if r["row"]["auto_grade"] == "pass" and r["row"]["grade"] == "fail"]
+    # D-b rows use the primary human `grade`. D-c rows use verifier-primary `grade`
+    # plus `human_grade` only on the defined spot-check sample. False-confirmation
+    # after the gate flip is meaningful ONLY against that human sample.
+    human_compared = []
+    for r in rows:
+        row = r["row"]
+        human_grade = row.get("human_grade")
+        if human_grade not in ("pass", "fail") and row.get("grader") in (None, "human"):
+            human_grade = row.get("grade")
+        if human_grade in ("pass", "fail") and row.get("auto_grade") in ("pass", "fail"):
+            human_compared.append((r, human_grade))
+    agreement = [r for r, human in human_compared if r["row"]["auto_grade"] == human]
+    false_refusals = [r for r, human in human_compared
+                      if r["row"]["auto_grade"] == "fail" and human == "pass"]
+    false_confirmations = [r for r, human in human_compared
+                           if r["row"]["auto_grade"] == "pass" and human == "fail"]
 
     guard_refusal_steps = 0
     total_steps = 0
@@ -205,24 +224,29 @@ def aggregate(analyses):
     return {
         "batteries": [a["battery_dir"] for a in analyses],
         "total_rows": len(rows),
-        "completion_rate": {"passes": passes, "denominator": len(graded), "voids": voids,
-                            "pct": _pct(passes, len(graded))},
+        "completion_rate": {"passes": passes, "denominator": total_tasks - voids,
+                            "voids": voids, "recorded_grades": recorded_grades,
+                            "complete": all(a["complete"] for a in analyses),
+                            "pct": _pct(passes, total_tasks - voids)},
         "steps_to_completion": {"finished": _stats(steps_finished),
                                 "aborted": _stats(steps_aborted)},
         "false_finished": {
             "count": len(false_finished), "of_finished": sum(1 for r in graded if r["row"].get("finished")),
             "rate_pct": false_finished_rate,
             "tasks": [r["row"]["task_id"] for r in false_finished]},
-        "verifier": (None if not verified else {
-            "n_compared": len(verified),
-            "agreement_pct": _pct(len(agreement), len(verified)),
+        "verifier": (None if not human_compared else {
+            "basis": "human ground-truth sample only",
+            "n_compared": len(human_compared),
+            "agreement_pct": _pct(len(agreement), len(human_compared)),
             "false_refusals": {"count": len(false_refusals),
                                "rate_pct": _pct(len(false_refusals),
-                                                sum(1 for r in verified if r["row"]["grade"] == "pass")),
+                                                sum(1 for _, human in human_compared
+                                                    if human == "pass")),
                                "tasks": [r["row"]["task_id"] for r in false_refusals]},
             "false_confirmations": {"count": len(false_confirmations),
                                     "rate_pct": _pct(len(false_confirmations),
-                                                    sum(1 for r in verified if r["row"]["grade"] == "fail")),
+                                                    sum(1 for _, human in human_compared
+                                                        if human == "fail")),
                                     "tasks": [r["row"]["task_id"] for r in false_confirmations]},
         }),
         "guard_refusal_rate": {"steps_with_refusal": guard_refusal_steps,
@@ -241,7 +265,8 @@ def _print_report(report):
     print(f"[metrics] batteries: {', '.join(report['batteries'])}")
     c = report["completion_rate"]
     print(f"[metrics] completion: {c['passes']}/{c['denominator']} "
-         f"({c['pct']}%)" + (f", {c['voids']} void" if c["voids"] else ""))
+         f"({c['pct']}%), recorded={c['recorded_grades']}, complete={c['complete']}"
+         + (f", {c['voids']} void" if c["voids"] else ""))
     s = report["steps_to_completion"]
     print(f"[metrics] steps-to-completion: finished {s['finished']}, aborted {s['aborted']}")
     ff = report["false_finished"]
@@ -254,7 +279,7 @@ def _print_report(report):
     else:
         fr, fc = v["false_refusals"], v["false_confirmations"]
         print(f"[metrics] verifier agreement: {v['agreement_pct']}% over {v['n_compared']} "
-             f"compared")
+             f"compared ({v['basis']})")
         print(f"[metrics]   false-refusal (gates slice D-c): {fr['count']} "
              f"({fr['rate_pct']}%){' -- ' + ', '.join(fr['tasks']) if fr['tasks'] else ''}")
         print(f"[metrics]   false-confirmation (Phase-4/5 gate): {fc['count']} "

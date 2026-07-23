@@ -70,6 +70,18 @@ progress D-d's gate requires catching at least one instance of. **D-c is unblock
 next per the plan's ordering; D-d needs a battery that actually produces its target
 failure mode before its gate can be called clear.**_
 
+_Status update 2026-07-23: **slice D-c CODE LANDED AND OFFLINE-VALIDATED; RIG SESSION
+PENDING** (`docs/SESSION_2026-07-23_phase2_slice_d_c_gates.md`, branch
+`slice-d-c-gates`). `verify_mode="gate"` now accepts only `satisfied=True`; False and
+None both thread a refusal plus the oracle evidence back to the actor, and the third
+refusal ends failed with the distinct `answer refused by verifier x3` note. The battery
+defaults to gate mode and verifier-primary fail-closed grading, retains `--human`, samples
+10% of agreements plus every disagreement, and has the planned no-prompt `--no-reboot`
+mode. Metrics now compute verifier error rates only over human ground-truth samples and
+retain incomplete batteries' all-task denominator. **165 offline tests pass.** Evidence:
+`runs/d_c_offline_20260723_104436/pytest.txt`. The remaining gate is the physical extended
+battery; no rig claim is made from offline tests._
+
 ---
 
 

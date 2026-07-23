@@ -122,7 +122,7 @@ def test_main_rejects_unknown_verify_mode_before_touching_anything():
         try:
             battery.main()
         except SystemExit as e:
-            assert "verify_mode" in str(e.code)
+            assert e.code == 2, "argparse rejects the invalid mode before loading tasks"
         else:
             raise AssertionError("main() must exit on an unknown verify_mode")
     finally:
@@ -133,6 +133,33 @@ def test_auto_grade_no_verdict_at_all():
     """verify_mode='off' (no verifier ever ran) and a task that never reached a
     finished claim both look identical here: (None, None)."""
     assert battery.auto_grade_from_verdict(None) == (None, None)
+
+
+def test_d_c_verifier_grade_fails_closed():
+    assert battery.verifier_grade(
+        {"satisfied": True, "evidence": "visible"}) == {
+            "grade": "pass", "note": "visible"}
+    assert battery.verifier_grade(
+        {"satisfied": False, "evidence": "missing"}) == {
+            "grade": "fail", "note": "missing"}
+    assert battery.verifier_grade(
+        {"satisfied": None, "evidence": "timeout"}) == {
+            "grade": "fail", "note": "timeout"}
+    missing = battery.verifier_grade(None)
+    assert missing["grade"] == "fail" and "no verifier verdict" in missing["note"]
+
+
+def test_d_c_cli_defaults_to_gate_and_validates_unattended_contract():
+    args = battery.parse_args(["tasks.json"])
+    assert args.verify_mode == "gate" and args.human is False
+    args = battery.parse_args(["tasks.json", "--no-reboot"])
+    assert args.verify_mode == "gate" and args.no_reboot and args.spot_check_pct == 0
+    try:
+        battery.parse_args(["tasks.json", "off"])
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("off without --human has no primary grader and must fail")
 
 
 def test_payload_score_is_fail_closed():

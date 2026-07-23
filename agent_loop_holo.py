@@ -29,15 +29,15 @@ VERBATIM-NATIVE CHANGES vs the 2026-07-19 structured-output line:
       frame -- the paint_line s09 race, where GNOME's async search re-flowed during the
       model's 18.8s think and the click activated the row that slid under it. Gating
       progression, not injecting action; see GUARD_KINDS / GUARD_REFUSE_LIMIT.
-    - Postcondition verification (2026-07-23, roadmap Phase 2 slice D-b): run(verifier=,
+    - Postcondition verification (2026-07-23, roadmap Phase 2 slices D-b/D-c): run(verifier=,
       verify_mode=) optionally checks the model's own `finished` claim against the
       pixels via a stateless kvm_agent.models.base.Verifier -- separate from and blind
       to the actor's session history. "off" (default) is behaviorally and
       dict-return-shape IDENTICAL to pre-D-b run(); "shadow" records the verdict
       without changing control flow (this slice's whole point: measure live
-      false-refusal/agreement before anything is allowed to gate on it); "gate"
-      (refuse-to-advance on an unsatisfied claim) is slice D-c, not built yet, and is
-      rejected loudly rather than silently behaving like "shadow". See VERIFY_MODES.
+      false-refusal/agreement before anything is allowed to gate on it); "gate" refuses
+      an unsatisfied or unanswered finished claim, threads the oracle's evidence back to
+      the actor, and aborts loudly after VERIFY_REFUSE_LIMIT refusals. See VERIFY_MODES.
 
 Modeled on live_ctl.py's proven propose-then-confirm shape (ground() proposes, do()
 executes) so review-before-fire stays the default, per CLAUDE.md's "make failure loud"
@@ -101,12 +101,13 @@ GUARD_REFUSE_LIMIT = 3  # consecutive guard refusals -> abort: the target region
                         # unstable across whole decision cycles (spinner/animation).
                         # Not a model failure -- never counted against STUCK_LIMIT.
 
-# Postcondition verification (roadmap Phase 2 slice D-b, docs/PLAN_2026-07-22_phase2_
+# Postcondition verification (roadmap Phase 2 slices D-b/D-c, docs/PLAN_2026-07-22_phase2_
 # subgoal_verification.md): the model's own `finished`/answer claim, checked against the
 # pixels by a kvm_agent.models.base.Verifier -- a stateless oracle, never the actor's own
-# session. "gate" (refuse-to-advance on an unsatisfied claim) is slice D-c, not built
-# yet -- run() rejects it loudly rather than silently doing nothing.
+# session. "gate" refuses an unsatisfied OR unanswered claim and lets the actor
+# re-observe; k refusals terminate as a distinct failed outcome.
 VERIFY_MODES = ("off", "shadow", "gate")
+VERIFY_REFUSE_LIMIT = 3
 
 ENV = None
 LAST = {"png": None, "step": None, "history": None}
@@ -471,10 +472,10 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         step in the recorder, and as this call's "verified_finish" key) but changes
         NOTHING about control flow or the return's finished/answer_text values -- this is
         how D-b measures live false-refusal/agreement without risking a working battery.
-      "gate": NOT YET IMPLEMENTED (slice D-c: refuse-to-advance on an unsatisfied claim,
-        same shape as the pre-fire TOCTOU guard, one tier up). Rejected loudly rather
-        than silently behaving like "shadow" -- a silent no-op here would be exactly the
-        kind of quiet failure AGENTS.md exists to prevent.
+      "gate": a satisfied verdict accepts the finished claim. False OR None refuses it,
+        threads a NOT accepted tool result with the oracle evidence back to the actor,
+        and continues from a fresh observation. VERIFY_REFUSE_LIMIT refusals end the
+        run failed with the distinct note "answer refused by verifier xN".
     When verify_mode != "off", every return path (not just the finished one) gains a
     "verified_finish" key -- None where no claim was ever made (aborts), the verdict
     dict where one was. Always present in that mode, so a consumer never has to guess
@@ -483,16 +484,11 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     confirm_first = CONFIRM_FIRST if confirm_first is None else confirm_first
     if verify_mode not in VERIFY_MODES:
         raise ValueError(f"verify_mode={verify_mode!r} must be one of {VERIFY_MODES}")
-    if verify_mode == "gate":
-        raise NotImplementedError(
-            "verify_mode='gate' is roadmap Phase 2 slice D-c (refuse-to-advance on an "
-            "unsatisfied finished claim) and is not built yet -- use 'shadow' to record "
-            "verdicts without changing run() behavior.")
-    if verify_mode == "shadow" and verifier is None:
+    if verify_mode != "off" and verifier is None:
         # Checked eagerly, not at the first `finished` claim: a run that never finishes
         # (stuck limit, max_steps) would otherwise let this misconfiguration hide for an
         # entire run, discovered only when someone notices verified_finish is always None.
-        raise ValueError("verify_mode='shadow' requires a verifier")
+        raise ValueError(f"verify_mode={verify_mode!r} requires a verifier")
     if MAX_HISTORY_IMAGES < 1:
         # 0 would evict EVERY screenshot (trim's n=0 contract) -- the model would run
         # blind and every step would read as a model failure (second review #12).
@@ -505,7 +501,10 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         other on whether/how they report verification."""
         out = {"finished": finished, "answer_text": answer_text_}
         if verify_mode != "off":
-            out["verified_finish"] = verify_verdict.to_dict() if verify_verdict else None
+            out["verified_finish"] = last_verify_verdict.to_dict() \
+                if last_verify_verdict else None
+        if verify_mode == "gate":
+            out["verification_refusals"] = verify_refusals
         return out
     session = session or HoloSession(target=target, max_history_images=MAX_HISTORY_IMAGES,
                                      call_fn=call_holo_full)
@@ -519,10 +518,10 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     click_repeat = 0    # consecutive steps whose last click landed in ~the same spot
     last_click = None
     guard_refusals = 0  # consecutive pre-fire guard refusals (see GUARD_REFUSE_LIMIT)
-    # The verdict on THIS run's own `finished` claim, if any -- read by _result() above.
-    # Initialized here (not only in the per-step reset below) because the parse-drop
-    # early return can fire before that reset block runs on a given iteration.
-    verify_verdict = None
+    verify_refusals = 0
+    # Last verdict across the run, retained so a later max-steps/other abort still
+    # exposes the reason its most recent finished claim was rejected.
+    last_verify_verdict = None
     # Fresh per-run state (second review #12): the battery reboots the target between
     # tasks, so a tracked cursor/plan carried over from the previous run is wrong by
     # definition.
@@ -607,6 +606,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         step_changed = False
         screen_touched = False   # has any action of THIS batch touched the screen yet?
         verify_verdict = None    # this step's verdict, if its batch ends in `finished`
+        verify_refused = False
         for action in actions:
             kind = action.get("action")
             tool_name = session.tool_name(kind)
@@ -715,6 +715,17 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                             raw={}, usage={}, wall_time_s=0.0)
                     print(f"[run] step {step_i}: verify ({verify_mode}) satisfied="
                           f"{verify_verdict.satisfied} :: {verify_verdict.evidence[:160]}")
+                    last_verify_verdict = verify_verdict
+                    if verify_mode == "gate" and verify_verdict.satisfied is not True:
+                        verify_refused = True
+                        answer_text = None
+                        status = ("unsatisfied" if verify_verdict.satisfied is False
+                                  else "unanswered")
+                        results[-1] = (
+                            tool_name,
+                            f"NOT accepted: the postcondition verifier was {status}: "
+                            f"{verify_verdict.evidence}. The task is not finished. "
+                            "Re-examine the next screenshot and continue.")
                 break  # terminal: nothing after answer executes
 
         if recorder:
@@ -735,6 +746,21 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         # (a malformed turn would confuse the model more than a clean retry) -- the
         # `continue` on step.get("error") above skips this call entirely.
         session.commit(decision, results)
+
+        if verify_refused:
+            verify_refusals += 1
+            print(f"[run] answer refused by verifier "
+                  f"({verify_refusals}/{VERIFY_REFUSE_LIMIT})")
+            if verify_refusals >= VERIFY_REFUSE_LIMIT:
+                note = f"answer refused by verifier x{verify_refusals}"
+                print(f"[run] {note} -- aborting")
+                if recorder:
+                    recorder.finish(False, note=note)
+                return _result(False)
+            # Refusal is its own bounded circuit breaker. It is not an execution error,
+            # guard refusal, or frozen-screen step; the next iteration is the promised
+            # fresh observation.
+            continue
 
         if answer_text is not None:
             print(f"[run] finished: {answer_text!r}")
