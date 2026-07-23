@@ -90,6 +90,18 @@ def frame_png_bytes(frame):
     return buf.tobytes()
 
 
+def png_to_model_input_jpeg(png_bytes, target_h):
+    """Re-derive a model-input JPEG from an already-encoded evidence PNG (roadmap
+    Phase 2: the postcondition oracle judges a frame the loop already captured as
+    evidence, not a fresh one -- see agent_loop_holo.run()'s finished-action handling).
+    Decode -> model_input_jpeg is the single home for this (2026-07-21's tile-metric
+    rule applied here): tools/verify_replay.py's offline eval and this live path must
+    encode identically, or a live verdict is not comparable to the D-a replay numbers
+    that validated the oracle in the first place."""
+    arr = cv2.imdecode(np.frombuffer(png_bytes, np.uint8), cv2.IMREAD_COLOR)
+    return model_input_jpeg(arr, target_h)
+
+
 def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=None, poll_s=0.05,
                       seq_fn=None):
     """Wait up to max_s for the screen to STOP changing, returning as soon as

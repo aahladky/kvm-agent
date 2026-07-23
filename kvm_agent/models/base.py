@@ -137,6 +137,14 @@ class Verdict:
         """False when the oracle failed to answer (satisfied is None)."""
         return self.satisfied is not None
 
+    def to_dict(self) -> dict:
+        """The compact, JSON-safe record kept alongside a run (RunRecorder step/summary
+        entries, tools/battery.py's results row). Deliberately excludes `raw` (the full
+        model message -- already captured in kvm_agent.models.holo.REQUEST_LOG, tagged
+        kind="verify"; duplicating it here would just be a second, driftable copy)."""
+        return {"satisfied": self.satisfied, "evidence": self.evidence,
+                "wall_time_s": round(self.wall_time_s, 2), "usage": self.usage}
+
 
 @runtime_checkable
 class Verifier(Protocol):

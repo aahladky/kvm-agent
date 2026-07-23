@@ -56,6 +56,53 @@ def test_summary_actions_legacy_and_empty():
         "zero-step run summarizes cleanly"
 
 
+# --- roadmap Phase 2 slice D-b: verification threading ---
+def test_summary_verifications_default_to_none_when_absent():
+    """The overwhelming majority of steps carry no verification at all (D-b only
+    verifies a `finished` claim) -- verifications must be an explicit None per step,
+    not an absent key, so a consumer can zip it against `actions` positionally."""
+    with tempfile.TemporaryDirectory() as td:
+        rec = _recorder(td)
+        rec.log_step(0, b"png", {}, {"actions": [{"action": "left_click"}]}, {}, 0.1)
+        rec.log_step(1, b"png", {}, {"actions": [{"action": "finished"}]}, {}, 0.1)
+        rec.finish(True, note="done")
+        with open(os.path.join(rec.dir, "summary.json")) as f:
+            summary = json.load(f)
+    assert summary["verifications"] == [None, None]
+    assert summary["verified_finish"] is None
+
+
+def test_summary_verified_finish_pulls_the_verdict_off_the_right_step():
+    verdict = {"satisfied": True, "evidence": "calculator shows 56",
+              "wall_time_s": 0.05, "usage": {"prompt_tokens": 7}}
+    with tempfile.TemporaryDirectory() as td:
+        rec = _recorder(td)
+        rec.log_step(0, b"png", {}, {"actions": [{"action": "left_click"}]}, {}, 0.1)
+        rec.log_step(1, b"png", {}, {"actions": [{"action": "finished"}]}, {}, 0.1,
+                    verification=verdict)
+        rec.finish(True, note="56")
+        with open(os.path.join(rec.dir, "summary.json")) as f:
+            summary = json.load(f)
+    assert summary["verifications"] == [None, verdict], \
+        "verifications is parallel to actions/steps, not just the one that mattered"
+    assert summary["verified_finish"] == verdict
+
+
+def test_summary_verified_finish_is_none_on_a_dropped_run_with_no_claim():
+    """A run that aborts (stuck limit, no-progress, max_steps) never produces a
+    finished claim, so verified_finish must be None even though verify_mode was active
+    for the whole run -- absence of a claim is not the same as an unsatisfied one."""
+    with tempfile.TemporaryDirectory() as td:
+        rec = _recorder(td)
+        rec.log_step(0, b"png", {}, {"actions": [], "error": "bad_content_json"}, {},
+                    0.1, executed=False)
+        rec.finish(False, note="stuck limit hit")
+        with open(os.path.join(rec.dir, "summary.json")) as f:
+            summary = json.load(f)
+    assert summary["verifications"] == [None]
+    assert summary["verified_finish"] is None
+
+
 if __name__ == "__main__":
     import sys, traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

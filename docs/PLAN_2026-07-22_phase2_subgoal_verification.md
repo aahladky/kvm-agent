@@ -26,6 +26,29 @@ merely prefer state phrasing; native's prompt asks for verb-first goal titles, s
 phrasing is the DEFAULT output. (3) D-c's stated gate (false-refusal ≈ 0) is met offline
 on replayed frames; D-b's shadow run is what confirms it live._
 
+_Status update 2026-07-23: **slice D-b CODE LANDED, OFFLINE-VALIDATED, RIG SESSION
+PENDING** (`docs/SESSION_2026-07-23_phase2_slice_d_b_shadow_wiring.md`, branch
+`slice-d-b-shadow-wiring`). Everything this slice specified is built and tested except
+the one thing that needs the physical rig: `run(verify_mode="shadow")` wiring (provably
+byte-identical to before in `verify_mode="off"`, the default — the four pre-existing
+exact-dict-equality tests on `run()`'s return needed zero changes), `Verdict.to_dict()`,
+`RunRecorder`'s `verifications`/`verified_finish`, `tools/battery.py`'s `[verify_mode]`
+CLI arg + `auto_grade`/`auto_evidence` columns (alongside the human grade, never
+replacing it), four new end-state-phrased battery tasks (~8-15 steps,
+`tools/battery_tasks_gnome.json`), and `tools/battery_metrics.py` (new — computes every
+roadmap §5 metric except grounding rate: completion rate, steps-to-completion,
+false-"finished" rate, verifier agreement/false-refusal/false-confirmation,
+guard-refusal rate, actor-vs-verify latency, honest-refusal-vs-budget-exhaustion).
+Cross-validated against the existing archive: `battery_metrics.py`'s guard-refusal count
+matches the TOCTOU rig-confirmation session's hand count exactly (4/64 steps once the
+one pre-guard battery is excluded); a real archived frame pushed through the actual live
+encode path (`png_to_model_input_jpeg` → `HoloVerifier`) returned the same verdict D-a's
+offline replay already scored for it. Tests 131 → 157 green. **Remaining, per the plan's
+own framing ("one rig session buys everything")**: `python tools/battery.py
+tools/battery_tasks_gnome.json shadow` then `python tools/battery_metrics.py` — produces
+the extended-battery baseline, the live false-refusal rate, verifier-vs-human agreement,
+and the update_plan-on-long-tasks probe, all from one run._
+
 ---
 
 

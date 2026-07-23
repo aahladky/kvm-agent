@@ -736,6 +736,177 @@ def test_guard_survives_leading_update_plan():
     assert result["finished"] is True, "the run continues after the refusal"
 
 
+# --- roadmap Phase 2 slice D-b: shadow verification wiring ---
+# docs/PLAN_2026-07-22_phase2_subgoal_verification.md. verify_mode="off" (the default)
+# must be provably identical to pre-D-b run(): same control flow, same EXACT return
+# dict, verifier never constructed or touched. "shadow" must record a verdict without
+# changing anything about how the run proceeds or concludes.
+
+def _finish_now(*a, **k):
+    return ({"actions": [{"action": "finished", "text": "done"}], "note": None},
+            {"content": "{}"}, {})
+
+
+class _StubVerifier:
+    """Records every call so a test can assert what question/claim/image it received,
+    without needing a real kvm_agent.models.holo.HoloVerifier or a network call."""
+    def __init__(self, satisfied=True, evidence="stub evidence"):
+        self.satisfied, self.evidence = satisfied, evidence
+        self.calls = []
+
+    def check(self, data_url, w, h, question, claim=""):
+        self.calls.append({"data_url": data_url, "w": w, "h": h,
+                           "question": question, "claim": claim})
+        from kvm_agent.models.base import Verdict
+        return Verdict(satisfied=self.satisfied, evidence=self.evidence,
+                       raw={}, usage={"prompt_tokens": 7}, wall_time_s=0.05)
+
+
+class _ExplodingVerifier:
+    """.check() must never be reached in verify_mode='off' -- any call is a bug."""
+    def check(self, *a, **k):
+        raise AssertionError("verifier.check() must not be called in verify_mode='off'")
+
+
+def test_d_b_off_is_byte_identical_to_pre_d_b_run():
+    """The default path: no verify_mode/verifier args at all, same as every OTHER test
+    in this file that predates D-b. Must still return EXACTLY the two original keys."""
+    saved = _patch_run(_finish_now)
+    try:
+        result = al.run("x", max_steps=1, confirm_first=0, tag="t_off_default")
+    finally:
+        _restore_run(saved)
+    assert result == {"finished": True, "answer_text": "done"}, \
+        "no 'verified_finish' key may appear when verify_mode is left at its default"
+
+
+def test_d_b_off_ignores_a_supplied_verifier_entirely():
+    """Even if a caller passes a verifier, verify_mode='off' must never construct or
+    call it, and the return shape stays exactly the pre-D-b two keys."""
+    saved = _patch_run(_finish_now)
+    exploding = _ExplodingVerifier()
+    try:
+        result = al.run("x", max_steps=1, confirm_first=0, tag="t_off_explicit",
+                        verify_mode="off", verifier=exploding)
+    finally:
+        _restore_run(saved)
+    assert result == {"finished": True, "answer_text": "done"}
+
+
+def test_d_b_unknown_verify_mode_rejected_loudly():
+    for bad in ("on", "SHADOW", "", None):
+        try:
+            al.run("x", max_steps=1, verify_mode=bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"verify_mode={bad!r} must be rejected")
+
+
+def test_d_b_gate_mode_is_not_implemented_yet():
+    """Slice D-c's mode. Must be rejected LOUDLY (NotImplementedError), never silently
+    behaving like 'shadow' or 'off' -- a silent no-op here would hide that the gate
+    everyone assumes is active isn't."""
+    for verifier in (None, _StubVerifier()):
+        try:
+            al.run("x", max_steps=1, verify_mode="gate", verifier=verifier)
+        except NotImplementedError:
+            continue
+        raise AssertionError("verify_mode='gate' must raise NotImplementedError")
+
+
+def test_d_b_shadow_requires_a_verifier():
+    """Checked EAGERLY (before any steps run), not only when a `finished` claim
+    happens to occur -- a run that never finishes would otherwise let a missing
+    verifier hide for an entire battery task."""
+    try:
+        al.run("x", max_steps=1, verify_mode="shadow", verifier=None)
+    except ValueError:
+        return
+    raise AssertionError("verify_mode='shadow' with verifier=None must raise")
+
+
+def test_d_b_shadow_records_a_verdict_without_changing_control_flow():
+    stub = _StubVerifier(satisfied=True, evidence="calculator shows 56")
+    saved = _patch_run(_finish_now)
+    try:
+        result = al.run("compute 7 times 8", max_steps=1, confirm_first=0,
+                        tag="t_shadow_pass", verify_mode="shadow", verifier=stub)
+    finally:
+        _restore_run(saved)
+    assert result["finished"] is True and result["answer_text"] == "done", \
+        "shadow mode must not alter the finished/answer_text the model itself reported"
+    assert result["verified_finish"] == {
+        "satisfied": True, "evidence": "calculator shows 56",
+        "wall_time_s": 0.05, "usage": {"prompt_tokens": 7}}
+
+    assert len(stub.calls) == 1, "the finished action is verified exactly once"
+    call = stub.calls[0]
+    assert call["question"] == "compute 7 times 8", \
+        "the verifier is asked about the TASK instruction, not the empty step_instruction"
+    assert call["claim"] == "done", "the model's own answer text is passed as the claim"
+    assert call["data_url"].startswith("data:image/jpeg;base64,"), \
+        "the verifier sees a JPEG data URL, the same encoding the actor's own input uses"
+
+    rec = FakeRecorder.instances[-1]
+    logged_kwargs = rec.steps[-1][1]
+    assert logged_kwargs["verification"] == result["verified_finish"], \
+        "the same verdict reaches the recorder's step record, not a re-derived copy"
+    assert rec.finished == (True, "done"), "recorder.finish() is unaffected by shadow mode"
+
+
+def test_d_b_shadow_records_an_unsatisfied_verdict_too():
+    """Recording a False verdict is just as important as recording a True one -- this
+    is the live false-refusal/false-confirmation signal D-b exists to gather."""
+    stub = _StubVerifier(satisfied=False, evidence="calculator still shows 0")
+    saved = _patch_run(_finish_now)
+    try:
+        result = al.run("compute 7 times 8", max_steps=1, confirm_first=0,
+                        tag="t_shadow_fail", verify_mode="shadow", verifier=stub)
+    finally:
+        _restore_run(saved)
+    assert result["finished"] is True, \
+        "shadow mode NEVER gates -- an unsatisfied verdict still lets the run finish"
+    assert result["verified_finish"]["satisfied"] is False
+    assert "still shows 0" in result["verified_finish"]["evidence"]
+
+
+def test_d_b_a_raising_verifier_becomes_satisfied_none_not_a_dead_run():
+    """Defense in depth, same reasoning as the session.decide() guard above (P0-2): an
+    unexpected raise from ANY verifier must not propagate past recorder.finish(), or
+    one bad verifier call kills every remaining battery task."""
+    class _RaisingVerifier:
+        def check(self, *a, **k):
+            raise RuntimeError("endpoint exploded")
+    saved = _patch_run(_finish_now)
+    try:
+        result = al.run("x", max_steps=1, confirm_first=0, tag="t_shadow_raise",
+                        verify_mode="shadow", verifier=_RaisingVerifier())
+    finally:
+        _restore_run(saved)
+    assert result["finished"] is True, "a raising verifier must not kill the run"
+    vf = result["verified_finish"]
+    assert vf["satisfied"] is None, "a raise is a non-answer, never coerced to a verdict"
+    assert "endpoint exploded" in vf["evidence"]
+
+
+def test_d_b_verified_finish_present_and_none_on_every_abort_path():
+    """When verify_mode != 'off', EVERY return path gains the key (never absent),
+    always None where no claim was ever made -- a consumer should never need a
+    conditional .get() depending on WHY the run ended."""
+    def never_finishes(*a, **k):
+        return ({"actions": [], "note": None, "error": "bad json"}, {}, {})
+    stub = _StubVerifier()
+    saved = _patch_run(never_finishes)
+    try:
+        result = al.run("x", max_steps=al.STUCK_LIMIT, confirm_first=0,
+                        tag="t_shadow_abort", verify_mode="shadow", verifier=stub)
+    finally:
+        _restore_run(saved)
+    assert result["finished"] is False
+    assert "verified_finish" in result and result["verified_finish"] is None
+    assert stub.calls == [], "no finished claim was ever made -- the verifier is never called"
+
+
 if __name__ == "__main__":
     import sys, traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

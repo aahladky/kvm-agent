@@ -87,6 +87,54 @@ def test_payload_void_excluded_from_denominator():
     assert p2["score"] == "0/0 (1 void)", f"all-void battery scores 0/0, got {p2['score']}"
 
 
+# --- roadmap Phase 2 slice D-b: the oracle's verdict travels alongside the human
+# grade, never replacing it. auto_grade_from_verdict is the pure mapping function. ---
+def test_auto_grade_maps_satisfied_to_pass_fail():
+    grade, evidence = battery.auto_grade_from_verdict(
+        {"satisfied": True, "evidence": "calculator shows 56", "wall_time_s": 0.1,
+         "usage": {}})
+    assert (grade, evidence) == ("pass", "calculator shows 56")
+
+    grade, evidence = battery.auto_grade_from_verdict(
+        {"satisfied": False, "evidence": "still shows 0", "wall_time_s": 0.1,
+         "usage": {}})
+    assert (grade, evidence) == ("fail", "still shows 0")
+
+
+def test_auto_grade_none_is_not_a_silent_pass():
+    """Fail-closed, matching grade_task's own p/f/v discipline: an oracle that didn't
+    answer must never read as a pass -- it must be indistinguishable from 'no verdict
+    at all' in the numerator, only distinguishable in the evidence text."""
+    grade, evidence = battery.auto_grade_from_verdict(
+        {"satisfied": None, "evidence": "verifier call raised: timeout",
+         "wall_time_s": 0.0, "usage": {}})
+    assert grade is None
+    assert "timeout" in evidence
+
+
+def test_main_rejects_unknown_verify_mode_before_touching_anything():
+    """Validated before load_tasks() is even reached -- a real task file need not
+    exist on disk to discover a typo'd verify_mode (fail fast on bad args, the same
+    discipline as run()'s eager MAX_HISTORY_IMAGES/verify_mode checks)."""
+    real_argv = sys.argv
+    sys.argv = ["battery.py", "/nonexistent/tasks.json", "bogus_mode"]
+    try:
+        try:
+            battery.main()
+        except SystemExit as e:
+            assert "verify_mode" in str(e.code)
+        else:
+            raise AssertionError("main() must exit on an unknown verify_mode")
+    finally:
+        sys.argv = real_argv
+
+
+def test_auto_grade_no_verdict_at_all():
+    """verify_mode='off' (no verifier ever ran) and a task that never reached a
+    finished claim both look identical here: (None, None)."""
+    assert battery.auto_grade_from_verdict(None) == (None, None)
+
+
 def test_payload_score_is_fail_closed():
     """Second review #8 (2026-07-21): an abandoned battery must not read as complete --
     the score denominator is ALL tasks, not just the graded ones (a real Ctrl-C
