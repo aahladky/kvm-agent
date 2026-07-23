@@ -1,4 +1,4 @@
-# PLAN 2026-07-23 — Enroll holo3.1 in llama-swap's matrix (PROPOSED, external config)
+# PLAN 2026-07-23 — Enroll holo3.1 in llama-swap's matrix (APPLIED, external config)
 
 _This edits `/home/aaron/services/llama-swap/config.yaml`, which is **outside this repo**
 (managed by `modelctl`, git-versioned separately). Written up as a reviewable diff per the

@@ -356,6 +356,15 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
 - ~~holo3.1 absent from llama-swap's `matrix:`, evictable mid-run~~ — **CLOSED
   2026-07-23** (see Solved §3's serving entry).
 
+- **Review follow-ups (2026-07-23):** `tools/battery_metrics.py` reconstructs
+  completion from the rows already graded pass/fail instead of retaining the battery's
+  fail-closed `total_tasks`/`graded`/`complete` contract, so an interrupted 10-task
+  battery with one recorded pass can be reported as 1/1 (100%); fix with D-c, whose
+  automated grading depends on honest denominators. `parse_serving_cmd` removes every
+  backslash and whitespace-splits a shell command; replace that lossy parser with
+  shell-aware tokenization before a quoted/escaped model path makes the serving
+  snapshot lie. Full review: `docs/REPORT_2026-07-23_codebase_review.md`.
+
 - **Tool-result signal is semantically misleading**: changed/unchanged binary
   confirmed real-but-irrelevant pixels (taskbar focus visuals) as action success
   at decision-critical steps (2026-07-21). **Partial fix landed 2026-07-22** with
