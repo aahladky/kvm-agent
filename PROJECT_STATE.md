@@ -321,9 +321,9 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   selects `manual-power-cycle` (still default), `cleanup`, `cleanup-logout`, or `none`.
   Cleanup is typed visibly through physical HID; success closes/logs out, failure leaves
   `KVM_RESET_FAILED` visible, and the operator confirms before the camera-verified HID
-  gate. `cleanup-logout --auto-login` prompts once with hidden input, retains the
-  disposable password only in process memory, types it at GDM, and relies on that same
-  camera/HID gate to prove login. Battery `results.json` records
+  gate. `cleanup-logout --auto-login` reads the disposable password from gitignored
+  `.env.local` (`TARGET_LOGIN_PASSWORD`, hidden-prompt fallback), types it at GDM, and
+  relies on that same camera/HID gate to prove login. Battery `results.json` records
   verify/grader/sample/reset/auto-login configuration, never the credential.
   170 tests pass. Evidence:
   `runs/session_reset_offline_20260723_113316/pytest_auto_login.txt`,

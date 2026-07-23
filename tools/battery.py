@@ -182,9 +182,10 @@ def main():
     # unsafe, and it avoids re-paying object construction 5-6 times per battery.
     verifier = HoloVerifier() if verify_mode != "off" else None
     tasks = load_tasks(tasks_path)
-    login_password = (getpass.getpass(
-        "[battery] disposable GNOME account password (runtime only): ")
-        if args.auto_login else None)
+    login_password = None
+    if args.auto_login:
+        login_password = CFG.target_login_password or getpass.getpass(
+            "[battery] disposable GNOME account password: ")
     ts = time.strftime("%Y%m%d_%H%M%S")
     print(f"[battery] {len(tasks)} tasks from {tasks_path}")
     if CFG.target_shell == "windows":
