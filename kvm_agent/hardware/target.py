@@ -75,8 +75,11 @@ def build_gnome_reset_command(cleanup_files=(), setting_resets=(),
     # Match an executable path/name followed by whitespace/end. The expanded regex
     # does not match this shell's space-separated process-name list.
     processes = " ".join(GNOME_APP_RESETS[application_reset])
+    # These are disposable eval-task processes. TERM invites unsaved-document handlers
+    # (Pinta survived TERM after paint_line and contaminated task 6); KILL is the reset
+    # contract: no save prompt, no graceful refusal, no task state survives.
     commands.append(
-        f'for p in {processes}; do pkill -TERM -f "(^|/)$p( |$)" || true; done')
+        f'for p in {processes}; do pkill -KILL -i -f "(^|/)$p( |$)" || true; done')
     # If none of the allowlisted terminal names matched, `exit` still closes the reset
     # shell. A real cleanup/settings failure occurs before the tolerant process loop and
     # reaches the visible marker. The camera verifier remains authoritative about stale

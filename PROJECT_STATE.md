@@ -334,6 +334,12 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   process be named `gnome-terminal-server`; the target uses another implementation.
   Fixed by an allowlist of current terminal process names plus `exit` fallback; camera
   verification remains the authority. Physical re-smoke pending.
+  **Second active-cleanup smoke reached and passed tasks 1-5, then failed closed before
+  task 6** because Pinta's unsaved document survived SIGTERM
+  (`runs/battery_20260723_130246/results.json`,
+  `runs/battery_paint_line_20260723_132752/`). The command did include `pinta` and
+  `Pinta.exe`; graceful termination was the wrong reset primitive. Fixed: code-owned
+  disposable task processes now receive SIGKILL, intentionally bypassing save prompts.
 - **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
   GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and
   `runs/battery_20260722_222137/` 5/5 (1 void)): the pre-fire target-tile guard

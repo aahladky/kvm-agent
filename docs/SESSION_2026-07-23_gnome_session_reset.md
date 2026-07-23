@@ -54,6 +54,15 @@ the code-owned application profile and making no-match fall back to the shell's 
 `exit`. The camera verifier—not a process name—remains the proof that no terminal
 window survived.
 
+The next physical run reached task 5 cleanly, then the reset before task 6 failed
+closed because Pinta remained visible
+(`runs/battery_20260723_130246/results.json`, reset event `top_bar_clock`; task evidence
+`runs/battery_paint_line_20260723_132752/`). Pinta was not absent from the command:
+both `pinta` and `Pinta.exe` were allowlisted. The bug was reset semantics—SIGTERM
+allows an application with an unsaved document to handle/refuse graceful termination.
+Allowlisted disposable task applications now receive SIGKILL. This deliberately
+discards drafts and bypasses save dialogs; that is the intended reset behavior.
+
 ## Operator setup and physical smoke
 
 Create or select a dedicated standard GNOME user containing no personal files. Log into

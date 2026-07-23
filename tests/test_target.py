@@ -77,6 +77,7 @@ def test_gnome_reset_command_is_narrow_and_fail_loud():
     assert "gnome-text-editor" in cmd and "gnome-control-center" in cmd
     assert "firefox" in cmd and "Pinta.exe" in cmd
     assert "gnome-terminal-server" in cmd and "kgx" in cmd and "ptyxis" in cmd
+    assert "pkill -KILL -i" in cmd and "pkill -TERM" not in cmd
     assert "gnome-session-quit" not in cmd
 
 
