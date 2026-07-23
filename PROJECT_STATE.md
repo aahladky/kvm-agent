@@ -1,8 +1,8 @@
 # Project State — KVM-over-IP Computer-Use Agent
 
 _Snapshot: 2026-07-23 — Phase 2 slices D-a (the postcondition oracle, RIG-CONFIRMED) and
-D-b (shadow wiring + harder tasks + metrics, RIG-CONFIRMED, both D-c and D-d gates now
-clear) done, plus the serving-layer contract. D-c (flip the gates) is next.
+D-b (shadow wiring + harder tasks + metrics, RIG-CONFIRMED; D-c's gate clears, D-d's does
+not yet) done, plus the serving-layer contract. D-c (flip the gates) is next.
 Supersedes the 2026-07-20 physical-target-move snapshot (git history). Design:
 `docs/PLAN_2026-07-20_physical_target_move.md` and, for the phase now in flight,
 `docs/PLAN_2026-07-22_phase2_subgoal_verification.md`; latest session:
@@ -280,16 +280,24 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   explicitly skipped and reported. Tests 131 → 157 green.
   **Rig session run 2026-07-23** (`runs/battery_20260723_093442/`,
   `runs/battery_metrics_20260723_100508/report.json`): extended 10-task battery,
-  `verify_mode="shadow"` — 10/10 human-graded pass, false-"finished" 0/9,
-  **verifier-vs-human agreement 100% (9/9), false-refusal 0/9: D-c's hard gate clears.**
+  `verify_mode="shadow"` — 10/10 human-graded pass, false-"finished" 0/9.
+  **False-refusal 0/9 on live frames: D-c's hard gate clears, D-c is a legitimate go.**
+  Verifier-vs-human agreement is 100% (9/9) only over the 9 runs the verifier actually
+  judged; the 10th (`copy_paste_notes`) never claimed `finished`, so produced no verdict,
+  yet was human-graded pass — a real auto/human divergence (9/10 counted honestly) that
+  D-c's planned fail-closed auto-grading would surface. False-confirmation stays
+  unmeasured (zero true-fail cases to test against), which is why D-c's own design keeps
+  every auto/human disagreement plus a sampled fraction of agreements human-checked.
   Guard-refusal rate 8/76 steps (10.5%). `update_plan`: 0/76 occurrences (0/19 in the
-  pre-existing archive) — **settles D-d's mechanism: explicit planner call, not
-  native-schema harvest.** The one non-"finished" run (`copy_paste_notes`, `max_steps
-  reached` at 15, human-graded pass) shows the model completed the actual terminal
-  action with no budget left to screenshot-and-declare — correct progress with no
-  self-declared checkpoint, invisible to a terminal-only oracle by construction, and the
-  concrete case satisfying D-d's "headroom, not another clean sweep" gate. **D-c and D-d
-  are both unblocked; D-c is next** (smaller, lower-risk). Evidence:
+  pre-existing archive) — **settles D-d's mechanism (explicit planner call, not
+  native-schema harvest) regardless of its gate.** **D-d's own gate — "headroom, not
+  another clean sweep," at least one caught confident-wrong-progress case — is NOT met**:
+  graded-level this battery is another 10/10 sweep. `copy_paste_notes` (`max_steps
+  reached` at 15, human-graded pass) shows the model completed the actual terminal action
+  with no budget left to screenshot-and-declare — real evidence for subgoal-level
+  checkpointing, but *under-confident correct* progress, the mirror of the
+  *confident-wrong* case D-d's gate requires. **D-c is unblocked and next; D-d needs a
+  battery that actually produces its target failure mode.** Evidence:
   `docs/SESSION_2026-07-23_phase2_slice_d_b_rig_results.md`.
 - **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
   GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and

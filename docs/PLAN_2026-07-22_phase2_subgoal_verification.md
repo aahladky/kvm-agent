@@ -45,22 +45,30 @@ one pre-guard battery is excluded); a real archived frame pushed through the act
 encode path (`png_to_model_input_jpeg` → `HoloVerifier`) returned the same verdict D-a's
 offline replay already scored for it. Tests 131 → 157 green._
 
-_Status update 2026-07-23: **slice D-b RIG SESSION EXECUTED, both downstream gates PASS**
-(`docs/SESSION_2026-07-23_phase2_slice_d_b_rig_results.md`,
+_Status update 2026-07-23: **slice D-b RIG SESSION EXECUTED, D-c's gate PASSES, D-d's
+does not (yet)** (`docs/SESSION_2026-07-23_phase2_slice_d_b_rig_results.md`,
 `runs/battery_20260723_093442/`, `runs/battery_metrics_20260723_100508/report.json`).
 Extended 10-task battery, `verify_mode="shadow"`: 10/10 human-graded pass, false-"finished"
-0/9, **verifier-vs-human agreement 100% (9/9), false-refusal 0/9 — D-c's hard gate
-clears.** Guard-refusal rate 8/76 steps (10.5%), consistent with harder multi-window
-tasks giving the TOCTOU guard more chances to fire; no run lost to it. `update_plan`:
-0/76 occurrences on this battery (0/19 in the pre-existing archive) — **settles D-d's
-mechanism question: explicit planner call, not native-schema harvest.** The one
+0/9. **False-refusal 0/9 on live frames — D-c's hard gate clears, D-c is a legitimate
+go.** (Verifier-vs-human agreement is 9/9=100% only over the 9 runs the verifier actually
+judged; the 10th, `copy_paste_notes`, never claimed `finished` so produced no verdict at
+all, yet was human-graded pass — a real auto/human divergence D-c's planned fail-closed
+auto-grading would produce, 9/10 counted honestly, not 100%. False-confirmation stays
+unmeasured — zero true-fail cases in this batch to test the verifier against, which is
+exactly why D-c's own design keeps every auto/human disagreement plus a sampled fraction
+of agreements human-checked rather than fully retiring the human.) Guard-refusal rate
+8/76 steps (10.5%). `update_plan`: 0/76 occurrences on this battery (0/19 in the
+pre-existing archive) — **settles D-d's mechanism question regardless of its gate:
+explicit planner call, not native-schema harvest.** **D-d's own stated gate — "headroom,
+not another clean sweep," at least one caught case of confident-wrong progress — is NOT
+met**: at the graded level this battery is another clean 10/10 sweep. The one
 non-"finished" run (`copy_paste_notes`, `max_steps reached` at 15, human-graded pass
-anyway) shows the model completed the actual terminal action (Save button click) with no
-budget left to screenshot-and-declare — correct progress with no self-declared
-checkpoint, invisible to a terminal-only oracle by construction. This is the concrete,
-non-hypothetical case D-d's subgoal-boundary checks exist to catch, and satisfies the
-plan's own "headroom, not another clean sweep" gate for D-d. **Both D-c and D-d are now
-unblocked; D-c is next per the plan's ordering (smaller, lower-risk).**_
+anyway) shows the model completed the actual terminal action with no budget left to
+screenshot-and-declare — real, useful evidence for subgoal-level checkpointing, but it is
+*under-confident correct* progress, structurally the mirror of the *confident-wrong*
+progress D-d's gate requires catching at least one instance of. **D-c is unblocked and
+next per the plan's ordering; D-d needs a battery that actually produces its target
+failure mode before its gate can be called clear.**_
 
 ---
 
