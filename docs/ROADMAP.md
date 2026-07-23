@@ -215,10 +215,11 @@ Track (you already log most of this): *[correction 2026-07-22: "most" = steps, c
    model/harness integration work below. **D-d remains deferred** until targeted,
    trustworthy evidence demonstrates the confident-wrong progression failure it is
    meant to solve.
-6. **Model/harness integration calibration.** **APPROVED, PENDING**: first add four
-   fixed-frame calls through the real production model seam; then, on its own branch,
-   add one deterministic physical calibration surface. No second loop, retry framework,
-   or broad task campaign
+6. **Model/harness integration calibration.** **SLICE A LIVE-VALIDATED 4/4; SLICE B
+   PENDING**: four fixed-frame calls now pass through the real production model seam
+   with exact request/raw/parsed/projection evidence. On its own branch, add one
+   deterministic physical calibration surface. No second loop, retry framework, or
+   broad task campaign
    (`docs/PLAN_2026-07-23_model_harness_integration_testing.md`).
 
 ---

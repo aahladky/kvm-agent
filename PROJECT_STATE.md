@@ -1,15 +1,15 @@
 # Project State — KVM-over-IP Computer-Use Agent
 
 _Snapshot: 2026-07-23 — Phase 2 slices D-a (the postcondition oracle), D-b (shadow
-wiring), and D-c (terminal claim gating) are implemented; D-c is
-CODE-COMPLETE/OFFLINE-VALIDATED. The next confidence step is a controlled
-model/harness integration smoke, not a broad desktop-task run. D-d remains deferred
-until trustworthy targeted evidence justifies more control-flow complexity. The
-serving-layer contract and matrix enrollment are complete.
+wiring), and D-c (terminal claim gating) are implemented. The controlled live-model
+contract smoke is LIVE-VALIDATED 4/4; the next integration step is one deterministic
+physical calibration surface. D-d remains deferred until trustworthy targeted evidence
+justifies more control-flow complexity. The serving-layer contract and matrix
+enrollment are complete.
 Supersedes the 2026-07-20 physical-target-move snapshot (git history). Design:
 `docs/PLAN_2026-07-20_physical_target_move.md` and, for the phase now in flight,
 `docs/PLAN_2026-07-23_model_harness_integration_testing.md`; latest session:
-`docs/SESSION_2026-07-23_model_harness_testing_baseline.md`._
+`docs/SESSION_2026-07-23_model_contract_smoke.md`._
 
 ## 1. What it is
 
@@ -65,11 +65,11 @@ OS-agnostic, undetectable. Pure curiosity project.
   tap → Activities, Esc closes; Activities corner click, top-left — "windows"
   keeps win+r/Start for a Windows target); verified live on GNOME 2026-07-21
   (kbd diff 131.0, mouse diff 134.9).
-- **TESTING** — the ordinary gate is the deterministic offline suite (171 tests at the
+- **TESTING** — the ordinary gate is the deterministic offline suite (177 tests at the
   current baseline). Fake sessions already exercise the production loop and transcript
-  contract. The approved missing pieces are four fixed-frame calls through the real
-  `HoloSession`, followed by one controlled physical calibration page with a
-  deterministic visual oracle
+  contract. Four fixed-frame calls through the real `HoloSession` are now
+  LIVE-VALIDATED 4/4; the remaining approved piece is one controlled physical
+  calibration page with a deterministic visual oracle
   (`docs/PLAN_2026-07-23_model_harness_integration_testing.md`). Existing broad
   task-runner tooling is retained for historical/manual capability work only; it is
   not a development or merge gate.
@@ -376,6 +376,17 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   `runs/battery_20260723_142910/results.json` is incomplete: five tasks were attempted
   and five reset events passed; it has no comparable aggregate score. Approved design:
   `docs/PLAN_2026-07-23_model_harness_integration_testing.md`.
+- **Controlled live-model contract smoke (2026-07-23, LIVE-VALIDATED 4/4):**
+  `tools/model_contract_smoke.py` generates four fixed frames and passes them through
+  fresh production `HoloSession` calls without camera/HID. Target click, focused-field
+  typing, visible completion, and visible incompletion all satisfied their broad
+  contracts on one request each with no retry. Exact request-image hashes, actual wire
+  output, parsed actions, and pointer projections cross-check cleanly. The complete
+  offline suite is 177/177. Evidence:
+  `runs/model_contract_smoke_20260723_161257/summary.json`,
+  `runs/model_contract_smoke_20260723_161257/inspection.txt`,
+  `runs/model_contract_slice_a_20260723_161037/full_pytest.txt`, and
+  `docs/SESSION_2026-07-23_model_contract_smoke.md`.
 - **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
   GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and
   `runs/battery_20260722_222137/` 5/5 (1 void)): the pre-fire target-tile guard

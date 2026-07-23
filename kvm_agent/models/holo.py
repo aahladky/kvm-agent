@@ -592,7 +592,8 @@ def _target_config(target: str):
 def call_holo_full(instruction: str, image_data_url: str, image_w: int, image_h: int,
                     target: str = "local", history: list[dict] | None = None,
                     temperature: float = 0.8, enable_thinking: bool = True,
-                    max_history_images: int = 3) -> tuple[dict, dict, dict]:
+                    max_history_images: int = 3,
+                    timeout_s: float = 180.0) -> tuple[dict, dict, dict]:
     """One step: build request, call the endpoint, parse into a step dict; also returns
     the raw assistant message (dict, via model_dump()) and token usage.
 
@@ -609,7 +610,8 @@ def call_holo_full(instruction: str, image_data_url: str, image_w: int, image_h:
     chat_template_kwargs is what actually controls the local reasoning trace.
     """
     base_url, model, api_key = _target_config(target)
-    client = openai_client(base_url=base_url, api_key=api_key or "unused")
+    client = openai_client(base_url=base_url, api_key=api_key or "unused",
+                           timeout=timeout_s)
     messages = build_messages(instruction, image_data_url, history=history)
     trim_to_last_n_images(messages, n=max_history_images)
     t0 = time.time()
@@ -625,7 +627,8 @@ def call_holo_full(instruction: str, image_data_url: str, image_w: int, image_h:
     except Exception as e:
         REQUEST_LOG.write({"target": target, "model": model, "messages": REQUEST_LOG._redact(messages),
                            "response_format": RESPONSE_SCHEMA, "temperature": temperature,
-                           "enable_thinking": enable_thinking, "error": str(e),
+                           "enable_thinking": enable_thinking, "timeout_s": timeout_s,
+                           "error": str(e),
                            "http_ms": round((time.time() - t0) * 1000.0, 1)})
         raise
     message = resp.choices[0].message.model_dump()
@@ -638,7 +641,8 @@ def call_holo_full(instruction: str, image_data_url: str, image_w: int, image_h:
     usage = resp.usage.model_dump() if resp.usage else {}
     REQUEST_LOG.write({"target": target, "model": model, "messages": REQUEST_LOG._redact(messages),
                        "response_format": RESPONSE_SCHEMA, "temperature": temperature,
-                       "enable_thinking": enable_thinking, "response_message": message,
+                       "enable_thinking": enable_thinking, "timeout_s": timeout_s,
+                       "response_message": message,
                        "parsed_step": step, "usage": usage,
                        "http_ms": round((time.time() - t0) * 1000.0, 1)})
     return step, message, usage
