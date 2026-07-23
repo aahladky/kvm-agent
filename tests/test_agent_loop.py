@@ -238,14 +238,16 @@ def test_p0_3_capture_stall_surfaced():
 def test_p0_4_boot_hid_gate():
     import kvm_agent.hardware.target as target_mod
 
-    saved = (al.ENV, al.PicoEnv, target_mod.verify_hid)
+    saved = (al.ENV, al.PicoEnv, target_mod.verify_hid, dict(al.SERVING))
     try:
         al.PicoEnv = lambda *a, **k: FakeEnv()
         target_mod.verify_hid = lambda r4, cam, **k: (False, "mouse NOT delivering (test)")
         al.ENV = None
         raised = False
         try:
-            al.boot()
+            # serving_check=False throughout: this test is about the HID gate, and the
+            # serving probe would put a real HTTP call in the offline suite.
+            al.boot(serving_check=False)
         except RuntimeError:
             raised = True
         assert raised, "boot() fails closed when the HID gate fails"
@@ -257,13 +259,53 @@ def test_p0_4_boot_hid_gate():
             return True, "hid ok (test)"
         target_mod.verify_hid = passing_gate
         al.ENV = None
-        assert al.boot() is True, "boot() returns True when the gate passes"
+        assert al.boot(serving_check=False) is True, \
+            "boot() returns True when the gate passes"
         assert gate_calls["n"] == 1, "the gate actually ran"
         al.ENV = None
-        al.boot(verify=False)
+        al.boot(verify=False, serving_check=False)
         assert gate_calls["n"] == 1, "boot(verify=False) skips the gate"
     finally:
-        al.ENV, al.PicoEnv, target_mod.verify_hid = saved
+        al.ENV, al.PicoEnv, target_mod.verify_hid = saved[:3]
+        al.SERVING.clear()
+        al.SERVING.update(saved[3])
+
+
+def test_boot_serving_check_is_skippable_and_records_when_run():
+    """The serving preflight is opt-outable (the offline suite opts out) and, when it
+    runs, it WARNS rather than raising -- unlike the HID gate. Clicking into a dead HID
+    corrupts silently; every serving problem announces itself at the first model call."""
+    import kvm_agent.hardware.target as target_mod
+
+    saved = (al.ENV, al.PicoEnv, target_mod.verify_hid, al.serving_snapshot,
+             dict(al.SERVING))
+    try:
+        al.PicoEnv = lambda *a, **k: FakeEnv()
+        target_mod.verify_hid = lambda r4, cam, **k: (True, "hid ok (test)")
+
+        probes = {"n": 0}
+        def exploding_probe(*a, **k):
+            probes["n"] += 1
+            raise AssertionError("serving_check=False must not probe")
+        al.serving_snapshot = exploding_probe
+        al.ENV = None
+        al.boot(verify=False, serving_check=False)
+        assert probes["n"] == 0
+
+        # An UNCONFIGURED model warns loudly and still returns -- no raise.
+        al.serving_snapshot = lambda *a, **k: {
+            "endpoint": "http://x", "model": "holo3.1", "reachable": True,
+            "configured": False, "resident": None, "params": {}, "co_resident": [],
+            "error": None}
+        al.ENV = None
+        assert al.boot(verify=False, serving_check=True) is True, \
+            "a serving problem must not abort boot"
+        assert al.SERVING["checked"] is True and al.SERVING["configured"] is False, \
+            "the snapshot is cached for run() to record"
+    finally:
+        al.ENV, al.PicoEnv, target_mod.verify_hid, al.serving_snapshot = saved[:4]
+        al.SERVING.clear()
+        al.SERVING.update(saved[4])
 
 
 def test_p1_9_camera_bringup_failure_is_catchable():

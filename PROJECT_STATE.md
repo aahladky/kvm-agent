@@ -1,6 +1,7 @@
 # Project State — KVM-over-IP Computer-Use Agent
 
-_Snapshot: 2026-07-23 — Phase 2 slice D-a (the postcondition oracle, offline-validated).
+_Snapshot: 2026-07-23 — Phase 2 slice D-a (the postcondition oracle, offline-validated)
+plus the serving-layer contract.
 Supersedes the 2026-07-20 physical-target-move snapshot (git history). Design:
 `docs/PLAN_2026-07-20_physical_target_move.md` and, for the phase now in flight,
 `docs/PLAN_2026-07-22_phase2_subgoal_verification.md`; latest session:
@@ -261,7 +262,45 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   mid-animation catches, confirmed by eye). §7 item 0's roadmap gate closes.
   Evidence: `docs/SESSION_2026-07-22_toctou_guard_rig_confirmation.md`.
 
+- **The serving layer has a contract (2026-07-23, offline + live probe, no rig):** the
+  model server lives OUTSIDE this repo (llama-swap + `modelctl`,
+  `~/services/llama-swap/config.yaml`) and nothing here had ever inspected it. It is
+  deliberately NOT adopted — it serves 16 models for unrelated purposes — but it now has
+  a seam. `kvm_agent/llm/serving.py`: `parse_serving_cmd` (pure) + `serving_snapshot`
+  (reachable / configured / resident / params / co_resident), fail-soft by contract (a
+  probe that raises is a new way to kill a run). `boot(serving_check=True)` records and
+  **warns** (it does not raise — unlike the HID gate, every serving fault announces
+  itself at the first model call); `run()` re-snapshots PER RUN and writes it to
+  `meta.json` under `serving`, so a mid-battery eviction is visible after the fact.
+  `tools/serving_probe.py` is the fail-closed preflight — `verify_hid`'s analogue one
+  layer up (the config says what the server WOULD launch; `/running` says what it IS
+  running) — hard-failing only on unreachable / not-configured / **resident vision model
+  with no mmproj** (which answers fluently from text alone, so it reads as "the model got
+  bad at grounding": the most expensive misdiagnosis available here, AGENTS.md §2).
+  Measured live: cold load 12.7s vs warm 0.1s; ctx 64000, `--image-min-tokens 1024`,
+  cache k/v q8_0/q4_0, quant Q4_K_M, `--parallel 1` (no request concurrency, so a
+  Phase-2 verify serializes behind the actor call). Tests 116 → 131, and the suite is
+  proven endpoint-independent (`HOLO_LOCAL_URL=http://127.0.0.1:1/v1` → 131 passed, same
+  runtime). Evidence: `runs/serving_probe_20260723_075311/probe.json`,
+  `docs/SESSION_2026-07-23_serving_contract.md`.
+  **The eviction hole this found is CLOSED (2026-07-23, operator-applied):** holo3.1 was
+  absent from llama-swap's `matrix:` — the one step `modelctl` deliberately leaves to a
+  human, never done after `modelctl pull` — so any other consumer of the box evicted it
+  mid-run at a ~13-17s reload that lands as LATENCY, never an error (never actually
+  observed in a real run: every >median+12s step in the archive is step 0, a cold load).
+  Three lines added (`vars: holo`, `evict_costs: holo: 1`, `sets: holo_stack: holo & f7`),
+  per `docs/PLAN_2026-07-23_serving_matrix_enrollment.md`. **The edit alone did nothing** —
+  llama-swap runs without `--watch-config`, so the two-day-old process still held the old
+  config and a behavioural re-test showed the eviction unchanged; reading the file said
+  "fixed", only the test said otherwise. After a unit reload, both models stay resident in
+  both directions (`['fast-7b', 'holo3.1']`). This also satisfies Phase 5's co-residency
+  prerequisite, since holo3.1 runs `--split-mode none` (B70 alone) and so fits the
+  existing `X & f7` pattern. Evidence: `runs/serving_probe_20260723_084700/probe.json`.
+
 ## 4. Open problems
+
+- ~~holo3.1 absent from llama-swap's `matrix:`, evictable mid-run~~ — **CLOSED
+  2026-07-23** (see Solved §3's serving entry).
 
 - **Tool-result signal is semantically misleading**: changed/unchanged binary
   confirmed real-but-irrelevant pixels (taskbar focus visuals) as action success

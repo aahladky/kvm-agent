@@ -58,6 +58,7 @@ from kvm_agent.hardware.env import (
     wait_until_stable,
 )
 from kvm_agent.instrumentation import RunRecorder
+from kvm_agent.llm.serving import describe as describe_serving, serving_snapshot
 from kvm_agent.models.base import StepDecision
 from kvm_agent.models.holo import (
     SYSTEM_PROMPT, HoloSession, call_holo, call_holo_full, jpeg_bytes_to_data_url,
@@ -100,10 +101,24 @@ CURSOR = {"pos": None}
 # Current update_plan state (the model's goal list as last submitted). Harness-side
 # bookkeeping only; surfaced in run logs.
 PLAN = {"goals": []}
+# Serving-layer snapshot taken by boot() (kvm_agent.llm.serving). `checked` gates the
+# per-run refresh in run(): only a session that booted through the serving preflight
+# pays for (or records) one. Offline tests set ENV directly and never call boot(), so
+# this stays False for them and the suite never touches the endpoint.
+SERVING = {"checked": False}
 
 
-def boot(verify=True):
+def boot(verify=True, serving_check=True):
     """Open camera + appliance HID. Idempotent-ish; call once.
+
+    serving_check (default True) records what is actually serving the model before the
+    run starts (kvm_agent.llm.serving): reachable, configured, resident, and the launch
+    params that shape what the model SEES (context, mmproj, --image-min-tokens, KV cache
+    types). The model server lives outside this repo and nothing here used to look at
+    it. Unlike the HID gate this one WARNS and never raises: the HID gate raises because
+    clicking into a dead device corrupts silently, whereas every serving problem
+    announces itself at the first model call anyway. `tools/serving_probe.py` is the
+    fail-closed version for a preflight.
 
     verify (default True) runs the camera-verified HID gate (target.verify_hid) after
     bring-up: the bridge probe's kbd/mouse online flags can LIE (the I2 half-dead-HID
@@ -115,6 +130,17 @@ def boot(verify=True):
     global ENV
     if ENV is None:
         ENV = PicoEnv(cam_index=CFG.cam_index, screen_size=CFG.screen_size, show=False)
+    if serving_check:
+        snap = serving_snapshot()
+        SERVING.clear()
+        SERVING.update(snap, checked=True)
+        print(f"[boot] serving: {describe_serving(snap)}")
+        if snap.get("reachable") and snap.get("configured") is False:
+            print(f"[boot] WARNING: {CFG.holo_model!r} is not configured at "
+                  f"{snap['endpoint']} -- every model call this session will fail")
+        if snap.get("resident") and not (snap.get("params") or {}).get("has_mmproj", True):
+            print("[boot] WARNING: the resident model has NO mmproj -- it cannot see "
+                  "images, and every grounding decision will be blind")
     if verify:
         from kvm_agent.hardware.target import verify_hid
         ok, detail = verify_hid(ENV.r4, ENV.cam, screen=CFG.screen_size)
@@ -441,6 +467,17 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     # definition.
     CURSOR["pos"] = None
     PLAN["goals"] = []
+    # Re-snapshot the serving layer per run, not per session: a battery runs for an
+    # hour and the model can be evicted between tasks by any other consumer of the box
+    # (reproduced 2026-07-23 -- one unrelated request evicted holo3.1). The reload is
+    # ~17s and the client timeout is 180s, so it lands as latency, never an error. Only
+    # a session that booted with serving_check pays for this (see SERVING).
+    serving = serving_snapshot() if SERVING.get("checked") else None
+    if serving and serving.get("resident") is False:
+        print(f"[run] serving: {CFG.holo_model} is NOT resident -- this run's first "
+              f"step pays a cold model load"
+              + (f" (co-resident: {', '.join(str(m) for m in serving['co_resident'])})"
+                 if serving.get("co_resident") else ""))
     recorder = RunRecorder(tag, instruction, target=target,
                             meta={"max_steps": max_steps,
                                   "screen_size": (ENV.screen_width, ENV.screen_height),
@@ -449,7 +486,13 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                                   # The prompt the model ran under, kept WITH the run
                                   # (second review #7): previously only in the global
                                   # holo_requests.jsonl, correlated by timestamp.
-                                  "system_prompt": SYSTEM_PROMPT}) if record else None
+                                  "system_prompt": SYSTEM_PROMPT,
+                                  # ...and what the SERVER did to the image and the
+                                  # context (2026-07-23): --image-min-tokens, ctx, KV
+                                  # cache types, mmproj. model_input_res above is only
+                                  # the client half of the model-input contract; the
+                                  # other half lives in a config outside this repo.
+                                  "serving": serving}) if record else None
     for step_i in range(max_steps):
         png, data_url = _capture_step_frames()
         LAST["png"] = png
