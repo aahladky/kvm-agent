@@ -49,10 +49,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import cv2
-
 from kvm_agent.config import CFG
-from kvm_agent.hardware.env import model_input_jpeg
+from kvm_agent.hardware.env import png_to_model_input_jpeg
 from kvm_agent.models.holo import HoloVerifier, jpeg_bytes_to_data_url
 
 TS_RE = re.compile(r"_(\d{8}_\d{6})$")
@@ -126,11 +124,14 @@ def read_json(path, default=None):
 
 def frame_data_url(png_path):
     """PNG on disk -> the JPEG data URL the live path would have sent: same encoder, same
-    CFG.holo_model_input_res, so the oracle sees what it would see in production."""
-    frame = cv2.imread(png_path, cv2.IMREAD_COLOR)
-    if frame is None:
-        raise RuntimeError(f"could not decode {png_path}")
-    return jpeg_bytes_to_data_url(model_input_jpeg(frame, CFG.holo_model_input_res))
+    CFG.holo_model_input_res, so the oracle sees what it would see in production. Decode
+    + resize is png_to_model_input_jpeg (kvm_agent.hardware.env, single home as of
+    roadmap Phase 2 slice D-b) -- the SAME function agent_loop_holo.run()'s live shadow
+    wiring calls on the `after` frame, so this offline eval and the live path can't
+    silently drift apart on encoding."""
+    with open(png_path, "rb") as f:
+        png_bytes = f.read()
+    return jpeg_bytes_to_data_url(png_to_model_input_jpeg(png_bytes, CFG.holo_model_input_res))
 
 
 GENERIC_CLAIM = ("# Task Completed Successfully\n\nAll requirements have been fulfilled. "

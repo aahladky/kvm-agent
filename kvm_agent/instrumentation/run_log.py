@@ -51,7 +51,13 @@ class RunRecorder:
             json.dump(obj, f, indent=2, default=str)
 
     def log_step(self, step_idx: int, png: bytes, message: dict, action: dict,
-                 usage: dict | None, wall_time_s: float, executed: bool = True):
+                 usage: dict | None, wall_time_s: float, executed: bool = True,
+                 verification: dict | None = None):
+        """verification (roadmap Phase 2 slice D-b): a Verdict.to_dict() when this step's
+        batch included a `finished` claim and a verifier judged it, else None -- which is
+        the overwhelming majority of steps. Kept per-step, alongside `executed`, so a
+        consumer never has to cross-reference against the action list to find the one
+        step that mattered."""
         with open(os.path.join(self.dir, f"step_{step_idx:02d}.png"), "wb") as f:
             f.write(png)
         record = {
@@ -61,11 +67,22 @@ class RunRecorder:
             "usage": usage or {},
             "wall_time_s": wall_time_s,
             "executed": executed,
+            "verification": verification,
         }
         self._write_json(f"step_{step_idx:02d}.json", record)
         self.steps.append(record)
 
     def finish(self, success: bool, note: str = "") -> dict:
+        # verifications: one entry per step, parallel to "actions" -- None on every step
+        # that carried no verified claim (the overwhelming majority; roadmap Phase 2
+        # slice D-b only verifies a `finished` action). verified_finish pulls out the
+        # one that matters: the verdict on THIS run's own terminal claim, if any step
+        # produced one. Not necessarily the last step in `self.steps` -- a dropped
+        # (unlogged parse-error) step never reaches log_step, but every logged step is
+        # checked so an aborted run's last verification (there should be at most one,
+        # ever, until subgoal-level checks land in D-d) is still found.
+        verifications = [s.get("verification") for s in self.steps]
+        verified_finish = next((v for v in reversed(verifications) if v is not None), None)
         summary = {
             "success": success,
             "note": note,
@@ -76,6 +93,8 @@ class RunRecorder:
             "per_step_completion_tokens": [s["usage"].get("completion_tokens") for s in self.steps],
             "actions": [_step_action_kinds(s) for s in self.steps],
             "final_action": _step_action_kinds(self.steps[-1]) if self.steps else None,
+            "verifications": verifications,
+            "verified_finish": verified_finish,
         }
         self._write_json("summary.json", summary)
         print(f"[run_log] {'OK' if success else 'FAIL'} in {summary['steps_taken']} steps, "

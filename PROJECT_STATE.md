@@ -1,11 +1,12 @@
 # Project State — KVM-over-IP Computer-Use Agent
 
-_Snapshot: 2026-07-23 — Phase 2 slice D-a (the postcondition oracle, offline-validated)
+_Snapshot: 2026-07-23 — Phase 2 slices D-a (the postcondition oracle, offline-validated)
+and D-b (shadow wiring + harder tasks + metrics, offline-validated, rig session pending),
 plus the serving-layer contract.
 Supersedes the 2026-07-20 physical-target-move snapshot (git history). Design:
 `docs/PLAN_2026-07-20_physical_target_move.md` and, for the phase now in flight,
 `docs/PLAN_2026-07-22_phase2_subgoal_verification.md`; latest session:
-`docs/SESSION_2026-07-23_phase2_slice_d_a_verifier.md`._
+`docs/SESSION_2026-07-23_phase2_slice_d_b_shadow_wiring.md`._
 
 ## 1. What it is
 
@@ -245,6 +246,44 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   Tests 86 → 116 green. Evidence: `runs/verify_replay_20260723_000637/results.json`
   (and the pre-fix run `runs/verify_replay_20260722_235815/`),
   `docs/SESSION_2026-07-23_phase2_slice_d_a_verifier.md`.
+- **Roadmap Phase 2, slice D-b — shadow wiring + harder tasks + metrics (2026-07-23,
+  CODE LANDED, OFFLINE-VALIDATED, RIG SESSION PENDING):** `agent_loop_holo.run()` gains
+  `verifier=`/`verify_mode=` (`"off"`|`"shadow"`|`"gate"`). `"off"` (the default) is
+  provably byte-identical to pre-D-b `run()` — all six exit points now share one
+  `_result()` closure, and in `"off"` mode the return dict has exactly the original two
+  keys, never a third; the four pre-existing exact-dict-equality tests needed zero
+  changes. `"shadow"` verifies the model's own `finished` claim against the same `after`
+  frame the batch loop already captured (no extra capture), encoded via the new
+  `kvm_agent.hardware.env.png_to_model_input_jpeg` (single home, also now used by
+  `tools/verify_replay.py`) — same client-side encoding the actor's own input takes, so a
+  live verdict is comparable to D-a's offline numbers. Records the verdict
+  (`RunRecorder`'s new `verifications`/`verified_finish`, `run()`'s own
+  `verified_finish` return key) but changes NOTHING about control flow. `"gate"`
+  (slice D-c) is rejected loudly (`NotImplementedError`), never silently treated as
+  shadow. A raising verifier is absorbed into `satisfied=None`, same P0-2 reasoning as
+  the `session.decide()` guard. `tools/battery.py` gains `[verify_mode]` on its CLI and
+  `auto_grade`/`auto_evidence` columns alongside (never replacing) the human grade,
+  fail-closed the same way `grade_task` is. Four new end-state-phrased battery tasks
+  (`file_create_rename`, `dark_mode_confirm`, `clock_to_file`, `copy_paste_notes`,
+  ~8-15 steps each) give the battery headroom above its 5/5 ceiling — every one phrased
+  as an end state per D-a's `small_target_tray` lesson. New `tools/battery_metrics.py`
+  computes every roadmap §5 metric except grounding rate: completion rate,
+  steps-to-completion, false-"finished" rate, verifier agreement/false-refusal/
+  false-confirmation, guard-refusal rate, actor-vs-verify latency (holo3.1's
+  `--parallel 1` means these serialize, not overlap), honest-refusal-vs-budget-
+  exhaustion. Cross-validated: its guard-refusal count matches the TOCTOU
+  rig-confirmation session's hand count exactly (4/64 steps once the one pre-guard
+  battery is excluded); a real archived frame pushed through the live encode path
+  returned the same verdict D-a's replay already scored for it. Found and fixed a real
+  gap in `--all` mode: several pre-2026-07-21 `battery_<ts>/` dirs predate `results.json`
+  and were silently contributing zero rows under a misleadingly "analyzed" label — now
+  explicitly skipped and reported. Tests 131 → 157 green.
+  **What's left is exactly one rig session** (the plan's own framing): `python
+  tools/battery.py tools/battery_tasks_gnome.json shadow` then `python
+  tools/battery_metrics.py` — produces the extended-battery baseline, the live
+  false-refusal rate (gates slice D-c), verifier-vs-human agreement, and the
+  does-it-plan-on-long-tasks probe (decides D-d's mechanism), all at once. Evidence:
+  `docs/SESSION_2026-07-23_phase2_slice_d_b_shadow_wiring.md`.
 - **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
   GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and
   `runs/battery_20260722_222137/` 5/5 (1 void)): the pre-fire target-tile guard

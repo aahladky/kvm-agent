@@ -24,8 +24,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from kvm_agent.config import CFG
 from kvm_agent.hardware import target
+from kvm_agent.models.holo import HoloVerifier
 import agent_loop_holo
 from agent_loop_holo import boot, run, shutdown
+
+VERIFY_MODES = ("off", "shadow")  # "gate" is roadmap Phase 2 slice D-c, not built yet
 
 
 def load_tasks(path):
@@ -65,6 +68,22 @@ def grade_task(task, result):
         print("[battery] need 'p', 'f' or 'v' — no grade, no continue")
 
 
+def auto_grade_from_verdict(verified_finish):
+    """Map a run()'s `verified_finish` (a Verdict.to_dict(), or None) into the SAME
+    pass/fail vocabulary grade_task uses -- roadmap Phase 2 slice D-b: the oracle's
+    verdict travels ALONGSIDE the human grade (never replacing it; `grader` stays
+    "human" until slice D-c), so agreement between the two is computable.
+
+    Fail-closed, matching grade_task's own p/f/v discipline: satisfied=None (the
+    oracle didn't answer) is NOT a silent pass -- it maps to (None, evidence), not
+    ("pass", ...). (None, None) when there is no verdict at all (verify_mode="off", or
+    the task never reached a finished claim)."""
+    if verified_finish is None:
+        return None, None
+    grade = {True: "pass", False: "fail"}.get(verified_finish.get("satisfied"))
+    return grade, verified_finish.get("evidence")
+
+
 def write_results(path, payload):
     with open(path, "w") as f:
         json.dump(payload, f, indent=2, default=str)
@@ -91,10 +110,23 @@ def main():
     # No default task file (2026-07-22): the old default was the WINDOWS shakedown
     # list, a wrong-OS trap on the GNOME target -- name the target's list explicitly.
     if len(sys.argv) < 2:
-        sys.exit("usage: python tools/battery.py <task_file.json>\n"
+        sys.exit("usage: python tools/battery.py <task_file.json> [verify_mode]\n"
                  "  e.g. tools/battery_tasks_gnome.json (GNOME target)\n"
-                 "       tools/battery_tasks_shakedown.json (Windows target)")
+                 "       tools/battery_tasks_shakedown.json (Windows target)\n"
+                 "  verify_mode: off (default) | shadow -- roadmap Phase 2 slice D-b\n"
+                 "    (docs/PLAN_2026-07-22_phase2_subgoal_verification.md). 'shadow'\n"
+                 "    records the postcondition oracle's verdict on every task's own\n"
+                 "    finished claim ALONGSIDE the human grade; grading itself is\n"
+                 "    unchanged -- 'grader' stays \"human\" until slice D-c.")
     tasks_path = sys.argv[1]
+    verify_mode = sys.argv[2] if len(sys.argv) > 2 else "off"
+    if verify_mode not in VERIFY_MODES:
+        sys.exit(f"verify_mode must be one of {VERIFY_MODES} (D-c's 'gate' isn't "
+                 f"built yet), got {verify_mode!r}")
+    # Constructed once for the whole battery, not per task: HoloVerifier is stateless
+    # (kvm_agent.models.base.Verifier's contract), so nothing about re-task-ing it is
+    # unsafe, and it avoids re-paying object construction 5-6 times per battery.
+    verifier = HoloVerifier() if verify_mode == "shadow" else None
     tasks = load_tasks(tasks_path)
     ts = time.strftime("%Y%m%d_%H%M%S")
     print(f"[battery] {len(tasks)} tasks from {tasks_path}")
@@ -148,11 +180,18 @@ def main():
             # no_progress_abort=False per H1 (2026-07-19): the frozen-screen/same-click
             # aborts fired falsely on recoverable tasks; benchmark runs give the full budget.
             result = run(task["instruction"], max_steps=task["max_steps"],
-                         confirm_first=0, tag=tag, no_progress_abort=False)
+                         confirm_first=0, tag=tag, no_progress_abort=False,
+                         verify_mode=verify_mode, verifier=verifier)
             verdict = grade_task(task, result)
+            auto_grade, auto_evidence = auto_grade_from_verdict(result.get("verified_finish"))
+            if auto_grade is not None:
+                print(f"[battery] {task['id']}: oracle says {auto_grade!r} "
+                      f"({(auto_evidence or '')[:100]})")
             results.append({"task_id": task["id"], "instruction": task["instruction"],
                             "run_tag": tag, "finished": result["finished"],
-                            "answer_text": result["answer_text"], "grader": "human", **verdict})
+                            "answer_text": result["answer_text"], "grader": "human",
+                            "auto_grade": auto_grade, "auto_evidence": auto_evidence,
+                            **verdict})
             print(f"[battery] {task['id']}: {verdict['grade']} ({verdict['note']})")
             # Incremental write: a crash mid-battery must not lose grades already taken.
             write_results(results_path, payload())
