@@ -177,8 +177,10 @@ calibration surface proves capture→model→HID→capture. Real application wor
 separate capability question, selected only when a concrete claim needs it.
 
 The maintainable implementation is fixed at four live-model frame contracts and one
-physical calibration flow. It is approved in
-`docs/PLAN_2026-07-23_model_harness_integration_testing.md`.
+physical calibration flow. Both are implemented and live-validated; they remain
+explicit boundary checks, not an ordinary every-change gate. Design and evidence:
+`docs/PLAN_2026-07-23_model_harness_integration_testing.md` and
+`docs/SESSION_2026-07-23_physical_calibration_smoke.md`.
 
 Track (you already log most of this): *[correction 2026-07-22: "most" = steps, completion, per-step latency/tokens, and the refusal-vs-exhaustion split (via `answer_text`). The two metrics below that gate Phases 4/5 are NOT computed — grounding rate has only raw material (frames + the unused `element` descriptions), and false-confirmation is unmeasurable until a verifier exists (Phase 2).]*
 - **Grounding rate** — did the click land on the intended element? (tells you if grounding is the bottleneck → gates Phase 5)
@@ -215,12 +217,16 @@ Track (you already log most of this): *[correction 2026-07-22: "most" = steps, c
    model/harness integration work below. **D-d remains deferred** until targeted,
    trustworthy evidence demonstrates the confident-wrong progression failure it is
    meant to solve.
-6. **Model/harness integration calibration.** **SLICE A LIVE-VALIDATED 4/4; SLICE B
-   PENDING**: four fixed-frame calls now pass through the real production model seam
-   with exact request/raw/parsed/projection evidence. On its own branch, add one
-   deterministic physical calibration surface. No second loop, retry framework, or
-   broad task campaign
-   (`docs/PLAN_2026-07-23_model_harness_integration_testing.md`).
+6. **Model/harness integration calibration.** **DONE 2026-07-23 — SLICE A
+   LIVE-VALIDATED 4/4; SLICE B LIVE-VALIDATED in one five-step, 77.2-second run.**
+   Four fixed frames cover the real production model seam. One deterministic static
+   page covers capture→model→parser→coordinate→HID→capture→finished, with captured
+   pixels as the only completion truth and no retries. This closes the controlled
+   integration-evidence gap without a second loop, grading model, or broad task
+   campaign (`docs/PLAN_2026-07-23_model_harness_integration_testing.md`;
+   `docs/SESSION_2026-07-23_physical_calibration_smoke.md`). D-d remains deferred;
+   these passing seams do not manufacture evidence that more control-flow complexity
+   is needed.
 
 ---
 

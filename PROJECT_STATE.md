@@ -2,14 +2,14 @@
 
 _Snapshot: 2026-07-23 — Phase 2 slices D-a (the postcondition oracle), D-b (shadow
 wiring), and D-c (terminal claim gating) are implemented. The controlled live-model
-contract smoke is LIVE-VALIDATED 4/4; the next integration step is one deterministic
-physical calibration surface. D-d remains deferred until trustworthy targeted evidence
-justifies more control-flow complexity. The serving-layer contract and matrix
-enrollment are complete.
+contract smoke is LIVE-VALIDATED 4/4, and the deterministic physical calibration is
+LIVE-VALIDATED in one bounded five-step run. D-d remains deferred until trustworthy
+targeted evidence justifies more control-flow complexity. The serving-layer contract
+and matrix enrollment are complete.
 Supersedes the 2026-07-20 physical-target-move snapshot (git history). Design:
 `docs/PLAN_2026-07-20_physical_target_move.md` and, for the phase now in flight,
 `docs/PLAN_2026-07-23_model_harness_integration_testing.md`; latest session:
-`docs/SESSION_2026-07-23_model_contract_smoke.md`._
+`docs/SESSION_2026-07-23_physical_calibration_smoke.md`._
 
 ## 1. What it is
 
@@ -387,6 +387,20 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   `runs/model_contract_smoke_20260723_161257/inspection.txt`,
   `runs/model_contract_slice_a_20260723_161037/full_pytest.txt`, and
   `docs/SESSION_2026-07-23_model_contract_smoke.md`.
+- **Controlled physical model/harness calibration (2026-07-23, LIVE-VALIDATED):**
+  `tools/physical_calibration_smoke.py` serves one repository-owned static page,
+  opens it visibly through the real HID channel, and delegates all acting to the
+  production `boot()` / `run()` / `shutdown()` path. Seed 7319 completed in five
+  model steps and 77.2 seconds with no retry: click START, re-observe nonce
+  `KVM-0289`, focus, type, submit, re-observe green success, then `finished`.
+  The page has no completion callback; its two HTTP requests were only the document
+  and favicon. Broad color regions provide a deterministic camera oracle, and the
+  terminal claim passes only when its recorded pre-decision frame already contains
+  the success state. All five decision frames were inspected by eye. The complete
+  offline suite is 182/182. Evidence:
+  `runs/physical_calibration_smoke_20260723_165441/`,
+  `runs/slice_b_final_20260723_170734/full_pytest.txt`, and
+  `docs/SESSION_2026-07-23_physical_calibration_smoke.md`.
 - **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
   GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and
   `runs/battery_20260722_222137/` 5/5 (1 void)): the pre-fire target-tile guard

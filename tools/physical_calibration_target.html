@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Model Integration Calibration</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body {
+      border: 14px solid rgb(255, 0, 212);
+      color: #111827;
+      font-family: system-ui, sans-serif;
+    }
+    .screen {
+      position: absolute;
+      inset: 14px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+    }
+    .screen[hidden] { display: none; }
+    h1 { margin: 0 0 18px; font-size: clamp(34px, 5vw, 72px); }
+    p { margin: 8px 0; font-size: clamp(20px, 2.2vw, 34px); }
+    button, input {
+      border: 5px solid #111827;
+      border-radius: 14px;
+      font: inherit;
+    }
+    button {
+      min-width: min(360px, 34vw);
+      min-height: 100px;
+      padding: 16px 28px;
+      background: rgb(18, 103, 232);
+      color: white;
+      cursor: pointer;
+      font-size: clamp(24px, 2.6vw, 38px);
+      font-weight: 800;
+    }
+    button:focus, input:focus { outline: 8px solid #111827; outline-offset: 4px; }
+    #start-screen { background: #eef4ff; }
+    #start-button {
+      position: absolute;
+      left: __BUTTON_LEFT__%;
+      top: __BUTTON_TOP__%;
+    }
+    .start-copy { position: absolute; left: 8%; right: 8%; top: 8%; }
+    #entry-screen { background: rgb(240, 184, 77); }
+    .card {
+      width: min(850px, 78vw);
+      padding: 34px 44px;
+      border: 6px solid #111827;
+      border-radius: 22px;
+      background: white;
+    }
+    .nonce {
+      margin: 18px auto 26px;
+      font: 800 clamp(34px, 5vw, 68px) ui-monospace, monospace;
+      letter-spacing: .08em;
+    }
+    label { display: block; margin-bottom: 10px; font-size: 24px; font-weight: 750; }
+    input {
+      width: min(560px, 68vw);
+      height: 82px;
+      padding: 10px 18px;
+      background: white;
+      color: #111827;
+      font: 800 clamp(28px, 3.5vw, 48px) ui-monospace, monospace;
+      text-align: center;
+    }
+    #submit-button { margin-top: 24px; }
+    #error {
+      margin: 22px auto 0;
+      padding: 12px 18px;
+      background: rgb(185, 28, 28);
+      color: white;
+      font-size: 24px;
+      font-weight: 800;
+    }
+    #success-screen {
+      background: rgb(25, 185, 104);
+      color: white;
+    }
+    #success-screen h1 {
+      font-size: clamp(48px, 7vw, 100px);
+      text-shadow: 0 4px 0 #0b4f2c;
+    }
+    .seed {
+      position: fixed;
+      right: 28px;
+      bottom: 22px;
+      color: #111827;
+      font: 700 16px ui-monospace, monospace;
+      opacity: .8;
+    }
+  </style>
+</head>
+<body>
+  <section id="start-screen" class="screen">
+    <div class="start-copy">
+      <h1>MODEL INTEGRATION CALIBRATION</h1>
+      <p>Begin the controlled capture → model → HID check.</p>
+    </div>
+    <button id="start-button" type="button">START CALIBRATION</button>
+  </section>
+
+  <section id="entry-screen" class="screen" hidden>
+    <form id="calibration-form" class="card">
+      <h1>TYPE THE CODE SHOWN</h1>
+      <p>Verification code:</p>
+      <div class="nonce">__NONCE__</div>
+      <label for="nonce-input">Click this field, then type the code exactly</label>
+      <input id="nonce-input" name="nonce" autocomplete="off" spellcheck="false">
+      <br>
+      <button id="submit-button" type="submit">SUBMIT</button>
+      <div id="error" role="alert" hidden>CODE NOT ACCEPTED — TRY AGAIN</div>
+    </form>
+  </section>
+
+  <section id="success-screen" class="screen" hidden>
+    <div>
+      <h1>CALIBRATION SUCCESS</h1>
+      <p>The exact verification code was submitted.</p>
+      <p>No further desktop action is required.</p>
+    </div>
+  </section>
+
+  <div class="seed">seed __SEED__</div>
+
+  <script>
+    "use strict";
+    const expected = "__NONCE__";
+    const start = document.getElementById("start-screen");
+    const entry = document.getElementById("entry-screen");
+    const success = document.getElementById("success-screen");
+    const field = document.getElementById("nonce-input");
+    const error = document.getElementById("error");
+
+    document.getElementById("start-button").addEventListener("click", () => {
+      start.hidden = true;
+      entry.hidden = false;
+    });
+
+    document.getElementById("calibration-form").addEventListener("submit", event => {
+      event.preventDefault();
+      if (field.value === expected) {
+        entry.hidden = true;
+        success.hidden = false;
+      } else {
+        error.hidden = false;
+        field.setAttribute("aria-invalid", "true");
+      }
+    });
+  </script>
+</body>
+</html>
