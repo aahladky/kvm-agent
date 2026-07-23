@@ -1,9 +1,10 @@
 # Project State — KVM-over-IP Computer-Use Agent
 
-_Snapshot: 2026-07-22 — first complete battery. Supersedes the 2026-07-20
-physical-target-move snapshot (git history). Design:
-`docs/PLAN_2026-07-20_physical_target_move.md`; latest session:
-`docs/SESSION_2026-07-22_first_complete_battery.md`._
+_Snapshot: 2026-07-23 — Phase 2 slice D-a (the postcondition oracle, offline-validated).
+Supersedes the 2026-07-20 physical-target-move snapshot (git history). Design:
+`docs/PLAN_2026-07-20_physical_target_move.md` and, for the phase now in flight,
+`docs/PLAN_2026-07-22_phase2_subgoal_verification.md`; latest session:
+`docs/SESSION_2026-07-23_phase2_slice_d_a_verifier.md`._
 
 ## 1. What it is
 
@@ -198,6 +199,36 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   byte-identical post-refactor). Tests 71 → 78 green. Evidence:
   `docs/SESSION_2026-07-22_model_seam_slice_c.md` (no `runs/` evidence — offline
   only, no hardware touched).
+- **Roadmap Phase 2, slice D-a — the postcondition oracle (2026-07-23, offline only,
+  no rig time):** the first automated verification anywhere in this project.
+  `kvm_agent/models/base.py` gains `Verdict` + a `Verifier` Protocol
+  (`check(data_url, w, h, question, claim="")`) — deliberately a SEPARATE Protocol from
+  `ModelSession`, not the `verify()` method that file's docstring used to promise, because
+  statelessness is the whole property (a verify() on the object that owns conversation
+  history would end up judging its actor's story instead of the pixels) and Phase 5
+  relocates a separately-injected object by swapping one constructor argument.
+  `kvm_agent/models/holo.py` gains `HoloVerifier` + `call_holo_verify`: same model id on
+  the same llama-swap endpoint, but temperature 0.0, thinking off, and **its own message
+  list** — NOT routed through `build_messages`/`call_holo_full`, whose hardcoded
+  `SYSTEM_PROMPT`/`RESPONSE_SCHEMA` (`tool_calls: minItems 1`) would force the oracle to
+  emit a desktop action. The actor path is byte-untouched, so the golden-transcript test
+  still passes unchanged. `satisfied` is `bool | None`: None (model error, timeout,
+  unparseable) is a third outcome, never a False and never a True — finding #8's
+  fail-closed rule applied to the oracle itself.
+  **Measured offline against the graded archive** (`tools/verify_replay.py`, new):
+  **29/29 on human-graded cases — 14/14 positives (false-refusal rate 0.0, the number
+  gating slice D-c) and 15/15 negatives (0 false confirmations)**, plus 64/65 on ungraded
+  failed runs; 0 unanswered; median 4.2s and ~1.4k prompt tokens per check (~1/3 of an
+  actor step). Two findings: three apparent misses were the LABEL being wrong (an
+  observation task's postcondition already holds at `step_00` — now excluded with the
+  reason recorded), and the one real miss confirmed *the target exists* rather than *the
+  action's effect* on an action-phrased task ("click the WiFi icon"), which is why D-b's
+  new tasks and D-d's subgoal postconditions must be phrased as END STATES.
+  **Honest limit**: no archived run has a false `finished` claim, so the negatives measure
+  unfinished-screen recognition, NOT a true false-confirmation rate — that needs D-b.
+  Tests 86 → 110 green. Evidence: `runs/verify_replay_20260723_000637/results.json`
+  (and the pre-fix run `runs/verify_replay_20260722_235815/`),
+  `docs/SESSION_2026-07-23_phase2_slice_d_a_verifier.md`.
 - **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
   GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and
   `runs/battery_20260722_222137/` 5/5 (1 void)): the pre-fire target-tile guard
@@ -254,10 +285,14 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
 - Windows-era items, moot while the target is GNOME (re-open on a Windows target):
   ~70s OS dead window post-reboot (psr.exe zip outstanding), windows_calc class
   (WinUI3 date-picker + stuck-popup), Store auto-update pause expiry.
-- Deferred: power-control backend, automated fail-closed vision grading (schema
-  slot exists), superseded adoption (structured-output rearchitecture +
-  resolution sync), bridge-side suspend keep-alive (mouse-death fix candidate (c)
-  above, pending soak evidence it's actually needed).
+- Deferred: power-control backend, superseded adoption (structured-output
+  rearchitecture + resolution sync), bridge-side suspend keep-alive (mouse-death
+  fix candidate (c) above, pending soak evidence it's actually needed).
+  ~~automated fail-closed vision grading~~ — NO LONGER DEFERRED as of 2026-07-23:
+  the oracle exists and is offline-validated (Solved §3, slice D-a). It does not
+  yet grade anything: the battery is still human-graded, and the flip to
+  `grader: "verifier"` is slice D-c, gated on D-b's live false-refusal rate
+  (`docs/PLAN_2026-07-22_phase2_subgoal_verification.md`).
 
 ## 5. Retired
 
