@@ -9,15 +9,25 @@ and Slice C model seam) PENDING, each its own branch. Part 2b's
 keep-the-filename note was superseded later the same day: the roadmap is now
 `docs/ROADMAP.md`. Body below is the approved text, verbatim._
 
-_Status update 2026-07-22 (later the same day): **Slice B code landed**
-(`kvm_agent`-adjacent firmware/host changes — `appliance/pico_fw/src/{main.c,
-ph_proto.h,ph_usb.c,ph_usb.h}`, `appliance/pi5/{pikvm_proto.py,hid_bridge.py}`,
-`tools/soak.py`) — see `docs/SESSION_2026-07-22_slice_b_firmware_hardening.md`.
-Suite 71 → 79 green; firmware compiles clean. **The soak gate itself (BOOTSEL
-flash, Pi 5 deploy, overnight run) is PENDING** — operator-driven, own branch.
-Slice C (model seam) landed the same day on a separate branch
-(`docs/SESSION_2026-07-22_model_seam_slice_c.md`) — the two are independent
-(disjoint files), so either can merge first._
+_Status update 2026-07-22/23 (both slices landed, each on its own branch, now
+merged together into `main`): **Slice C EXECUTED** (`kvm_agent/models/base.py`,
+`HoloSession` in `kvm_agent/models/holo.py`, `agent_loop_holo.run()`'s
+`session=` param, golden-transcript test) — see
+`docs/SESSION_2026-07-22_model_seam_slice_c.md`; suite 71 → 78 green, pure
+refactor, no rig time needed. **Slice B code landed AND DEPLOYED**
+(`appliance/pico_fw/src/{main.c,ph_proto.h,ph_usb.c,ph_usb.h}`,
+`appliance/pi5/{pikvm_proto.py,hid_bridge.py}`, `tools/soak.py`) — see
+`docs/SESSION_2026-07-22_slice_b_firmware_hardening.md`; suite 71 → 79 green,
+firmware compiles clean, BOOTSEL-flashed and deployed to the Pi 5, `/health`
+and the camera-verified HID gate both passed live. **The overnight soak gate
+itself is POSTPONED** (operator decision, 2026-07-23 — the target would need
+to sit occupied/semi-attended 8+ hours for fault injection, and the bug it
+guards against, long-idle mouse death, is a minor inconvenience rather than
+urgent); not abandoned, `tools/soak.py --hours 8` whenever the rig is free
+that long. The two slices were independent (disjoint files, no merge
+conflicts between their actual code) — only their shared doc files
+(`docs/ROADMAP.md`, this file, `PROJECT_STATE.md`) needed reconciling on
+merge._
 
 ---
 

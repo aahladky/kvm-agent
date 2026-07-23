@@ -1,0 +1,156 @@
+[
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "<observation>\ndo the scripted scenario\n"
+      },
+      {
+        "type": "text",
+        "text": "[screenshot evicted]"
+      },
+      {
+        "type": "text",
+        "text": "\n</observation>"
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": "assistant-json-step0"
+  },
+  {
+    "role": "user",
+    "content": "<tool_output tool=\"click_desktop\">\nExecuted. Screen did not visibly change (max tile diff 0.0).\n</tool_output>"
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "<observation>\n"
+      },
+      {
+        "type": "text",
+        "text": "[screenshot evicted]"
+      },
+      {
+        "type": "text",
+        "text": "\n</observation>"
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": "assistant-json-step1"
+  },
+  {
+    "role": "user",
+    "content": "<tool_output tool=\"write_desktop\">\nExecuted. Screen did not visibly change (max tile diff 0.0).\n</tool_output>"
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "<observation>\n"
+      },
+      {
+        "type": "text",
+        "text": "[screenshot evicted]"
+      },
+      {
+        "type": "text",
+        "text": "\n</observation>"
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": "assistant-json-step2"
+  },
+  {
+    "role": "user",
+    "content": "<tool_output tool=\"update_plan\">\nPlan updated.\n</tool_output>"
+  },
+  {
+    "role": "user",
+    "content": "<tool_output tool=\"hotkey_desktop\">\nExecuted. Screen did not visibly change (max tile diff 0.0).\n</tool_output>"
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "<observation>\n"
+      },
+      {
+        "type": "image_url",
+        "image_url_len": 3579
+      },
+      {
+        "type": "text",
+        "text": "\n</observation>"
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": "assistant-json-step3"
+  },
+  {
+    "role": "user",
+    "content": "<tool_output tool=\"scroll_desktop\">\nExecuted. Screen did not visibly change (max tile diff 0.0).\n</tool_output>"
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "<observation>\n"
+      },
+      {
+        "type": "image_url",
+        "image_url_len": 3579
+      },
+      {
+        "type": "text",
+        "text": "\n</observation>"
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": "assistant-json-step4"
+  },
+  {
+    "role": "user",
+    "content": "<tool_output tool=\"drag_to_desktop\">\nExecuted. Screen did not visibly change (max tile diff 0.0).\n</tool_output>"
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "<observation>\n"
+      },
+      {
+        "type": "image_url",
+        "image_url_len": 3579
+      },
+      {
+        "type": "text",
+        "text": "\n</observation>"
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": "assistant-json-step5"
+  },
+  {
+    "role": "user",
+    "content": "<tool_output tool=\"answer\">\nExecuted. Screen did not visibly change (max tile diff 0.0).\n</tool_output>"
+  }
+]

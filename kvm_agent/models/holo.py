@@ -97,6 +97,7 @@ from pathlib import Path
 
 from kvm_agent.config import CFG
 from kvm_agent.llm.ollama import openai_client
+from kvm_agent.models.base import StepDecision
 
 logger = logging.getLogger("holo")
 
@@ -647,6 +648,61 @@ def call_holo(instruction: str, image_data_url: str, image_w: int, image_h: int,
                                  history=history, temperature=temperature,
                                  enable_thinking=enable_thinking)
     return step
+
+
+# Our normalized action kind -> native's tool_name vocabulary. Was inline in
+# agent_loop_holo.run()'s per-action loop (roadmap Phase 1 seam, docs/ROADMAP.md Part 3
+# Slice C): model-specific vocabulary belongs behind the ModelSession seam, not in the
+# harness, which should only ever speak the normalized action kind.
+ACTION_TO_TOOL_NAME = {
+    "left_click": "click_desktop", "double_click": "double_click_desktop",
+    "type": "write_desktop", "scroll": "scroll_desktop",
+    "drag_to": "drag_to_desktop", "move_to": "move_to_desktop",
+    "hotkey": "hotkey_desktop", "hold_and_tap": "hold_and_tap_key_desktop",
+    "update_plan": "update_plan", "finished": "answer",
+}
+
+
+class HoloSession:
+    """ModelSession (kvm_agent.models.base) for Holo3.1: owns conversation history and
+    every native-shaped detail (observation/tool_output message construction, image
+    trim, the tool-name map) behind decide()/commit(). agent_loop_holo.run() talks to
+    this, never to build_messages/trim_to_last_n_images/tool_output_message directly.
+
+    `call_fn` defaults to this module's own call_holo_full but is constructor-injected
+    so a caller (agent_loop_holo.run()) can pass its OWN module-global reference --
+    existing tests monkeypatch `agent_loop_holo.call_holo_full` and expect run() to
+    pick up the patched function; since Python resolves a bare name at call time, run()
+    passing its own `call_holo_full` global into HoloSession() each call preserves that
+    without any test changes.
+    """
+
+    def __init__(self, target: str = "local", max_history_images: int = 3,
+                 call_fn=None):
+        self.target = target
+        self.max_history_images = max_history_images
+        self._call_fn = call_fn or call_holo_full
+        self.history: list[dict] = []
+
+    def reset(self) -> None:
+        self.history = []
+
+    def decide(self, data_url: str, w: int, h: int, instruction: str) -> StepDecision:
+        step, message, usage = self._call_fn(
+            instruction, data_url, w, h, target=self.target, history=self.history,
+            max_history_images=self.max_history_images)
+        return StepDecision(step=step, message=message, usage=usage,
+                            data_url=data_url, instruction=instruction)
+
+    def tool_name(self, action_kind: str) -> str:
+        return ACTION_TO_TOOL_NAME.get(action_kind, str(action_kind))
+
+    def commit(self, decision: StepDecision, results: list[tuple[str, str]]) -> None:
+        self.history.append(observation_message(decision.data_url, decision.instruction))
+        self.history.append({"role": "assistant", "content": decision.message.get("content") or ""})
+        for tool_name, text in results:
+            self.history.append(tool_output_message(tool_name, text))
+        trim_to_last_n_images(self.history, n=self.max_history_images)
 
 
 def image_path_to_data_url(path: str) -> str:
