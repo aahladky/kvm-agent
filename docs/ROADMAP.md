@@ -39,23 +39,46 @@
 
 ### Thin — where the work is
 
-**Firmware reliability gaps (cheap, high-impact for unattended runs):**
-- [x] No hang watchdog in `main()` — enable HW watchdog + pet it, or the whole input channel can wedge silently mid-task. *[CODE LANDED 2026-07-22 (Slice B, docs/SESSION_2026-07-22_slice_b_firmware_hardening.md): `watchdog_enable(1000, true)` + gated pet in `main.c`; an unpetted-hang reboot surfaces as a new PONG bit (`PH_PROTO_PONG_WATCHDOG_REBOOTED`), loud in `/health` and the wire log. Firmware compiles clean (`-Wall -Wextra`); rig confirmation rides the Phase-0 soak (`tools/soak.py`), not yet run.]*
-- [x] UART framing resyncs only on idle gaps → enforce **lock-step host discipline** (send → await PONG → retry) so the host's own pause creates the resync gap. Buys confirmation *and* self-healing framing in one rule. *[correction 2026-07-22: half done — the host already blocks send→await-PONG per command under a lock (`pikvm_proto._roundtrip`); only the retry-on-failure half is missing.] [CODE LANDED 2026-07-22 (Slice B): the missing half — NACK retries any command, an ambiguous (no/garbled) response retries only idempotent commands (never MOUSE_WHEEL), 150ms pre-retry pause doubles as the resync trigger. Offline-tested (`tests/test_pikvm_proto_retry.py`); soak confirmation pending.]*
-- [x] Mode changes (`SET_KBD`/`SET_MOUSE`) re-enumerate USB → set ABS once at boot, never switch mid-task. *[correction 2026-07-22: already the actual behavior — the host defines no SET_KBD/SET_MOUSE commands at all; mode is set once at boot from GPIO defaults (abs USB mouse) and persists across reboots. Only dead firmware-side paths remain.]*
-- [ ] No firmware-side timed-motion primitive → smooth drags ride host+UART jitter. Add "drag A→B over N ms" when a task needs it.
-- [ ] Verify absolute-pointer behavior on multi-monitor targets before trusting it there.
+**Primitive reliability gaps (bounded, evidence-triggered):**
+
+- [x] Firmware watchdog, safe host retry, UART resync pause, mouse-ABS
+  retain/resend on USB suspend, and PONG visibility are implemented and deployed.
+  The camera-verified HID gate passed after deployment. The strict Phase-0
+  long-idle/fault-injection soak remains postponed, so unattended-duration confidence
+  is lower than functional confidence.
+- [x] HID mode is fixed at boot; the host has no mid-task mode-switch surface.
+- [ ] No firmware-side timed-motion primitive: smooth drags ride host/UART jitter.
+  Add one only when a chosen task demonstrates the need.
+- [ ] Absolute-pointer behavior on multi-monitor targets is unverified. Do not claim
+  multi-monitor support until a real target requires and exercises it.
+- [ ] Target power recovery is manual. A warm reboot can strand the laptop NIC, while
+  a full shutdown/boot restores it. Build power control only if this repeatedly blocks
+  useful runs.
 
 **Architecture gaps (the real project):**
-- Loop is **medium-horizon wearing a long-horizon label** — flat reactive step loop, capped by max_steps.
-- **Memory is unbounded in-context** — notes accumulate as un-evicted assistant turns; no hierarchy, no summarization.
-- **`update_plan` is decorative** — telemetry, not control. Nothing in the loop sequences/verifies/recovers off it. *[correction 2026-07-22: worse than decorative — **unused**. It has never once been emitted: zero occurrences across all 19 recorded battery runs (`grep '"update_plan"' runs/battery_*/step_*.json`). Benign cause: the native prompt says to plan "within your first 2-3 steps for non-trivial tasks (>5 steps or multiple sources)" (`docs/native/local-desktop-2026-06-12.j2:132-142`) and every battery task finishes in 1-10 steps, so the model is obeying its prompt. A task-length problem, not a prompt problem — and testable. Consequence for Phase 2: a harness-sequenced plan cannot be built by making the model's existing plan load-bearing; there is no plan to make load-bearing yet.]*
-- **No subgoal decomposition** — no independently-verified units.
-- **Verification is change-detection, not correctness** — frame-diff says *something moved*, and the model alone judges *whether it was right*. No independent postcondition oracle at runtime (the battery has graders; the loop does not). *[correction 2026-07-22: the battery's "graders" are the human operator (p/f/v grades in `tools/battery.py`) — NO automated postcondition oracle exists anywhere yet; automated fail-closed vision grading is deferred per PROJECT_STATE.]*
-- **Recovery is abort-only** — stuck / no-progress / max_steps all just end the run.
-- **Grounding is single-shot** — no re-check, no set-of-marks; the model's `element` description is captured but unused as a verification signal.
-- *[added 2026-07-22, from the first complete battery (SESSION_2026-07-22):]* **Decide-act TOCTOU staleness** — the screen can re-flow during the model's ~15–20s think, so a click correct against the decision frame lands on whatever slid under it (paint_line s09). The measured dominant live failure source. Fix: pre-fire target-tile guard (refuse-to-fire on change, re-observe — gating, not injection).
-- *[added 2026-07-22:]* **The tool-result signal is semantically misleading** — the changed/unchanged binary confirmed real-but-irrelevant pixels as success at decision-critical steps. Needs magnitude + region.
+
+- The loop is **medium-horizon, not long-horizon**: one flat reactive sequence capped
+  by `max_steps`, with global process state and no concurrency contract.
+- Image history is bounded to three frames, but text/history has no hierarchy,
+  summarization, recall, or durable task memory.
+- `update_plan` is telemetry, not control, and was emitted zero times over D-b's 76
+  steps (also zero across the prior 19 recorded battery runs). There is no plan for
+  the harness to sequence.
+- D-a/D-b/D-c provide a stateless oracle and terminal-claim gating. That is real
+  independent verification, but only at `finished`: there is still no subgoal unit
+  with its own postcondition. Direct `run()` also defaults verification off; a caller
+  must explicitly inject the verifier and select gate mode.
+- Recovery can re-observe after a stale-click or rejected terminal claim, but
+  stuck/no-progress/max-steps outcomes still abort. There is no plan-level retry,
+  demotion, or resume.
+- Grounding remains single-shot. The pre-fire guard proves the target region did not
+  change since the decision; it does not prove the selected coordinate or intended
+  element was correct.
+- Tool results now report magnitude, spread, and strongest region rather than a bare
+  changed/unchanged bit. This is useful state-change evidence, not semantic success.
+- The controlled integration harnesses are deliberately fixed at four model contracts
+  and one physical flow. Together their tool/page/test code is 1,519 lines, so their
+  scope must stay frozen; they cannot become another scenario framework.
 
 ---
 
@@ -130,28 +153,40 @@ Each phase: **Goal** / **Do** / **Gate to proceed.** Do them roughly in order; t
 - **Goal:** the input channel never dies silently over a long run.
 - **Do:** firmware watchdog; lock-step host discipline (send→PONG→retry) for confirmation + UART self-healing; set-ABS-once; multi-monitor abs check if in scope.
 - **Gate:** an overnight idle-plus-periodic-action soak with zero silent wedges; every injected fault surfaces loudly.
+- **Current:** implementation deployed and functionally camera-verified; overnight
+  soak postponed, so the strict duration gate is not closed.
 
 ### Phase 1 — Seal the model seam (no new model)
 - **Goal:** the model becomes a swappable component.
 - **Do:** formalize `holo.py` as *one implementation* of a capability interface (`propose` / `ground` / `verify`); move the native-shaped conversation protocol (history layout, tool_output channel, image trim) fully behind it, so the loop speaks a model-neutral vocabulary.
 - **Gate:** a fake session can drive the loop without touching it, and fixed frames can
   traverse the real production session/request/parser seam with auditable output.
+- **Current:** complete. `ModelSession` is the seam, fake-session/golden-transcript
+  tests pass, and the four-case real-model contract smoke passed live.
 
 ### Phase 2 — Subgoal unit + independent verification (the keystone)
 - **Goal:** "long" starts becoming real; verification stops being self-judged.
 - **Do:** restructure the loop from flat-step to **subgoal-gated**. Give the planner a real (non-decorative) plan that the harness sequences. Pull verification into its own call/prompt (still Holo is fine) — a postcondition oracle separate from the actor. Gate progression on it (refuse-to-advance, don't inject retries).
 - **Gate:** controlled positive and negative terminal-state cases prove that
   confident-wrong completion is refused without blocking a true completion.
+- **Current:** terminal portion D-a/D-b/D-c implemented and accepted on decomposed
+  evidence. The verifier's live positive path measured 0/9 false refusals; offline
+  replay rejected 80/80 adversarial false claims. The actual subgoal unit (D-d) is
+  not implemented and remains gated on observing its target failure mode. Therefore
+  Phase 2 as a whole is not complete.
 
 ### Phase 3 — Bounded / hierarchical memory
 - **Goal:** kill context bloat; make experience reusable.
 - **Do:** working memory = planner's curated context (plan + relevant notes). Externalize episodic/procedural — start simple (a structured store fed from `RunRecorder`) before reaching for Hindsight. Recall on subgoal open, retain on close.
 - **Gate:** long runs no longer degrade from context growth; retrieval measurably helps (fewer steps / higher completion on repeat task types).
+- **Current:** not started; no measurement requires it yet.
 
 ### Phase 4 — The oversight dial + macro caching
 - **Goal:** speed and graceful degradation.
 - **Do:** add manager mode (hand-off) sharing the Phase-2 substrate; deterministic replay for proven subsequences; mode selection driven by verifier-reliability stats from memory; demote-on-trouble recovery replacing abort-only.
 - **Gate:** a subgoal type promoted to manager mode holds its completion rate while cutting planner calls/latency; demotion catches the cases where it doesn't.
+- **Current:** not started; depends on a trustworthy subgoal unit and per-type
+  verifier data that do not exist yet.
 
 ### Phase 5 — Multi-model / hardware decomposition
 - **Goal:** dedicated fast grounder + higher-precision grounding; planner runs rarely.
@@ -160,11 +195,14 @@ Each phase: **Goal** / **Do** / **Gate to proceed.** Do them roughly in order; t
   explicitly chosen acceptance tasks versus the 35B baseline; (b) B580 vision-encode
   latency clears the per-step budget, and 12GB fits the required model. If either fails
   → co-resident on B70.
+- **Current:** serving co-residency prerequisite is proven, but the grounding-rate and
+  B580 model/latency gates are unmeasured. Do not add the model yet.
 
 ### Phase 6 — External tools (last, one at a time)
 - **Goal:** capability the target can't provide.
 - **Do:** graduate to a real memory DB (Hindsight) if the simple store isn't enough; add scoped web search (allowlist, read-only, rate-limited, planner-gated) with the untrusted-data + epistemic-firewall discipline.
 - **Gate:** each tool added alone, measured to add real capability without adding silent failure; prompt-injection handling tested adversarially.
+- **Current:** not started.
 
 ---
 
@@ -182,7 +220,12 @@ explicit boundary checks, not an ordinary every-change gate. Design and evidence
 `docs/PLAN_2026-07-23_model_harness_integration_testing.md` and
 `docs/SESSION_2026-07-23_physical_calibration_smoke.md`.
 
-Track (you already log most of this): *[correction 2026-07-22: "most" = steps, completion, per-step latency/tokens, and the refusal-vs-exhaustion split (via `answer_text`). The two metrics below that gate Phases 4/5 are NOT computed — grounding rate has only raw material (frames + the unused `element` descriptions), and false-confirmation is unmeasurable until a verifier exists (Phase 2).]*
+Track: steps, completion, per-step latency/tokens, refusal-vs-exhaustion, terminal
+verdicts, and guard refusals are computed. Terminal false-refusal measured 0/9 on the
+live D-b positives; live false-confirmation remains unmeasured because that run had no
+true-fail terminal claim. Grounding rate still has only raw material (frames plus the
+unused `element` descriptions), and per-subgoal verifier reliability cannot exist
+until subgoals do.
 - **Grounding rate** — did the click land on the intended element? (tells you if grounding is the bottleneck → gates Phase 5)
 - **Verifier false-confirmation rate** per subgoal type — the promotion/demotion signal for manager mode (gates Phase 4)
 - **Steps-to-completion** and **completion rate** — overall health; regression detector
@@ -206,30 +249,33 @@ Track (you already log most of this): *[correction 2026-07-22: "most" = steps, c
 
 ## 7. Immediate next steps
 
-0. *[added 2026-07-22, per §0's own rule — measurement forces this piece first:]* **TOCTOU pre-fire guard + tool-result magnitude/region** — the first complete battery measured target-side async re-flow vs the ~15s step cadence as the dominant failure source. Host-side only, offline-testable, the runtime slice of Phase 2's "verification stops being self-judged." **DONE AND RIG-CONFIRMED 2026-07-22** (`agent_loop_holo.py`, `docs/SESSION_2026-07-22_roadmap_alignment.md`; confirmed on two live GNOME batteries, 5/5 and 5/5 (1 void), 4 legitimate guard refusals across 64 steps, no task regressions — `docs/SESSION_2026-07-22_toctou_guard_rig_confirmation.md`). Fully closed.
-1. **Phase 0 firmware hardening** — watchdog + lock-step host discipline. Cheap, high-leverage, protects every future long run. **CODE LANDED AND DEPLOYED 2026-07-22/23** (`docs/SESSION_2026-07-22_slice_b_firmware_hardening.md`) — watchdog, host retry, mouse-suspend retain+resend, PONG visibility bits, `tools/soak.py`; BOOTSEL-flashed, deployed to the Pi 5, `/health` + the camera-verified HID gate both passed live. **The overnight soak gate itself is POSTPONED** (operator decision — the inconvenience it guards against doesn't currently justify tying up the rig for 8+ hours); not abandoned, `tools/soak.py --hours 8` whenever the rig is free that long.
-2. **Phase 1 seam** — turn `holo.py` into a `propose/ground/verify` interface; get the native conversation protocol out of the loop. Unblocks everything downstream and costs only a refactor. **DONE 2026-07-22** as `decide`/`commit` (not three methods — see `kvm_agent/models/base.py`'s docstring for why `verify` waits for Phase 2); `docs/SESSION_2026-07-22_model_seam_slice_c.md`.
-3. **Map your existing guards to named patterns** — inventory stuck-limit / no-progress / confirm-first against the studied shapes and see how much "agent harness" is actually left to write. Likely less than the phrase implies. **DONE 2026-07-22** (`docs/REPORT_2026-07-22_harness_pattern_inventory.md`): confirmed — one max-iteration cap, three instances of the same failure-threshold circuit breaker, one human-confirmation gate, and the model's own termination call. The only real gap against the five studied shapes is plan-and-execute, and closing it is Phase 2, not a naming exercise.
-4. **The second-card question** — is it an AI card or a media card? **ANSWERED 2026-07-23** (and the card itself corrected — see §3: it's a B580, not an A770): effectively an AI card. Its actual media workload is a transcode roughly once a month, not a real claim on it, and uptime/24-7 availability isn't a near-term concern for this project. Free for Phase 5's grounder/verifier role whenever measurement calls for it; no layout decision is forced by contention.
-5. **Phase 2 — subgoal unit + independent verification.** **D-a, D-b, and D-c are
-   implemented 2026-07-23** (`docs/PLAN_2026-07-22_phase2_subgoal_verification.md`).
-   D-c is accepted on decomposed evidence: D-b exercised the real verifier on live
-   frames, D-c's gate control flow is offline-tested, and the controlled integration
-   slices below exercise the real model seam and physical actor loop. No single run
-   composes all three, and none is claimed to; the old extended-battery follow-up is
-   retired rather than rebuilt as another unreliable gate. **D-d remains deferred**
-   until targeted, trustworthy evidence demonstrates the confident-wrong progression
-   failure it is meant to solve.
-6. **Model/harness integration calibration.** **DONE 2026-07-23 — SLICE A
-   LIVE-VALIDATED 4/4; SLICE B LIVE-VALIDATED in one five-step, 77.2-second run.**
-   Four fixed frames cover the real production model seam. One deterministic static
-   page covers capture→model→parser→coordinate→HID→capture→finished, with captured
-   pixels as the only completion truth and no retries. This closes the controlled
-   integration-evidence gap without a second loop, grading model, or broad task
-   campaign (`docs/PLAN_2026-07-23_model_harness_integration_testing.md`;
-   `docs/SESSION_2026-07-23_physical_calibration_smoke.md`). D-d remains deferred;
-   these passing seams do not manufacture evidence that more control-flow complexity
-   is needed.
+1. **Stop building infrastructure and use the system for bounded real work.** The
+   offline seam, real-model contract, and physical action path are sufficiently
+   characterized to expose the next genuine bottleneck. Pick tasks because they are
+   useful or because they test one explicit capability claim—not because a standing
+   battery demands another hour.
+2. **Run only the smallest affected gate.** Ordinary changes run relevant offline
+   tests and the full deterministic suite. Model adapter/prompt/parser changes add
+   Slice A. Capture/coordinate/HID/closed-loop changes add Slice A then Slice B. Neither
+   live slice is an every-change ritual.
+3. **Turn escaped defects into minimal fixtures.** Preserve the exact frame, prompt,
+   raw output, transformation walk, and offline replay required by AGENTS.md §2. Add a
+   controlled case only when the existing four-plus-one set could not have exposed the
+   defect.
+4. **Keep D-d deferred.** Build an explicit subgoal planner only after trustworthy
+   operation produces a repeated failure that terminal gating cannot handle—especially
+   confident-wrong intermediate progress. The current evidence contains under-confident
+   correct progress, not the failure D-d was designed to fix.
+5. **Take maintenance slices only on clear triggers.**
+   - Run the overnight HID soak when the rig can be spared or if long-idle mouse death
+     recurs.
+   - Add power control only if manual full shutdown/boot repeatedly blocks work.
+   - Add bridge keep-alive only if the deployed suspend fix still fails.
+   - Add timed drag or multi-monitor support only for a selected task that requires it.
+6. **Close evidence-layout debt as one isolated cleanup.** Put complete request/tool
+   output evidence inside each run directory, reconcile the Pi bridge log with
+   `runs/`, and prevent routine test/build commands from regenerating hidden project
+   caches. This is a working-agreement compliance fix, not an actor redesign.
 
 ---
 

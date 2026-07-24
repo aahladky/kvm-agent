@@ -6,18 +6,21 @@ contract smoke is LIVE-VALIDATED 4/4, and the deterministic physical calibration
 LIVE-VALIDATED in one bounded five-step run. D-d remains deferred until trustworthy
 targeted evidence justifies more control-flow complexity. The serving-layer contract
 and matrix enrollment are complete; serving launch commands are tokenized with
-shell-aware quoting/escape semantics.
+shell-aware quoting/escape semantics. The deterministic offline suite is 184/184.
 Supersedes the 2026-07-20 physical-target-move snapshot (git history). Design:
 `docs/PLAN_2026-07-20_physical_target_move.md` and, for the phase now in flight,
 `docs/PLAN_2026-07-23_model_harness_integration_testing.md`; latest session:
-`docs/SESSION_2026-07-23_serving_command_tokenization.md`._
+`docs/SESSION_2026-07-23_project_state_reconciliation.md`; consolidated overview:
+`docs/REPORT_2026-07-23_project_state_overview.md`._
 
 ## 1. What it is
 
 A computer-use agent where **nothing is installed on the target**. A local vision
 model sees the target's screen over an HDMI capture card and drives it through a
 physical USB-HID injector. The target sees only a monitor + USB mouse/keyboard —
-OS-agnostic, undetectable. Pure curiosity project.
+no installed agent or target-side result channel. The hardware boundary is broadly
+OS-neutral; the currently verified shell behavior is GNOME-specific. Pure curiosity
+project.
 
 ## 2. The live system (current iteration)
 
@@ -49,14 +52,16 @@ OS-agnostic, undetectable. Pure curiosity project.
   `FrameBuffer` (monotonic frame seq) in `kvm_agent/hardware/env.py`.
 - **TARGET** — physical spare laptop (Ubuntu/GNOME as of 2026-07-21; formerly
   Windows 10), lid closed, HDMI out → capture
-  card → passthrough to the user's monitor. **The laptop renders at 1280x720; the
-  chain (GPU or capture card) upscales to the 1920x1080 the camera delivers** —
-  verified live 2026-07-21: the desktop fills the frame, so pixel FRACTIONS are
-  consistent end-to-end (projection basis == bridge scale == USB wire fraction)
-  and clicks land correctly. Costs are image-quality only (model input and
-  evidence frames are upscaled 720p content). Set `SCREEN_W/H=1280x720` in
-  `.env.local` for native capture, or set the laptop to 1080p — the measure-then-
-  `set_screen` chain keeps the bases locked either way. Power/reset seam:
+  card → passthrough to the user's monitor. The laptop and current capture both run
+  at **1280x720** (`SCREEN_W/H` defaults and the 2026-07-23 physical calibration
+  agree). The earlier 2026-07-21 bring-up proved that a 1920x1080 capture negotiation
+  was only upscaled 720p target content; the project subsequently switched to native
+  720p capture. `HOLO_MODEL_INPUT_RES=1080` is a maximum downscale height, not an
+  upscaler (`model_input_jpeg` preserves a smaller source), so the current model input
+  is also 1280x720 JPEG. Pixel fractions remain consistent end-to-end because the
+  actual captured dimensions become both the model projection basis and the bridge's
+  `set_screen` scale. Evidence:
+  `runs/physical_calibration_smoke_20260723_165441/meta.json`. Power/reset seam:
   `kvm_agent/hardware/target.py`; manual full shutdown/boot remains the hardware
   recovery path because warm reboot can strand the network adapter. The allowlisted
   active cleanup resets only explicitly owned evaluation files/settings/apps and is
@@ -66,12 +71,13 @@ OS-agnostic, undetectable. Pure curiosity project.
   tap → Activities, Esc closes; Activities corner click, top-left — "windows"
   keeps win+r/Start for a Windows target); verified live on GNOME 2026-07-21
   (kbd diff 131.0, mouse diff 134.9).
-- **TESTING** — the ordinary gate is the deterministic offline suite (177 tests at the
-  current baseline). Fake sessions already exercise the production loop and transcript
-  contract. Four fixed-frame calls through the real `HoloSession` are now
-  LIVE-VALIDATED 4/4; the remaining approved piece is one controlled physical
-  calibration page with a deterministic visual oracle
-  (`docs/PLAN_2026-07-23_model_harness_integration_testing.md`). Existing broad
+- **TESTING** — the ordinary gate is the deterministic offline suite (**184/184** at
+  the current baseline). Fake sessions exercise the production loop and transcript
+  contract. Four fixed-frame calls through the real `HoloSession` are LIVE-VALIDATED
+  4/4, and one deterministic physical calibration is LIVE-VALIDATED in five steps /
+  77.2 seconds with no retry
+  (`docs/PLAN_2026-07-23_model_harness_integration_testing.md`). These are explicit
+  boundary checks, not every-change gates or broad capability claims. Existing broad
   task-runner tooling is retained for historical/manual capability work only; it is
   not a development or merge gate.
 - **EVIDENCE** — every run records per-step frames + raw model output +
@@ -480,11 +486,49 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
 - ~~holo3.1 absent from llama-swap's `matrix:`, evictable mid-run~~ — **CLOSED
   2026-07-23** (see Solved §3's serving entry).
 
-- **Review follow-ups (2026-07-23):** **CLOSED.** Incomplete-battery denominators
-  were fixed with D-c (`total_tasks`/`graded`/`complete` remain visible), and
-  `parse_serving_cmd` now uses shell-aware tokenization without globally deleting
-  backslashes. Original findings:
+- **Review code follow-ups (2026-07-23):** **CLOSED.** Incomplete-battery
+  denominators were fixed with D-c (`total_tasks`/`graded`/`complete` remain
+  visible), and `parse_serving_cmd` now uses shell-aware tokenization without
+  globally deleting backslashes. The review's separate workspace-hygiene finding
+  remains open below. Original findings:
   `docs/REPORT_2026-07-23_codebase_review.md`.
+
+- **D-c is available, not universal.** Terminal claims can be gated, and the legacy
+  battery explicitly defaults to that mode, but direct `agent_loop_holo.run()` calls
+  still default to `verify_mode="off"` and require an injected verifier for
+  `"shadow"`/`"gate"`. Verification is terminal-only: there is no independently
+  checked subgoal unit. The controlled physical calibration also intentionally ran
+  with verification off so captured page pixels, not a second model call, remained
+  its completion oracle. Therefore no single physical run composes actor, HID, and
+  the live gate; D-c is accepted on the decomposed evidence recorded in Solved §3,
+  not claimed as an all-in-one validation.
+
+- **The project has integration evidence, not a general capability benchmark.** The
+  four fixed-frame contracts and one calibration page establish that the real
+  request/parser/action path is wired correctly. They do not establish reliability
+  across arbitrary applications, long tasks, OSes, or UI dynamics. The last broad
+  ten-task shadow run was useful diagnosis, not a statistical sample or a release
+  gate. Future capability claims need a task chosen for that exact claim, not a
+  resurrection of the hour-long battery.
+
+- **Evidence locality and workspace-law debt.** `RunRecorder` keeps frames, raw
+  assistant messages, parsed actions, usage, and summaries per run, but ordinary
+  production requests still append their full request history to the shared
+  `runs/logs/holo_requests.jsonl`; tool-result payloads are recoverable there rather
+  than self-contained in each run directory. The deployed Pi bridge likewise
+  defaults its persistent wire log to `/home/aaron/hid_bridge_commands.jsonl` on the
+  appliance. Ignored `.pytest_cache/`, Python `__pycache__/`, `.claude/`, and Pico
+  build dot-directories also exist locally. Git is clean, but the filesystem is not
+  literally compliant with AGENTS.md §1's no-hidden-project-state / one-folder-per-run
+  rule. Fix this as one bounded hygiene/evidence-locality slice; do not mix it into
+  actor behavior.
+
+- **The controlled tests have a real maintenance footprint.** Slice A's tool + tests
+  are 637 lines; Slice B's driver + page + tests are 882 lines (1,519 total).
+  They are bounded and reuse the production loop, but they are not “free” or tiny in
+  absolute terms. Freeze them at four frame contracts and one physical flow. Add a
+  case only for an escaped integration defect, and archive the harness rather than
+  grow it into another evaluation framework if that boundary stops being useful.
 
 - **Tool-result signal is semantically misleading**: changed/unchanged binary
   confirmed real-but-irrelevant pixels (taskbar focus visuals) as action success
