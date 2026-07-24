@@ -81,6 +81,8 @@ STUCK_LIMIT = 3     # k consecutive dropped/error steps -> abort (make-failure-l
 # 2026-07-21); see config.py for the 2026-07-18 calibration notes. This module-level
 # name stays as the import-compatible alias (tests/test_frame_diff.py).
 FRAME_CHANGE_THRESHOLD = CFG.frame_change_threshold
+POST_ACTION_STABLE_FRAMES = 15  # ~0.75s quiet at the 50ms settle poll; prevents an
+                                # async render from starting after an early "stable".
 NO_PROGRESS_LIMIT = 4   # k consecutive executed steps with no visible change OR the identical
                         # action repeated -> abort as "no progress" (flaw #9). small_target_tray
                         # clicked ~the same coord 6x and burned the whole budget undetected.
@@ -399,9 +401,14 @@ def _execute(action, settle_s=1.5):
     except TimeoutError:
         stalled = f"capture stalled: no frame newer than seq={seq0} within {settle_s}s"
         print(f"[execute] WARNING: {stalled}")
-    # Smart settle (2026-07-18): proceed the moment the UI stops changing, up to settle_s.
+    # Smart settle (2026-07-18): proceed when the UI has stayed quiet, up to settle_s.
+    # Fifteen fresh quiet frames avoid accepting the short pre-render pause observed
+    # before async app launches, dialogs, and theme changes in the 2026-07-23 battery.
     # seq_fn: a wedged capture must not read as a settled UI (second review #1).
-    settle = wait_until_stable(ENV.cam.read, settle_s, seq_fn=lambda: ENV.cam.seq)
+    settle = wait_until_stable(
+        ENV.cam.read, settle_s, stable_frames=POST_ACTION_STABLE_FRAMES,
+        seq_fn=lambda: ENV.cam.seq,
+    )
     hid_events = ENV.r4.drain_events() if hasattr(ENV.r4, "drain_events") else []
     return {"stalled": stalled, "settle": settle, "noop": None,
             "hid_events": hid_events}

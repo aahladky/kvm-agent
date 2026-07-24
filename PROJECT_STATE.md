@@ -24,8 +24,10 @@ endpoint.
    camera-verifies keyboard and mouse delivery.
 2. `run()` captures one frame, asks a `ModelSession` for one batched decision, parses
    the structured response, applies the pre-fire screen-change guard, sends normalized
-   actions over HID, captures a newer settled frame, and returns exact tool results to
-   the model.
+   actions over HID, then requires 15 consecutive fresh low-change frames (about
+   0.75 seconds at the current poll rate, within the existing 1.5-second bound) before
+   accepting the post-action screen as settled. It returns exact tool results to the
+   model.
 3. `verify_mode="gate"` independently checks a terminal `finished` claim against the
    post-action frame. False or unanswered claims are refused and returned to the actor;
    three refusals fail loudly. Direct `run()` calls default to verification off for
@@ -63,9 +65,10 @@ Retired implementations live in `_archive/` and are never imported by live code.
 ## What is proven
 
 - The deterministic offline suite covers the loop, model seam, parser/history,
-  verifier failure behavior, reset isolation, metrics, capture freshness, HID protocol,
-  serving inspection, evidence layout, and documentation layout: **192/192 pass**
-  (`runs/offline_tests_20260723_215947/pytest.txt`).
+  verifier failure behavior, reset isolation, metrics, capture freshness, delayed
+  post-action rendering, HID protocol, serving inspection, evidence layout, and
+  documentation layout: **193/193 pass**
+  (`runs/offline_tests_20260723_221518/pytest.txt`).
 - The live-model contract smoke passed all four fixed-frame cases.
 - The physical calibration completed one bounded five-step capture→model→HID→capture
   flow with a deterministic visual oracle.

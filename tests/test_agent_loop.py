@@ -204,7 +204,8 @@ def test_p0_3_capture_stall_surfaced():
         al.ENV = saved_env
     assert info is not None and info.get("stalled") and "seq=" in info["stalled"], \
         "_execute reports the stall instead of only printing it"
-    assert info.get("settle") == "stable", "_execute reports the settle status"
+    assert info.get("settle") == "timeout", \
+        "_execute reports that the short test window cannot satisfy the live quiet-frame count"
 
     def click_then_finish(*a, **k):
         return ({"actions": [{"action": "left_click", "coordinate": [10, 10]},

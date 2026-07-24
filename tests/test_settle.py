@@ -61,7 +61,29 @@ def test_uniform_noise_reads_stable():
     assert time.time() - t0 < 1.0, "uniform low-level noise reads as stable"
 
 
-# (d) status return (2026-07-21 review P0-5): callers can distinguish "settled" from
+# (d) A short quiet interval before an asynchronous render begins must not be accepted
+# as the final stable state. The live loop requests 15 stable frames for this reason.
+def test_long_quiet_window_does_not_mask_delayed_render():
+    rendered = BASE.copy()
+    rendered[70:200, 120:360] = 220
+    frames = [BASE.copy() for _ in range(10)]
+    frames.extend(rendered.copy() for _ in range(30))
+    source = scripted(frames)
+    reads = [0]
+
+    def counted_read():
+        reads[0] += 1
+        return source()
+
+    s = wait_until_stable(
+        counted_read, max_s=0.5, stable_frames=15, poll_s=0.001,
+    )
+    assert s == "stable"
+    assert reads[0] >= 26, \
+        "settle must observe the delayed render and a full quiet window after it"
+
+
+# (e) status return (2026-07-21 review P0-5): callers can distinguish "settled" from
 #     "still churning at the deadline" from "capture delivered nothing at all" --
 #     previously all three returned None, so a dead capture read as instant stability.
 def test_status_return_values():
@@ -73,7 +95,7 @@ def test_status_return_values():
     assert s == "dead", "all-None window reports 'dead'"
 
 
-# (e) seq-aware dead-capture detection (2026-07-21 second review #1): a wedged
+# (f) seq-aware dead-capture detection (2026-07-21 second review #1): a wedged
 #     capture returns the SAME buffered frame forever -- tile-diff 0 reads as
 #     "stable" unless the seq tells us nothing new is arriving.
 class SeqSource:
