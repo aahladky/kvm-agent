@@ -35,8 +35,9 @@ endpoint.
 4. Every recorded run is self-contained under `runs/<tag>_<timestamp>/`: decision
    evidence frames, the exact content-addressed JPEGs sent to actor/verifier, raw
    assistant turns, parsed actions, tool-output text, host-observed HTTP/Pico responses,
-   model request/response records, verifier verdicts, timings, tokens, configuration,
-   and summary.
+   model request/response records, verifier verdicts, guarded pre-fire and executed
+   post-action frames, per-action frame sequences and settle/guard timelines, timings,
+   tokens, configuration, and summary.
 
 The loop remains flat: there is no independently verified subgoal state, hierarchical
 memory, recovery manager, or macro execution.
@@ -51,13 +52,14 @@ memory, recovery manager, or macro execution.
 | `kvm_agent/hardware/env.py` | Fresh frame buffering, camera lifecycle, image encoding, settle/freshness checks, and environment bring-up. |
 | `kvm_agent/hardware/appliance.py` | Host HTTP client for the HID appliance; fails loudly and retains every bridge response for the owning run. |
 | `kvm_agent/hardware/target.py` | Camera-verified HID gate and allowlisted GNOME evaluation-session cleanup. |
-| `kvm_agent/instrumentation/run_log.py` | Self-contained per-run evidence writer. |
+| `kvm_agent/instrumentation/run_log.py` | Self-contained per-run evidence writer, including per-action observation timelines. |
 | `kvm_agent/llm/serving.py` | Read-only serving/matrix inspection and shell-aware launch-command parsing. |
 | `appliance/pi5/` | Pi 5 HTTP-to-UART bridge, binary Pico protocol, and systemd unit. |
 | `appliance/pico_fw/` | Current RP2350 USB-HID firmware and runs-local build. |
 | `tools/model_contract_smoke.py` | Four fixed-frame live model/request/parser contracts. |
 | `tools/physical_calibration_smoke.py` | One deterministic physical capture→model→HID→capture calibration. |
 | `tools/battery.py` | Explicit real-task runner with reset isolation and terminal verification; diagnostic, not a release benchmark. |
+| `tools/battery_metrics.py` | Aggregates completion/verifier data plus guard cost, action repeats, settle behavior, and heuristic late-effect candidates. |
 | `tools/run_tests.py` | Canonical cache-free deterministic test runner; retains output under `runs/`. |
 
 Retired implementations live in `_archive/` and are never imported by live code.
@@ -65,13 +67,16 @@ Retired implementations live in `_archive/` and are never imported by live code.
 ## What is proven
 
 - The deterministic offline suite covers the loop, model seam, parser/history,
-  verifier failure behavior, reset isolation, metrics, capture freshness, delayed
-  post-action rendering, HID protocol, serving inspection, evidence layout, and
-  documentation layout: **193/193 pass**
-  (`runs/offline_tests_20260723_221518/pytest.txt`).
-- The live-model contract smoke passed all four fixed-frame cases.
-- The physical calibration completed one bounded five-step capture→model→HID→capture
-  flow with a deterministic visual oracle.
+  verifier failure behavior, reset isolation, action/observation metrics, capture
+  freshness, delayed post-action rendering, HID protocol, serving inspection, evidence
+  layout, and documentation layout: **195/195 pass**
+  (`runs/offline_tests_20260723_223845/pytest.txt`).
+- The live-model contract smoke passed all four fixed-frame cases
+  (`runs/model_contract_smoke_20260723_224008/summary.json`).
+- The physical calibration completed a bounded five-step capture→model→HID→capture
+  flow with a deterministic visual oracle and the live action/observation schema
+  populated end to end
+  (`runs/physical_calibration_smoke_20260723_224111/summary.json`).
 - D-a/D-b/D-c are implemented: a stateless postcondition verifier, live shadow
   measurement, and terminal claim gating.
 - In the ten-task D-b shadow run, human grading was 10/10 and live verifier
@@ -98,6 +103,12 @@ These are integration and boundary claims, not a statistical general-capability 
 - Timed drag and multi-monitor absolute pointing are not implemented.
 - Real application reliability is intentionally unscored until a selected task needs a
   concrete capability claim.
+- `late_effect_candidate` is a diagnostic heuristic: it means a refused action repeated
+  the previous executed action while its target changed during inference. It narrows
+  review; it does not prove that the prior action caused the change.
+- Runs recorded before 2026-07-23 lack per-action observation timelines. Battery
+  metrics keep their guard-refusal totals but report zero diagnostic coverage rather
+  than inferring missing timing data.
 
 ## D-d: bounded evidence search, then build
 

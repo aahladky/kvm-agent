@@ -67,13 +67,35 @@ def test_step_keeps_tool_results_hid_responses_and_run_owned_request_path():
             hid_events=[{
                 "path": "/hid/click", "ok": True,
                 "response": {"ack": "C", "wire": {"kbd_online": True}},
-            }])
+            }],
+            action_diagnostics=[{
+                "kind": "left_click",
+                "pre_fire_frame_file": "step_00_action_00_pre_fire.png",
+                "decision_frame_seq": 10,
+                "pre_fire_frame_seq": 11,
+                "post_action_frame_seq": 27,
+                "execution": {"observation_timeline": {
+                    "first_post_hid_frame_seq": 12,
+                    "settle": {"status": "stable", "fresh_frames_observed": 16},
+                }},
+            }],
+            action_frames=[
+                ("step_00_action_00_pre_fire.png", b"pre"),
+                ("step_00_action_00_post_action.png", b"post"),
+            ])
         with open(os.path.join(rec.dir, "step_00.json")) as f:
             step = json.load(f)
-    assert step["tool_results"] == [
-        {"tool": "click_desktop", "text": "Executed. Screen changed."}
-    ]
-    assert step["hid_events"][0]["response"]["wire"]["kbd_online"] is True
+        assert step["tool_results"] == [
+            {"tool": "click_desktop", "text": "Executed. Screen changed."}
+        ]
+        assert step["hid_events"][0]["response"]["wire"]["kbd_online"] is True
+        assert step["action_diagnostics"][0]["decision_frame_seq"] == 10
+        assert step["action_diagnostics"][0]["execution"]["observation_timeline"][
+            "settle"]["status"] == "stable"
+        with open(os.path.join(rec.dir, "step_00_action_00_pre_fire.png"), "rb") as f:
+            assert f.read() == b"pre"
+        with open(os.path.join(rec.dir, "step_00_action_00_post_action.png"), "rb") as f:
+            assert f.read() == b"post"
 
 
 # --- roadmap Phase 2 slice D-b: verification threading ---

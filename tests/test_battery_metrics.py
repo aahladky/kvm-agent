@@ -56,13 +56,29 @@ def _archive():
          "answer_text": ""},
     ])
     _run_dir(root, "battery_a_20260101_000100",
-            [{"wall_time_s": 4.0, "action": {"actions": []}},
+            [{"wall_time_s": 4.0, "action": {"actions": []},
+              "action_diagnostics": [{
+                  "kind": "left_click",
+                  "repeats_previous_executed": False,
+                  "guard": {"checked": True, "refused": False,
+                            "late_effect_candidate": False},
+                  "execution": {"observation_timeline": {"settle": {
+                      "status": "stable", "elapsed_s": 0.75,
+                      "fresh_frames_observed": 16, "first_change_at_s": None,
+                  }}},
+              }]},
              {"wall_time_s": 6.0, "action": {"actions": []},
               "verification": {"satisfied": True, "evidence": "e", "wall_time_s": 0.2,
                                "usage": {}}}])
     _run_dir(root, "battery_b_20260101_000200",
             [{"wall_time_s": 5.0, "action": {"actions": [],
-                                             "warnings": ["guard_refusal: region tile diff 70.5"]}},
+                                             "warnings": ["guard_refusal: region tile diff 70.5"]},
+              "action_diagnostics": [{
+                  "kind": "left_click",
+                  "repeats_previous_executed": True,
+                  "guard": {"checked": True, "refused": True,
+                            "late_effect_candidate": True},
+              }]},
              {"wall_time_s": 8.0, "action": {"actions": []},
               "verification": {"satisfied": False, "evidence": "nothing changed",
                                "wall_time_s": 0.3, "usage": {}}}])
@@ -191,6 +207,25 @@ def test_guard_refusal_rate_scans_step_warnings():
         g = report["guard_refusal_rate"]
         # a: 2 steps, 0 refusals. b: 2 steps, 1 refusal. c: 20 steps, 0 refusals.
         assert g == {"steps_with_refusal": 1, "total_steps": 24, "pct": 4.2}
+    finally:
+        shutil.rmtree(root)
+
+
+def test_action_observation_metrics_expose_lost_steps_and_late_effect_candidates():
+    root = _archive()
+    try:
+        analysis = bm.analyze_battery(os.path.join(root, "battery_20260101_000000"), root)
+        obs = bm.aggregate([analysis])["action_observation"]
+        assert obs["diagnostic_steps"] == 2
+        assert obs["action_attempts"] == 2
+        assert obs["repeated_action_attempts"] == 1
+        assert obs["steps_lost_to_guard"] == 1
+        assert obs["repeated_action_guard_refusals"] == 1
+        assert obs["late_effect_candidates"] == 1
+        assert obs["settle"]["status_counts"] == {"stable": 1}
+        assert obs["settle"]["elapsed_s"]["median"] == 0.75
+        assert obs["settle"]["fresh_frames_observed"]["median"] == 16
+        assert obs["settle"]["first_change_during_settle"] == 0
     finally:
         shutil.rmtree(root)
 

@@ -176,10 +176,29 @@ def boot(verify=True, serving_check=True):
     return True
 
 
+def _camera_frame_with_seq():
+    """One capture-buffer read paired with its exact sequence when the camera exposes
+    read_with_seq(). The fallback keeps test/adapter compatibility; production Camera
+    always provides the atomic pair."""
+    if hasattr(ENV.cam, "read_with_seq"):
+        return ENV.cam.read_with_seq()
+    frame = ENV.cam.read()
+    return frame, getattr(ENV.cam, "seq", None)
+
+
+def _frame_png_with_seq():
+    """Full-res PNG evidence and the sequence of the frame it encodes."""
+    if hasattr(ENV.cam, "read_with_seq"):
+        frame, seq = ENV.cam.read_with_seq()
+        return frame_png_bytes(frame), seq
+    # Compatibility for test/adapter environments whose observe() is their only
+    # full-resolution evidence surface. Production takes the atomic branch above.
+    return ENV.observe()["screenshot"], getattr(ENV.cam, "seq", None)
+
+
 def _frame_png():
-    """Full-res PNG frame for diffing/evidence (PicoEnv.observe() is full-res PNG since
-    the native-verbatim split -- model input has its own JPEG path)."""
-    return ENV.observe()["screenshot"]
+    """Full-res PNG frame for diffing/evidence (model input has its own JPEG path)."""
+    return _frame_png_with_seq()[0]
 
 
 def _model_input_data_url():
@@ -188,15 +207,17 @@ def _model_input_data_url():
 
 
 def _capture_step_frames():
-    """ONE buffer read -> (evidence PNG, model-input data URL): both views of the
-    SAME frame at the SAME instant (2026-07-21 second review #7 -- previously the
+    """ONE buffer read -> (evidence PNG, model-input data URL, capture sequence): all
+    views identify the SAME frame at the SAME instant (2026-07-21 second review #7 --
+    previously the
     evidence PNG and the model JPEG were two separate buffer reads: different
     instants on a changing screen, different resolutions, different encodings,
     while the recorder's header claims step_NN.png is the exact pre-decision
     frame)."""
-    frame = ENV.cam.read()
+    frame, seq = _camera_frame_with_seq()
     return (frame_png_bytes(frame),
-            jpeg_bytes_to_data_url(model_input_jpeg(frame, CFG.holo_model_input_res)))
+            jpeg_bytes_to_data_url(model_input_jpeg(frame, CFG.holo_model_input_res)),
+            seq)
 
 
 def cap(name="live"):
@@ -216,7 +237,7 @@ def cap(name="live"):
 def ground(instruction, target="local"):
     """ONE Holo call against the CURRENT frame. Proposes a step (a LIST of actions);
     does NOT execute -- review it (mark() to eyeball the crosshair) then call do()."""
-    png, data_url = _capture_step_frames()
+    png, data_url, _seq = _capture_step_frames()
     LAST["png"] = png
     # Projection targets REAL screen pixels, not the model-input image: Holo outputs
     # [0,1000] normalized coords, so the image size only matters as the projection basis --
@@ -284,11 +305,12 @@ def _execute(action, settle_s=1.5):
     next screenshot and judges via its own `thought`). Maps onto env.r4. CURSOR["pos"] is
     updated on every pointer action so drag_to can start from the true current position.
 
-    Returns None for update_plan (no screen effect, early return) and otherwise a dict
-    {"stalled": str|None, "settle": str|None, "noop": str|None} — `noop` is set when
-    the action was NOT performed (unsupported/no-op), so run() can say so in the
-    <tool_output> instead of reporting a misleading diff (2026-07-21 second review
-    #11). See the freshness-floor note below for `stalled`/`settle`.
+    Returns a dict. `stalled`, `settle`, and `noop` retain their existing contracts;
+    `observation_timeline` records HID/freshness/settle timing and sequences without
+    changing execution. `noop` is set when the action was NOT performed
+    (unsupported/no-op), so run() can say so in the <tool_output> instead of reporting
+    a misleading diff (2026-07-21 second review #11). See the freshness-floor note
+    below for `stalled`/`settle`.
 
     The wait_newer freshness floor (finding #6 pairing) is KEPT: the capture pipeline
     must advance PAST the fire before settling, so a later diff frame can never be one
@@ -300,6 +322,7 @@ def _execute(action, settle_s=1.5):
     kind = action.get("action")
     if hasattr(ENV.r4, "drain_events"):
         ENV.r4.drain_events()
+    hid_started_at_s = time.time()
 
     if kind in ("left_click", "double_click"):
         x, y = (int(v) for v in action["coordinate"])
@@ -388,6 +411,7 @@ def _execute(action, settle_s=1.5):
                 "noop": f"unknown action kind {kind!r} -- not performed",
                 "hid_events": []}
 
+    hid_returned_at_s = time.time()
     # Freshness floor: the capture pipeline must advance PAST the fire before settling.
     # A stall here means the post-action frame may PREDATE the action (finding #6's
     # class) -- report it in the return value so run() can surface it to the model's
@@ -396,22 +420,46 @@ def _execute(action, settle_s=1.5):
     # fire on a merely slow render -- a warning, not a batch-killing error.
     seq0 = ENV.cam.seq   # AFTER the fire (second review #10), not at entry
     stalled = None
+    first_post_hid_seq = None
+    wait_newer_started_at_s = time.time()
     try:
-        ENV.cam.wait_newer(seq0, timeout_s=settle_s)
+        _first_post_hid_frame, first_post_hid_seq = ENV.cam.wait_newer(
+            seq0, timeout_s=settle_s)
     except TimeoutError:
         stalled = f"capture stalled: no frame newer than seq={seq0} within {settle_s}s"
         print(f"[execute] WARNING: {stalled}")
+    wait_newer_ended_at_s = time.time()
     # Smart settle (2026-07-18): proceed when the UI has stayed quiet, up to settle_s.
     # Fifteen fresh quiet frames avoid accepting the short pre-render pause observed
     # before async app launches, dialogs, and theme changes in the 2026-07-23 battery.
     # seq_fn: a wedged capture must not read as a settled UI (second review #1).
+    settle_diagnostics = {}
+    settle_state = {"seq": None}
+
+    def settle_read():
+        frame, seq = _camera_frame_with_seq()
+        settle_state["seq"] = seq
+        return frame
+
     settle = wait_until_stable(
-        ENV.cam.read, settle_s, stable_frames=POST_ACTION_STABLE_FRAMES,
-        seq_fn=lambda: ENV.cam.seq,
+        settle_read, settle_s, stable_frames=POST_ACTION_STABLE_FRAMES,
+        seq_fn=lambda: settle_state["seq"], diagnostics=settle_diagnostics,
     )
     hid_events = ENV.r4.drain_events() if hasattr(ENV.r4, "drain_events") else []
     return {"stalled": stalled, "settle": settle, "noop": None,
-            "hid_events": hid_events}
+            "hid_events": hid_events,
+            "observation_timeline": {
+                "hid_started_at_s": hid_started_at_s,
+                "hid_returned_at_s": hid_returned_at_s,
+                "hid_elapsed_s": hid_returned_at_s - hid_started_at_s,
+                "capture_seq_at_hid_return": seq0,
+                "wait_newer_started_at_s": wait_newer_started_at_s,
+                "wait_newer_ended_at_s": wait_newer_ended_at_s,
+                "wait_newer_elapsed_s": (
+                    wait_newer_ended_at_s - wait_newer_started_at_s),
+                "first_post_hid_frame_seq": first_post_hid_seq,
+                "settle": settle_diagnostics,
+            }}
 
 
 def _region_name(row, col):
@@ -447,6 +495,26 @@ def _frame_diff_score(png_a, png_b):
 
 def _frame_changed(png_a, png_b, threshold=FRAME_CHANGE_THRESHOLD):
     return _frame_diff_detail(png_a, png_b)[0] > threshold
+
+
+def _same_action_attempt(a, b, coordinate_radius=25):
+    """Best-effort repeat classifier for diagnostics only; never changes execution.
+    Coordinate actions count as repeats within the existing click-repeat radius when
+    their remaining arguments match."""
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return False
+    if a.get("action") != b.get("action"):
+        return False
+    ac, bc = a.get("coordinate"), b.get("coordinate")
+    if ac is not None or bc is not None:
+        if not (isinstance(ac, (list, tuple)) and isinstance(bc, (list, tuple))
+                and len(ac) == 2 and len(bc) == 2):
+            return False
+        if abs(ac[0] - bc[0]) > coordinate_radius or abs(ac[1] - bc[1]) > coordinate_radius:
+            return False
+        a = {k: v for k, v in a.items() if k != "coordinate"}
+        b = {k: v for k, v in b.items() if k != "coordinate"}
+    return a == b
 
 
 def do(s=1.5):
@@ -558,6 +626,8 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     last_click = None
     guard_refusals = 0  # consecutive pre-fire guard refusals (see GUARD_REFUSE_LIMIT)
     verify_refusals = 0
+    last_executed_action = None  # diagnostic-only repeat/late-effect classification
+    last_executed_ref = None
     # Last verdict across the run, retained so a later max-steps/other abort still
     # exposes the reason its most recent finished claim was rejected.
     last_verify_verdict = None
@@ -601,7 +671,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                 and hasattr(verifier, "request_log_path")):
             verifier.request_log_path = request_log_path
     for step_i in range(max_steps):
-        png, data_url = _capture_step_frames()
+        png, data_url, decision_seq = _capture_step_frames()
         LAST["png"] = png
         w, h = ENV.screen_width, ENV.screen_height
         step_instruction = instruction if step_i == 0 else ""
@@ -655,20 +725,49 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         verify_verdict = None    # this step's verdict, if its batch ends in `finished`
         verify_refused = False
         step_hid_events = []
-        for action in actions:
+        action_diagnostics = []
+        action_frames = []
+        for action_i, action in enumerate(actions):
             kind = action.get("action")
             tool_name = session.tool_name(kind)
-            before = _frame_png()
+            before, pre_fire_seq = _frame_png_with_seq()
+            repeats_previous_executed = _same_action_attempt(
+                action, last_executed_action)
+            action_diag = {
+                "action_index": action_i,
+                "kind": kind,
+                "decision_frame_file": f"step_{step_i:02d}.png",
+                "decision_frame_seq": decision_seq,
+                "pre_fire_frame_seq": pre_fire_seq,
+                "repeats_previous_executed": repeats_previous_executed,
+                "previous_executed": last_executed_ref,
+                "guard": {
+                    "checked": False,
+                    "refused": False,
+                    "late_effect_candidate": False,
+                },
+            }
             # Pre-fire TOCTOU guard (see GUARD_KINDS note at top): `before` IS the
             # fresh pre-fire frame (grabbed just above, after the model's think time);
             # `png` is the decision frame -- the exact frame the model-input JPEG
             # derives from (single buffer read, second review #7). Refuse-to-fire on
             # change near the target; never fire-anyway, never inject a retry.
             if not screen_touched and kind in GUARD_KINDS and action.get("coordinate"):
+                action_diag["guard"]["checked"] = True
+                pre_fire_file = (
+                    f"step_{step_i:02d}_action_{action_i:02d}_pre_fire.png")
+                action_diag["pre_fire_frame_file"] = pre_fire_file
+                if recorder:
+                    action_frames.append((pre_fire_file, before))
                 gx, gy = (int(v) for v in action["coordinate"])
                 gscore, grow, gcol = tile_region_max_png(png, before, gx, gy, w, h)
+                gregion = _region_name(grow, gcol)
+                action_diag["guard"].update({
+                    "target": [gx, gy],
+                    "region_tile_diff": gscore,
+                    "region": gregion,
+                })
                 if gscore > FRAME_CHANGE_THRESHOLD:
-                    gregion = _region_name(grow, gcol)
                     print(f"[run] step {step_i}: pre-fire guard refused {kind} at "
                           f"({gx},{gy}) -- region tile diff {gscore:.1f} since decision")
                     results.append((tool_name,
@@ -679,6 +778,14 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                         f"screenshot before retrying."))
                     step.setdefault("warnings", []).append(
                         f"guard_refusal: region tile diff {gscore:.1f} at {gregion}")
+                    action_diag["guard"].update({
+                        "refused": True,
+                        # Heuristic, explicitly named as a candidate: the previous
+                        # action's delayed effect is one explanation when the model
+                        # retries that action and its target changes during inference.
+                        "late_effect_candidate": repeats_previous_executed,
+                    })
+                    action_diagnostics.append(action_diag)
                     guard_refused = True
                     break
             try:
@@ -692,16 +799,33 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                 results.append((tool_name, f"Error: {e}. Remaining calls in this step were not executed."))
                 if hasattr(ENV.r4, "drain_events"):
                     step_hid_events.extend(ENV.r4.drain_events())
+                action_diag["execution_error"] = str(e)
+                action_diagnostics.append(action_diag)
                 exec_error = True
                 break
             if exec_info:
                 step_hid_events.extend(exec_info.pop("hid_events", []))
+                action_diag["execution"] = exec_info
             if kind == "update_plan":
                 results.append((tool_name, "Plan updated."))
+                action_diagnostics.append(action_diag)
                 continue
-            after = _frame_png()
+            after, post_action_seq = _frame_png_with_seq()
             score, region, changed_tiles = _frame_diff_detail(before, after)
             changed = score > FRAME_CHANGE_THRESHOLD
+            action_diag["post_action_frame_seq"] = post_action_seq
+            if not (exec_info and exec_info.get("noop")):
+                post_action_file = (
+                    f"step_{step_i:02d}_action_{action_i:02d}_post_action.png")
+                action_diag["post_action_frame_file"] = post_action_file
+                if recorder:
+                    action_frames.append((post_action_file, after))
+            action_diag["post_action_diff"] = {
+                "max_tile_diff": score,
+                "strongest_region": region,
+                "changed_tiles": changed_tiles,
+                "changed": changed,
+            }
             step_changed = step_changed or changed
             if exec_info and exec_info.get("noop"):
                 # The action was NOT performed (unsupported direction, no tracked
@@ -713,6 +837,12 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
             else:
                 if kind not in ("update_plan", "finished"):
                     screen_touched = True   # executed, screen-affecting: burns the guard
+                    last_executed_action = dict(action)
+                    last_executed_ref = {
+                        "step": step_i,
+                        "action_index": action_i,
+                        "kind": kind,
+                    }
                 # Magnitude + spread (2026-07-22): "changed" alone confirmed
                 # real-but-irrelevant pixels (taskbar focus visuals) as success --
                 # localized-vs-widespread + tile count give the model something to
@@ -736,6 +866,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                               " — the post-action frame may be stale."
                     step.setdefault("warnings", []).extend(warns)
             results.append((tool_name, result))
+            action_diagnostics.append(action_diag)
             if kind == "finished":
                 answer_text = action.get("text", "")
                 if verify_mode != "off":
@@ -785,7 +916,9 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                               executed=not (exec_error or guard_refused),
                               verification=(verify_verdict.to_dict()
                                            if verify_verdict else None),
-                              tool_results=results, hid_events=step_hid_events)
+                              tool_results=results, hid_events=step_hid_events,
+                              action_diagnostics=action_diagnostics,
+                              action_frames=action_frames)
 
         if step.get("note"):
             print(f"[run] note: {step['note']!r}")

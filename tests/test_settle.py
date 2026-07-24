@@ -75,12 +75,21 @@ def test_long_quiet_window_does_not_mask_delayed_render():
         reads[0] += 1
         return source()
 
+    diagnostics = {}
     s = wait_until_stable(
         counted_read, max_s=0.5, stable_frames=15, poll_s=0.001,
+        diagnostics=diagnostics,
     )
     assert s == "stable"
     assert reads[0] >= 26, \
         "settle must observe the delayed render and a full quiet window after it"
+    assert diagnostics["status"] == "stable"
+    assert diagnostics["fresh_frames_observed"] >= 26
+    assert diagnostics["first_change_at_s"] is not None
+    assert diagnostics["first_change_elapsed_s"] > 0
+    assert diagnostics["max_tile_diff"] > diagnostics["threshold"]
+    assert diagnostics["stable_frames_observed"] == 15
+    assert diagnostics["ended_at_s"] >= diagnostics["started_at_s"]
 
 
 # (e) status return (2026-07-21 review P0-5): callers can distinguish "settled" from

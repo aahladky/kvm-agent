@@ -23,6 +23,10 @@ Computes, per battery (and merged across all with --all):
   - guard-refusal rate: scans every step_NN.json's "warnings" for the pre-fire TOCTOU
     guard's own signal (agent_loop_holo.py's GUARD_REFUSE_LIMIT machinery) -- not
     previously aggregated anywhere, only ever hand-counted in session docs.
+  - action/observation diagnostics, when recorded: repeated action attempts,
+    repeated-action guard refusals, heuristic late-effect candidates, steps lost to
+    the guard, and settle latency/fresh-frame/change-onset distributions. Older runs
+    remain readable and report zero diagnostic coverage rather than invented values.
   - per-step latency: actor (per_step_wall_time_s) and, where shadow verification ran,
     verify latency (verification.wall_time_s) as its OWN distribution plus the summed
     cost of a verified step -- holo3.1 serves with --parallel 1 (kvm_agent/llm/serving.py
@@ -196,12 +200,48 @@ def aggregate(analyses):
 
     guard_refusal_steps = 0
     total_steps = 0
+    diagnostic_steps = 0
+    action_attempts = 0
+    repeated_actions = 0
+    repeated_guard_refusals = 0
+    late_effect_candidates = 0
+    settle_elapsed = []
+    settle_fresh_frames = []
+    settle_first_changes = 0
+    settle_statuses = {}
     for r in rows:
         for step in r["steps"]:
             total_steps += 1
             warnings = (step.get("action") or {}).get("warnings") or []
             if any(str(w).startswith("guard_refusal") for w in warnings):
                 guard_refusal_steps += 1
+            diagnostics = step.get("action_diagnostics")
+            if diagnostics:
+                diagnostic_steps += 1
+            for diag in diagnostics or []:
+                action_attempts += 1
+                repeated = bool(diag.get("repeats_previous_executed"))
+                repeated_actions += int(repeated)
+                guard = diag.get("guard") or {}
+                if guard.get("refused") and repeated:
+                    repeated_guard_refusals += 1
+                late_effect_candidates += int(bool(guard.get("late_effect_candidate")))
+                settle = (((diag.get("execution") or {})
+                           .get("observation_timeline") or {}).get("settle") or {})
+                # `finished` follows the existing settle path to provide a terminal
+                # verification frame, but it did not cause a screen effect. Keep its
+                # timeline in evidence while excluding it from post-action settle
+                # distributions.
+                if settle and diag.get("kind") not in ("finished", "update_plan"):
+                    status = settle.get("status")
+                    if status:
+                        settle_statuses[status] = settle_statuses.get(status, 0) + 1
+                    if settle.get("elapsed_s") is not None:
+                        settle_elapsed.append(settle["elapsed_s"])
+                    if settle.get("fresh_frames_observed") is not None:
+                        settle_fresh_frames.append(settle["fresh_frames_observed"])
+                    settle_first_changes += int(
+                        settle.get("first_change_at_s") is not None)
 
     actor_wall = [t for r in rows for t in (r["summary"].get("per_step_wall_time_s") or [])]
     actor_prompt_tok = [t for r in rows
@@ -252,6 +292,20 @@ def aggregate(analyses):
         "guard_refusal_rate": {"steps_with_refusal": guard_refusal_steps,
                                "total_steps": total_steps,
                                "pct": _pct(guard_refusal_steps, total_steps)},
+        "action_observation": {
+            "diagnostic_steps": diagnostic_steps,
+            "action_attempts": action_attempts,
+            "repeated_action_attempts": repeated_actions,
+            "steps_lost_to_guard": guard_refusal_steps,
+            "repeated_action_guard_refusals": repeated_guard_refusals,
+            "late_effect_candidates": late_effect_candidates,
+            "settle": {
+                "status_counts": settle_statuses,
+                "elapsed_s": _stats(settle_elapsed),
+                "fresh_frames_observed": _stats(settle_fresh_frames),
+                "first_change_during_settle": settle_first_changes,
+            },
+        },
         "latency_s": {"actor_per_step": _stats(actor_wall),
                      "verify_per_step": _stats(verify_wall),
                      "verified_step_combined": _stats(verify_combined)},
@@ -287,6 +341,14 @@ def _print_report(report):
     g = report["guard_refusal_rate"]
     print(f"[metrics] guard-refusal rate: {g['steps_with_refusal']}/{g['total_steps']} "
          f"steps ({g['pct']}%)")
+    obs = report["action_observation"]
+    print(f"[metrics] action/observation diagnostics: {obs['diagnostic_steps']} steps, "
+          f"{obs['action_attempts']} action attempts")
+    print(f"[metrics]   repeats={obs['repeated_action_attempts']}, "
+          f"steps-lost-to-guard={obs['steps_lost_to_guard']}, "
+          f"repeat-refusals={obs['repeated_action_guard_refusals']}, "
+          f"late-effect-candidates={obs['late_effect_candidates']}")
+    print(f"[metrics]   settle={obs['settle']}")
     lat = report["latency_s"]
     print(f"[metrics] actor latency/step: {lat['actor_per_step']}")
     if lat["verify_per_step"]:

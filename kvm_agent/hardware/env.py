@@ -103,7 +103,7 @@ def png_to_model_input_jpeg(png_bytes, target_h):
 
 
 def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=None, poll_s=0.05,
-                      seq_fn=None):
+                      seq_fn=None, diagnostics=None):
     """Wait up to max_s for the screen to STOP changing, returning as soon as
     `stable_frames` consecutive polls show a tile-max diff below `thresh`. Replaces
     blind post-action sleeps: fast actions proceed immediately, slow-rendering apps
@@ -122,6 +122,13 @@ def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=None, poll_s=0.05,
     same buffered frame forever (tile-diff 0), which without seq awareness reads as
     an instantly "stable" UI.
 
+    diagnostics is an optional mutable dict populated with the settle timeline without
+    changing the return contract or control flow. It records wall-clock start/end,
+    elapsed time, accepted fresh-frame count and sequence range, the first
+    above-threshold change observed DURING settling, peak diff, and the final stable
+    streak. Callers can therefore distinguish stable-from-start from
+    quiet-then-change-then-stable after the run.
+
     Returns a status string (2026-07-21 review P0-5 — previously every outcome
     returned None, so a dead capture was indistinguishable from instant stability):
         "stable"  — settled (stable_frames consecutive sub-thresh polls)
@@ -130,12 +137,49 @@ def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=None, poll_s=0.05,
                     throughout, or seq_fn never advanced: capture is not delivering)"""
     if thresh is None:
         thresh = CFG.frame_change_threshold
-    end = time.time() + max_s
+    started_at_s = time.time()
+    end = started_at_s + max_s
     prev = None
     stable = 0
     baseline_seq = None
     last_seq = None
     saw_fresh = False
+    fresh_frames = 0
+    first_change_at_s = None
+    first_change_elapsed_s = None
+    max_tile_diff = 0.0
+    if diagnostics is not None:
+        diagnostics.clear()
+        diagnostics.update({
+            "started_at_s": started_at_s,
+            "max_s": max_s,
+            "poll_s": poll_s,
+            "threshold": thresh,
+            "stable_frames_required": stable_frames,
+            "first_frame_seq": None,
+            "last_frame_seq": None,
+            "first_change_at_s": None,
+            "first_change_elapsed_s": None,
+            "max_tile_diff": 0.0,
+        })
+
+    def finish(status):
+        ended_at_s = time.time()
+        if diagnostics is not None:
+            diagnostics.update({
+                "status": status,
+                "ended_at_s": ended_at_s,
+                "elapsed_s": ended_at_s - started_at_s,
+                "fresh_frames_observed": fresh_frames,
+                "first_frame_seq": baseline_seq,
+                "last_frame_seq": last_seq,
+                "first_change_at_s": first_change_at_s,
+                "first_change_elapsed_s": first_change_elapsed_s,
+                "max_tile_diff": max_tile_diff,
+                "stable_frames_observed": stable,
+            })
+        return status
+
     while time.time() < end:
         f = read_fn()
         if f is not None:
@@ -155,16 +199,22 @@ def wait_until_stable(read_fn, max_s, stable_frames=3, thresh=None, poll_s=0.05,
                     last_seq = s
                     saw_fresh = True
         if f is not None:
+            fresh_frames += 1
             if prev is not None:
-                if _tile_max_diff(prev, f) < thresh:
+                diff = _tile_max_diff(prev, f)
+                max_tile_diff = max(max_tile_diff, diff)
+                if diff < thresh:
                     stable += 1
                     if stable >= stable_frames:
-                        return "stable"
+                        return finish("stable")
                 else:
+                    if first_change_at_s is None:
+                        first_change_at_s = time.time()
+                        first_change_elapsed_s = first_change_at_s - started_at_s
                     stable = 0
             prev = f
         time.sleep(poll_s)
-    return "dead" if not saw_fresh else "timeout"
+    return finish("dead" if not saw_fresh else "timeout")
 
 
 def make_hid_client():
@@ -264,6 +314,10 @@ class Camera:
 
     def read(self):
         return self._fb.get()[0]
+
+    def read_with_seq(self):
+        """Return one frame and its exact capture sequence from the same buffer read."""
+        return self._fb.get()
 
     def wait_newer(self, seq, timeout_s):
         """Block until a frame captured AFTER `seq` lands; TimeoutError otherwise."""

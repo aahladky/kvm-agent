@@ -15,7 +15,8 @@ Layout: CFG.runs_dir/<tag>_<YYYYMMDD_HHMMSS>/
                    exact JPEG bytes sent to actor/verifier, deduplicated by content
     step_NN.png    full-resolution evidence frame captured at the same instant
     step_NN.json   raw assistant message, parsed action, tool outputs, host-observed HID
-                   responses, token usage, wall time, executed?
+                   responses, action/observation timelines, token usage, wall time,
+                   executed?
     summary.json   success, steps_taken, total wall time, per-step latency/token lists
 """
 import json
@@ -61,7 +62,9 @@ class RunRecorder:
                  usage: dict | None, wall_time_s: float, executed: bool = True,
                  verification: dict | None = None,
                  tool_results: list[tuple[str, str]] | None = None,
-                 hid_events: list[dict] | None = None):
+                 hid_events: list[dict] | None = None,
+                 action_diagnostics: list[dict] | None = None,
+                 action_frames: list[tuple[str, bytes]] | None = None):
         """verification (roadmap Phase 2 slice D-b): a Verdict.to_dict() when this step's
         batch included a `finished` claim and a verifier judged it, else None -- which is
         the overwhelming majority of steps. Kept per-step, alongside `executed`, so a
@@ -69,6 +72,11 @@ class RunRecorder:
         step that mattered."""
         with open(os.path.join(self.dir, f"step_{step_idx:02d}.png"), "wb") as f:
             f.write(png)
+        for name, frame_png in action_frames or []:
+            if os.path.basename(name) != name or not name.endswith(".png"):
+                raise ValueError(f"invalid action-frame filename: {name!r}")
+            with open(os.path.join(self.dir, name), "wb") as f:
+                f.write(frame_png)
         record = {
             "step": step_idx,
             "message": message,
@@ -81,6 +89,7 @@ class RunRecorder:
                 {"tool": tool, "text": text} for tool, text in (tool_results or [])
             ],
             "hid_events": hid_events or [],
+            "action_diagnostics": action_diagnostics or [],
         }
         self._write_json(f"step_{step_idx:02d}.json", record)
         self.steps.append(record)

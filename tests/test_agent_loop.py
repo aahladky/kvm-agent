@@ -360,7 +360,7 @@ def test_r2_7_step_capture_single_read():
     saved_env = al.ENV
     al.ENV = fake
     try:
-        png, data_url = al._capture_step_frames()
+        png, data_url, seq = al._capture_step_frames()
     finally:
         al.ENV = saved_env
     got = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)
@@ -370,6 +370,7 @@ def test_r2_7_step_capture_single_read():
     assert got_j.shape[:2] == frame.shape[:2], "same frame, no resize below the input res"
     assert np.abs(got_j.astype(int) - frame.astype(int)).mean() < 5, \
         "model-input JPEG derives from the same instant (lossy, same pixels)"
+    assert seq is not None, "the decision frame carries a capture sequence for timelines"
 
 
 def test_r2_7_prompt_recorded_in_run_folder():
@@ -655,6 +656,50 @@ def test_guard_refuses_and_run_continues():
     logged_step = rec.steps[0][0][3]
     assert any("guard_refusal" in w for w in logged_step.get("warnings", [])), \
         "the refusal reaches the recorder's step warnings"
+
+
+def test_guard_diagnostics_classify_repeated_late_effect_candidate():
+    """A repeated prior executed click whose target changes before refiring is retained
+    as a heuristic late-effect candidate, with frame sequences and settle timing. This
+    is evidence only: the guard decision and run outcome remain unchanged."""
+    responses = [
+        ({"actions": [{"action": "left_click", "coordinate": [640, 360]}], "note": None},
+         {"content": "{}"}, {}),
+        ({"actions": [{"action": "left_click", "coordinate": [650, 365]}], "note": None},
+         {"content": "{}"}, {}),
+        ({"actions": [{"action": "finished", "text": "done"}], "note": None},
+         {"content": "{}"}, {}),
+    ]
+
+    def model(*a, **k):
+        return responses.pop(0)
+
+    # Step 0: clean pre-fire + unchanged post-action. Step 1: changed target before
+    # the near-identical click can fire.
+    fake = GuardEnv(observe_queue=[_png(0), _png(0), _changed_at_target()])
+    saved = _patch_guard_run(fake, model)
+    try:
+        result = al.run("click once", max_steps=4, confirm_first=0, tag="t_guard_diag")
+    finally:
+        al.ENV, al.call_holo_full, al.RunRecorder = saved
+
+    assert result["finished"] is True
+    rec = FakeRecorder.instances[-1]
+    first = rec.steps[0][1]["action_diagnostics"][0]
+    refused = rec.steps[1][1]["action_diagnostics"][0]
+    timeline = first["execution"]["observation_timeline"]
+    assert timeline["first_post_hid_frame_seq"] is not None
+    assert timeline["settle"]["status"] == "stable"
+    assert timeline["settle"]["fresh_frames_observed"] >= al.POST_ACTION_STABLE_FRAMES + 1
+    assert refused["decision_frame_seq"] is not None
+    assert refused["pre_fire_frame_seq"] is not None
+    assert refused["pre_fire_frame_file"] == "step_01_action_00_pre_fire.png"
+    assert refused["repeats_previous_executed"] is True
+    assert refused["guard"]["refused"] is True
+    assert refused["guard"]["late_effect_candidate"] is True
+    assert refused["previous_executed"] == {
+        "step": 0, "action_index": 0, "kind": "left_click",
+    }
 
 
 def test_guard_only_first_action_and_clean_fires():

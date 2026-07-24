@@ -46,8 +46,17 @@ Every recorded loop run owns:
 - raw assistant messages and parsed actions;
 - exact tool-output text returned to the actor;
 - host-observed HTTP/Pico responses for every HID request;
+- per-action decision/pre-fire/post-action frame sequences, exact guarded pre-fire and
+  executed post-action PNGs, HID/freshness/settle timelines, guard decisions, and
+  repeat/late-effect-candidate labels;
 - actor and verifier requests/responses;
 - timings, token usage, serving/input configuration, verdicts, and summary.
+
+Guard activation is both a safety result and a diagnostic signal. Battery review tracks
+steps lost to refusals, repeated-action refusals, settle status/latency/fresh-frame
+counts, and heuristic late-effect candidates even when every task ultimately passes.
+Candidate labels guide frame review; they are never promoted to root cause without the
+corresponding frame/action timeline.
 
 Routine tests use `python -B tools/run_tests.py`; Pico firmware builds place all output
 under `runs/pico_fw_build_<timestamp>/`. Hidden session, cache, dependency, and build
