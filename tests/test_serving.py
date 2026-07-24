@@ -73,13 +73,48 @@ def test_parses_an_ovms_style_command_without_inventing_gguf_fields():
         "no --model flag: don't fabricate GGUF fields for a non-GGUF backend"
 
 
+def test_shell_quoting_and_escapes_preserve_paths_exactly():
+    quoted = parse_serving_cmd(
+        "llama-server --model '/models/Holo Model.Q4_K_M.gguf' "
+        "--mmproj '/models/Holo Model.mmproj-f16.gguf' -c '64000'")
+    assert quoted["model_path"] == "/models/Holo Model.Q4_K_M.gguf"
+    assert quoted["mmproj_path"] == "/models/Holo Model.mmproj-f16.gguf"
+    assert quoted["model_file"] == "Holo Model.Q4_K_M.gguf"
+    assert quoted["quant"] == "Q4_K_M"
+    assert quoted["ctx"] == 64000
+
+    escaped = parse_serving_cmd(
+        r"llama-server --model /models/Holo\ Model.Q5_K_M.gguf "
+        r"--source-model 'org\model'")
+    assert escaped["model_path"] == "/models/Holo Model.Q5_K_M.gguf"
+    assert escaped["source_model"] == r"org\model", \
+        "a literal backslash inside shell quotes must not be globally deleted"
+
+
+def test_crlf_line_continuations_are_normalized_before_shell_parsing():
+    parsed = parse_serving_cmd(
+        "llama-server --model \\\r\n '/models/Holo Model.Q4_K_M.gguf' \\\r\n"
+        " --parallel 1")
+    assert parsed["model_path"] == "/models/Holo Model.Q4_K_M.gguf"
+    assert parsed["parallel"] == 1
+
+
 def test_parser_tolerates_junk_without_raising():
-    for cmd in ("", None, "llama-server", "--model", "-c --parallel", "   "):
+    for cmd in ("", None, "llama-server", "--model", "-c --parallel", "   ",
+                "--model 'unterminated"):
         out = parse_serving_cmd(cmd)
         assert isinstance(out, dict)
+    assert parse_serving_cmd("--model 'unterminated") == {}, \
+        "malformed shell syntax yields no claims rather than guessed parameters"
     assert "ctx" not in parse_serving_cmd("-c --parallel"), \
         "a flag with no value records nothing rather than something wrong"
     assert "model_path" not in parse_serving_cmd("--model"), "dangling flag at the end"
+    unknown = {
+        "model": "holo3.1", "reachable": True, "configured": True,
+        "resident": True, "params": {},
+    }
+    assert "mmproj=unknown" in describe(unknown), \
+        "failed parsing must not be described as proof that mmproj is absent"
 
 
 def _fake_endpoint(models=None, running=None, models_raises=None, running_raises=None):

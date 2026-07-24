@@ -5,11 +5,12 @@ wiring), and D-c (terminal claim gating) are implemented. The controlled live-mo
 contract smoke is LIVE-VALIDATED 4/4, and the deterministic physical calibration is
 LIVE-VALIDATED in one bounded five-step run. D-d remains deferred until trustworthy
 targeted evidence justifies more control-flow complexity. The serving-layer contract
-and matrix enrollment are complete.
+and matrix enrollment are complete; serving launch commands are tokenized with
+shell-aware quoting/escape semantics.
 Supersedes the 2026-07-20 physical-target-move snapshot (git history). Design:
 `docs/PLAN_2026-07-20_physical_target_move.md` and, for the phase now in flight,
 `docs/PLAN_2026-07-23_model_harness_integration_testing.md`; latest session:
-`docs/SESSION_2026-07-23_physical_calibration_smoke.md`._
+`docs/SESSION_2026-07-23_serving_command_tokenization.md`._
 
 ## 1. What it is
 
@@ -462,17 +463,27 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   both directions (`['fast-7b', 'holo3.1']`). This also satisfies Phase 5's co-residency
   prerequisite, since holo3.1 runs `--split-mode none` (B70 alone) and so fits the
   existing `X & f7` pattern. Evidence: `runs/serving_probe_20260723_084700/probe.json`.
+  **Parser hardening 2026-07-23:** the original tokenizer globally deleted
+  backslashes and whitespace-split the launch string, corrupting quoted paths,
+  escaped spaces, and literal backslashes. It now normalizes only shell line
+  continuations and uses `shlex.split`; malformed shell syntax returns no claims
+  instead of raising or guessing, and `describe()` reports `mmproj=unknown` for that
+  state. The verbatim Holo command plus quoted/escaped/CRLF fixtures pass offline.
+  A live warm probe parsed the current Holo launch as Q4_K_M, ctx 64000, parallel 1,
+  image-min-tokens 1024, cache q8_0/q4_0, mmproj present, with fast-7b co-resident.
+  Evidence: `runs/serving_probe_20260723_201921/probe.json`,
+  `runs/serving_parser_final_20260723_202026/focused_pytest.txt`, and
+  `docs/SESSION_2026-07-23_serving_command_tokenization.md`.
 
 ## 4. Open problems
 
 - ~~holo3.1 absent from llama-swap's `matrix:`, evictable mid-run~~ — **CLOSED
   2026-07-23** (see Solved §3's serving entry).
 
-- **Review follow-ups (2026-07-23):** ~~incomplete batteries could report 1/1~~ —
-  **FIXED WITH D-c**: metrics retain `total_tasks`/`graded`/`complete`. Remaining:
-  `parse_serving_cmd` removes every backslash and whitespace-splits a shell command;
-  replace that lossy parser with shell-aware tokenization before a quoted/escaped model
-  path makes the serving snapshot lie. Full review:
+- **Review follow-ups (2026-07-23):** **CLOSED.** Incomplete-battery denominators
+  were fixed with D-c (`total_tasks`/`graded`/`complete` remain visible), and
+  `parse_serving_cmd` now uses shell-aware tokenization without globally deleting
+  backslashes. Original findings:
   `docs/REPORT_2026-07-23_codebase_review.md`.
 
 - **Tool-result signal is semantically misleading**: changed/unchanged binary

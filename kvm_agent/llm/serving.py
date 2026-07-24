@@ -34,6 +34,7 @@ context legible.
 from __future__ import annotations
 
 import json
+import shlex
 import urllib.error
 import urllib.request
 
@@ -69,13 +70,18 @@ def parse_serving_cmd(cmd: str) -> dict:
     """Launch command -> the serving params that shape what the model sees.
 
     Pure and defensive: llama-swap stores the command as a shell string with escaped
-    newlines, and entries differ per backend (llama-server vs an OVMS proxy). Unknown
-    flags are ignored rather than guessed at; a flag whose value is missing is dropped
-    rather than recorded as a lie.
+    newlines, quoting, and shell escapes, and entries differ per backend (llama-server
+    vs an OVMS proxy). Unknown flags are ignored rather than guessed at; a flag whose
+    value is missing is dropped rather than recorded as a lie. Malformed shell syntax
+    returns no claims rather than raising or guessing.
     """
     if not cmd:
         return {}
-    tokens = [t for t in cmd.replace("\\\n", " ").replace("\\", " ").split() if t]
+    normalized = cmd.replace("\\\r\n", " ").replace("\\\n", " ")
+    try:
+        tokens = shlex.split(normalized, posix=True)
+    except ValueError:
+        return {}
     out: dict = {}
     for i, tok in enumerate(tokens):
         key = _CMD_FLAGS.get(tok)
@@ -180,7 +186,10 @@ def describe(snap: dict) -> str:
                            ("cache_v", "cache_type_v")):
             if p.get(key) is not None:
                 bits.append(f"{label}={p[key]}")
-        bits.append("mmproj=" + ("yes" if p.get("has_mmproj") else "NO"))
+        if "has_mmproj" in p:
+            bits.append("mmproj=" + ("yes" if p["has_mmproj"] else "NO"))
+        else:
+            bits.append("mmproj=unknown")
     if snap.get("co_resident"):
         bits.append(f"co-resident={','.join(str(m) for m in snap['co_resident'])}")
     return ", ".join(bits)
