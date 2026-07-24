@@ -6,13 +6,14 @@ same method surface (move/click/rclick/down/up/home/scroll/key/combo/type/
 click_at/drag/close), but each call hits the Pi 5 `hid_bridge` HTTP API instead
 of a fire-and-forget WiFi socket. The bridge returns the Pico's real per-command
 ACK, so a dropped/failed command raises ApplianceError LOUDLY here rather than
-silently succeeding -- the core fix from docs/FINDINGS_2026-07-18_harness_review.md
+silently succeeding -- the core fix from _archive/docs_history/FINDINGS_2026-07-18_harness_review.md
 (#1 no-ack, #2 reconnect-masks-dead-HID).
 
 Capture is unchanged (still the host `Camera`); only the action channel moves to
 the appliance. So PicoEnv keeps its `cam` and swaps only `r4`.
 """
 import json
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -28,6 +29,23 @@ class ApplianceClient:
     def __init__(self, base_url=None, timeout=5.0):
         self.base = (base_url or CFG.appliance_url).rstrip("/")
         self.timeout = timeout
+        self._events = []
+        self._events_lock = threading.Lock()
+
+    def _record_event(self, event):
+        with self._events_lock:
+            self._events.append(event)
+
+    def drain_events(self):
+        """Return and clear exact HTTP/Pico responses since the previous drain.
+
+        The loop drains this once per normalized action and stores the records in that
+        step's run artifact. The appliance daemon's persistent log remains useful for
+        crash diagnosis, but is no longer the sole copy of delivered-wire evidence.
+        """
+        with self._events_lock:
+            events, self._events = self._events, []
+        return events
 
     def _req(self, path, method="POST", _timeout=None, **params):
         url = self.base + path
@@ -49,12 +67,22 @@ class ApplianceClient:
                 detail = body.get("ack") or body.get("error") or ""
             except Exception:
                 pass
-            raise ApplianceError(f"{path} transport error: {e}"
-                                 + (f" ({detail})" if detail else ""))
+            message = f"{path} transport error: {e}" + (f" ({detail})" if detail else "")
+            self._record_event({"path": path, "method": method, "params": params,
+                                "ok": False, "error": message})
+            raise ApplianceError(message)
         except Exception as e:
-            raise ApplianceError(f"{path} transport error: {e}")
+            message = f"{path} transport error: {e}"
+            self._record_event({"path": path, "method": method, "params": params,
+                                "ok": False, "error": message})
+            raise ApplianceError(message)
         if not data.get("ok"):
-            raise ApplianceError(f"{path} not ok: {data.get('ack') or data.get('error') or data}")
+            message = f"{path} not ok: {data.get('ack') or data.get('error') or data}"
+            self._record_event({"path": path, "method": method, "params": params,
+                                "ok": False, "response": data, "error": message})
+            raise ApplianceError(message)
+        self._record_event({"path": path, "method": method, "params": params,
+                            "ok": True, "response": data})
         return data
 
     # --- mouse (R4-compatible surface) ---

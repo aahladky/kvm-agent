@@ -2,7 +2,7 @@
 """
 verify_replay.py — OFFLINE eval of the postcondition oracle against the graded run
 archive (roadmap Phase 2 slice D-a,
-docs/PLAN_2026-07-22_phase2_subgoal_verification.md).
+_archive/docs_history/PLAN_2026-07-22_phase2_subgoal_verification.md).
 
 This is the go/no-go on whether a Holo-backed oracle works AT ALL, and it costs no rig
 time: every frame it judges is already on disk with a human grade attached. It is
@@ -324,7 +324,9 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     print(f"[replay] {len(cases)} cases -> {out_dir}")
 
-    verifier = HoloVerifier(target=args.target)
+    verifier = HoloVerifier(
+        target=args.target,
+        request_log_path=os.path.join(out_dir, "model_requests.jsonl"))
     rows = []
     for i, case in enumerate(cases):
         verdict = verifier.check(frame_data_url(case["frame"]), case["w"], case["h"],

@@ -10,7 +10,7 @@
 
   {"id": "file_create_rename", "instruction": "Using the Files application, create a new empty text file in the Home folder and rename it to report.txt, so that a file literally named report.txt exists in the Home folder.", "max_steps": 15,
    "reset": {"cleanup_files": ["report.txt"]},
-   "setup": "roadmap Phase 2 slice D-b: a longer (~3-subgoal) task with an END-STATE postcondition (file_create_rename, dark_mode_confirm, clock_to_file, copy_paste_notes were added 2026-07-23 to give the battery headroom above its 5/5 ceiling and something for the D-a oracle / D-d subgoal decomposition to work with -- docs/PLAN_2026-07-22_phase2_subgoal_verification.md). No special setup beyond stock GNOME apps."},
+   "setup": "roadmap Phase 2 slice D-b: a longer (~3-subgoal) task with an END-STATE postcondition. No special setup beyond stock GNOME apps."},
   {"id": "dark_mode_confirm", "instruction": "Open Settings, switch the appearance theme to Dark, then open the Text Editor so that its window is now rendering with a dark background, confirming the dark theme is applied system-wide.", "max_steps": 15,
    "reset": {"setting_resets": ["default-color-scheme"]}},
   {"id": "clock_to_file", "instruction": "Read the current time shown in the top bar clock, then open a text editor and save a new file named time.txt whose entire content is that exact time, so the file's content matches what the clock showed.", "max_steps": 12,

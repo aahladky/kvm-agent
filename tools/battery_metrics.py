@@ -3,7 +3,7 @@
 battery_metrics.py — aggregate a graded battery's results.json + each task's
 RunRecorder summary.json/step_NN.json into the numbers roadmap §5 names as tracked
 metrics (docs/ROADMAP.md), none of which were computed anywhere before this tool
-(roadmap Phase 2 slice D-b, docs/PLAN_2026-07-22_phase2_subgoal_verification.md).
+(roadmap Phase 2 slice D-b, _archive/docs_history/PLAN_2026-07-22_phase2_subgoal_verification.md).
 
     python tools/battery_metrics.py                  # the latest battery_<ts>/
     python tools/battery_metrics.py battery_20260723  # a specific one (prefix match)
@@ -40,7 +40,7 @@ field, a different eval shape from a postcondition check.
 
 KNOWN CAVEAT reading `grade` verbatim: `runs/battery_20260721_235153/results.json`'s
 paint_line row is recorded `grade: "pass"` -- a protest pass forced by the pre-void-grade
-p/f-only vocabulary (docs/SESSION_2026-07-22_first_complete_battery.md finding 1), whose
+p/f-only vocabulary (_archive/docs_history/SESSION_2026-07-22_first_complete_battery.md finding 1), whose
 documented HONEST reading is void (excluded, not a pass). That results.json is immutable
 evidence (AGENTS.md) and is deliberately not retro-edited, so this tool reads it exactly
 as recorded and does NOT special-case it -- --all's completion rate over that battery

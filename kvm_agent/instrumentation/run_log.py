@@ -8,8 +8,14 @@ steps-to-completion, latency distribution) reads the same files back later.
 
 Layout: CFG.runs_dir/<tag>_<YYYYMMDD_HHMMSS>/
     meta.json      goal, target, started, and any caller-supplied config snapshot
-    step_NN.png    the frame the model saw BEFORE deciding step NN's action
-    step_NN.json   raw assistant message, parsed action, token usage, wall time, executed?
+    model_requests.jsonl
+                   exact request (image URLs point to content-addressed files), raw
+                   response, and parsed result
+    model_input_<sha256>.jpg
+                   exact JPEG bytes sent to actor/verifier, deduplicated by content
+    step_NN.png    full-resolution evidence frame captured at the same instant
+    step_NN.json   raw assistant message, parsed action, tool outputs, host-observed HID
+                   responses, token usage, wall time, executed?
     summary.json   success, steps_taken, total wall time, per-step latency/token lists
 """
 import json
@@ -38,6 +44,7 @@ class RunRecorder:
         ts = time.strftime("%Y%m%d_%H%M%S")
         self.dir = os.path.join(CFG.runs_dir, f"{tag}_{ts}")
         os.makedirs(self.dir, exist_ok=True)
+        self.request_log_path = os.path.join(self.dir, "model_requests.jsonl")
         self.steps = []
         self._t_start = time.time()
         info = {"goal": goal, "target": target, "started": ts}
@@ -52,7 +59,9 @@ class RunRecorder:
 
     def log_step(self, step_idx: int, png: bytes, message: dict, action: dict,
                  usage: dict | None, wall_time_s: float, executed: bool = True,
-                 verification: dict | None = None):
+                 verification: dict | None = None,
+                 tool_results: list[tuple[str, str]] | None = None,
+                 hid_events: list[dict] | None = None):
         """verification (roadmap Phase 2 slice D-b): a Verdict.to_dict() when this step's
         batch included a `finished` claim and a verifier judged it, else None -- which is
         the overwhelming majority of steps. Kept per-step, alongside `executed`, so a
@@ -68,6 +77,10 @@ class RunRecorder:
             "wall_time_s": wall_time_s,
             "executed": executed,
             "verification": verification,
+            "tool_results": [
+                {"tool": tool, "text": text} for tool, text in (tool_results or [])
+            ],
+            "hid_events": hid_events or [],
         }
         self._write_json(f"step_{step_idx:02d}.json", record)
         self.steps.append(record)

@@ -1,6 +1,6 @@
 """
 target.py — physical-target power/reset seam
-(docs/PLAN_2026-07-20_physical_target_move.md §2).
+(_archive/docs_history/PLAN_2026-07-20_physical_target_move.md §2).
 
 Replaces the libvirt VMController (archived 2026-07-20 with the VM stack). v1 is
 MANUAL: the operator power-cycles the laptop and confirms the desktop is up. The

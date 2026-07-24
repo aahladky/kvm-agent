@@ -1,602 +1,155 @@
-# Project State — KVM-over-IP Computer-Use Agent
+# Project State — kvm-agent
 
-_Snapshot: 2026-07-23 — Phase 2 slices D-a (the postcondition oracle), D-b (shadow
-wiring), and D-c (terminal claim gating) are implemented. The controlled live-model
-contract smoke is LIVE-VALIDATED 4/4, and the deterministic physical calibration is
-LIVE-VALIDATED in one bounded five-step run. D-d remains deferred until trustworthy
-targeted evidence justifies more control-flow complexity. The serving-layer contract
-and matrix enrollment are complete; serving launch commands are tokenized with
-shell-aware quoting/escape semantics. The deterministic offline suite is 184/184.
-Supersedes the 2026-07-20 physical-target-move snapshot (git history). Design:
-`docs/PLAN_2026-07-20_physical_target_move.md` and, for the phase now in flight,
-`docs/PLAN_2026-07-23_model_harness_integration_testing.md`; latest session:
-`docs/SESSION_2026-07-23_project_state_reconciliation.md`; consolidated overview:
-`docs/REPORT_2026-07-23_project_state_overview.md`._
+_Current snapshot: 2026-07-23._
 
-## 1. What it is
+## Purpose
 
-A computer-use agent where **nothing is installed on the target**. A local vision
-model sees the target's screen over an HDMI capture card and drives it through a
-physical USB-HID injector. The target sees only a monitor + USB mouse/keyboard —
-no installed agent or target-side result channel. The hardware boundary is broadly
-OS-neutral; the currently verified shell behavior is GNOME-specific. Pure curiosity
-project.
+`kvm-agent` is a local computer-use agent that controls an unmodified target through
+the same two interfaces a person uses:
 
-## 2. The live system (current iteration)
+```text
+HDMI capture card → host vision model → normalized action
+                                      → Pi 5 HTTP bridge → Pico 2 W USB HID → target
+```
 
-- **LOOP** — `agent_loop_holo.py`: batched tool calls per step (native semantics:
-  calls in a batch see each other's effects; only the batch's final screenshot goes
-  back), observe→act with the frame-seq freshness floor (paired via seq numbers). Model: **Holo3.1-35B**
-  served locally via **llama-swap** (`http://127.0.0.1:9292/v1`, SYCL llama-server on
-  the Arc Pro B70, modelctl-managed). History depth: `HOLO_HISTORY_IMAGES=3`
-  (native's max_images) is the standing default — operator decision 2026-07-22
-  after the 4/4 battery; the queued history-depth A/B is dropped. The loop talks to
-  the model only through `kvm_agent.models.base.ModelSession` (`decide`/`commit`,
-  roadmap Phase 1 — `HoloSession` in `kvm_agent/models/holo.py` is the one
-  implementation; `run(session=...)` is how a second one would plug in) — see
-  Solved §3.
-- **HID** — Pi 5 + Pico 2 W **appliance** (`appliance/`): Pico runs `pico_fw/`
-  (C/TinyUSB, PiKVM port, CRC16 binary protocol over 3-wire UART); Pi 5 runs
-  `hid_bridge.py` (HTTP API, `http://192.168.0.29:8080`). Host client:
-  `kvm_agent/hardware/appliance.py`. `clear_hid` (all-keys-up) runs on connect + close.
-  Phase 0 hardening (roadmap, Slice B — code landed AND DEPLOYED 2026-07-22/23,
-  overnight soak-gate POSTPONED by operator, not run): 1s HW watchdog in
-  `main.c`; host-side `_roundtrip` retry (`pikvm_proto.py`); mouse ABS report
-  retain+resend on USB suspend; `PONG_WATCHDOG_REBOOTED`/`PONG2_USB_SUSPENDED`
-  visibility bits surfaced through `/health` and the wire log. Deployed to the
-  live Pico + Pi 5 and functionally verified (`/health` decodes the new fields
-  correctly; `agent_loop_holo.boot()`'s camera-verified HID gate passed: "hid ok
-  (gnome: kbd diff 49.1, mouse diff 49.1)") — the multi-hour unattended soak
-  itself is what's postponed, not the deploy. See Solved §3 and `tools/soak.py`.
-- **CAPTURE** — HDMI capture card via cv2 (V4L2 on the Linux host), `Camera` +
-  `FrameBuffer` (monotonic frame seq) in `kvm_agent/hardware/env.py`.
-- **TARGET** — physical spare laptop (Ubuntu/GNOME as of 2026-07-21; formerly
-  Windows 10), lid closed, HDMI out → capture
-  card → passthrough to the user's monitor. The laptop and current capture both run
-  at **1280x720** (`SCREEN_W/H` defaults and the 2026-07-23 physical calibration
-  agree). The earlier 2026-07-21 bring-up proved that a 1920x1080 capture negotiation
-  was only upscaled 720p target content; the project subsequently switched to native
-  720p capture. `HOLO_MODEL_INPUT_RES=1080` is a maximum downscale height, not an
-  upscaler (`model_input_jpeg` preserves a smaller source), so the current model input
-  is also 1280x720 JPEG. Pixel fractions remain consistent end-to-end because the
-  actual captured dimensions become both the model projection basis and the bridge's
-  `set_screen` scale. Evidence:
-  `runs/physical_calibration_smoke_20260723_165441/meta.json`. Power/reset seam:
-  `kvm_agent/hardware/target.py`; manual full shutdown/boot remains the hardware
-  recovery path because warm reboot can strand the network adapter. The allowlisted
-  active cleanup resets only explicitly owned evaluation files/settings/apps and is
-  not a general desktop rollback; a disk image remains the determinism backstop.
-  `verify_hid`'s round-trips are
-  shell-anchored via `CFG.target_shell` ("gnome" default since 2026-07-21: Super
-  tap → Activities, Esc closes; Activities corner click, top-left — "windows"
-  keeps win+r/Start for a Windows target); verified live on GNOME 2026-07-21
-  (kbd diff 131.0, mouse diff 134.9).
-- **TESTING** — the ordinary gate is the deterministic offline suite (**184/184** at
-  the current baseline). Fake sessions exercise the production loop and transcript
-  contract. Four fixed-frame calls through the real `HoloSession` are LIVE-VALIDATED
-  4/4, and one deterministic physical calibration is LIVE-VALIDATED in five steps /
-  77.2 seconds with no retry
-  (`docs/PLAN_2026-07-23_model_harness_integration_testing.md`). These are explicit
-  boundary checks, not every-change gates or broad capability claims. Existing broad
-  task-runner tooling is retained for historical/manual capability work only; it is
-  not a development or merge gate.
-- **EVIDENCE** — every run records per-step frames + raw model output +
-  `reasoning_content` to `runs/<tag>_<time>/` (`RunRecorder`). First tool on any
-  failed run: `tools/show_reasoning.py`.
+Nothing is installed on the target. The target sees a monitor, keyboard, and mouse.
+The current target is an Ubuntu/GNOME laptop at 1280×720. The actor and visual
+postcondition verifier currently use Holo 3.1 through the local OpenAI-compatible
+endpoint.
 
-### Repo layout (moved here 2026-07-22 from CLAUDE.md, now a pointer per AGENTS.md §6)
+## Current operating path
 
-Code (~2 MB, tracked):
-- `kvm_agent/` — canonical package (config, hardware, instrumentation, llm, models).
-- `agent_loop_holo.py` — CURRENT agent loop (see LOOP above). Where new work happens.
-- `appliance/`, `tools/`, `tests/`, `docs/` — appliance code (Pi 5 bridge + Pico),
-  harnesses (battery, probes), offline unit tests, dated docs.
-- `appliance/pico_fw/` — CURRENT Pico firmware (C/TinyUSB, ported from PiKVM
-  2026-07-18). The old CircuitPython firmware is RETIRED
-  (`_archive/firmware_old/appliance_pico/`) — never deploy.
-- `docs/native/` — native Holo format reference (+ `docs/FORMAT_NOTES_holo.md`).
-  The prompt template `local-desktop-2026-06-12.j2` in there is a LOAD-BEARING
-  runtime asset loaded by `kvm_agent/models/holo.py`, not documentation.
-- `_archive/old-stack/` — retired generations, reference only; nothing live
-  imports from it.
+1. `agent_loop_holo.boot()` opens capture and the Pi/Pico action channel, synchronizes
+   the real captured resolution to the bridge, checks serving configuration, and
+   camera-verifies keyboard and mouse delivery.
+2. `run()` captures one frame, asks a `ModelSession` for one batched decision, parses
+   the structured response, applies the pre-fire screen-change guard, sends normalized
+   actions over HID, captures a newer settled frame, and returns exact tool results to
+   the model.
+3. `verify_mode="gate"` independently checks a terminal `finished` claim against the
+   post-action frame. False or unanswered claims are refused and returned to the actor;
+   three refusals fail loudly. Direct `run()` calls default to verification off for
+   compatibility. `tools/battery.py` defaults to gate mode.
+4. Every recorded run is self-contained under `runs/<tag>_<timestamp>/`: decision
+   evidence frames, the exact content-addressed JPEGs sent to actor/verifier, raw
+   assistant turns, parsed actions, tool-output text, host-observed HTTP/Pico responses,
+   model request/response records, verifier verdicts, timings, tokens, configuration,
+   and summary.
 
-Data (untracked, gitignored, physically outside the repo since 2026-07-20):
-- `runs` → `~/data/kvm-agent/runs` (symlink; evidence — permanent, never moves)
-- `scratch` → `~/tmp/kvm-agent-scratch` (symlink; auto-deleted after 14 days —
-  promote anything worth keeping into `runs/` or the repo before session end)
+The loop remains flat: there is no independently verified subgoal state, hierarchical
+memory, recovery manager, or macro execution.
 
-## 3. Solved (verified)
+## Code map
 
-- Win32 focus-transfer bug (2026-07-19, click-to-focus retry in `_execute()`).
-- WAA server terminal-window leak (patched + re-baked; moot post-WAA).
-- Pico HID reliability (PiKVM firmware port; WiFi-Pico path retired).
-- Harness trust (2026-07-20): tile-max settle metric, frame-seq before/after pairing
-  (finding #6 closed), `clear_hid` wiring.
-- Blame ledger: **model 0, our code 4 (+1 shared, score held pending signal
-  redesign)** (`AGENTS.md` §5).
-- Review batch-1 fixes (2026-07-21, from the full-scope repo review): bridge
-  screen-size sync at env bring-up (`set_screen` — existed on both ends, called by
-  neither; closes the silent click-stretch hole), model-call exceptions contained as
-  dropped steps (`run()` always finishes the recorder; one API error no longer kills
-  a battery), planning-only steps exempt from the frozen-screen abort, `drag_to`
-  re-asserts the tracked start before button-down, `jinja2` declared / `requests`
-  dropped in `pyproject.toml`. Coverage: `tests/test_agent_loop.py` (offline, 12 checks).
-- Review batch-2 fixes (2026-07-21): `wait_until_stable` returns a status
-  ("stable"/"timeout"/"dead"); capture stalls/dead-capture windows are surfaced
-  into the step's `<tool_output>` and the recorded step's `warnings` instead of a
-  swallowed print; `boot()` runs the camera-verified HID gate by default
-  (`verify=False` to bypass — the battery keeps its interactive per-task gate), so
-  REPL sessions no longer click into a half-dead HID silently. (The "dead" status
-  initially covered only the never-delivered case; the wedged-capture case needed
-  the seq-aware fix in the second-review round below.)
-- Review batch-3 hygiene (2026-07-21): CLAUDE.md pruned to a corrected header +
-  trust-ordered pointers (the ~80 KB retired-stack body survives in git history);
-  test suite is pytest-collectable while staying script-runnable, with a
-  declared `[test]` extra and new holo message-layer coverage
-  (`tests/test_holo_messages.py`); the tile-max metric and its threshold have a
-  single home (`kvm_agent.hardware.env` + `CFG.frame_change_threshold`);
-  `verify_hid` no longer imports the root app script; dead code dropped
-  (`_frame_png_full`, `drop_bottom_row`, ASCII-only `stage1_ping_test.py`).
-- Review batch-4 fixes (2026-07-21): `Camera` bring-up failure raises catchable
-  `RuntimeError` instead of `SystemExit`; `_scalar` shape-guards coordinates (a
-  nonsense list raises instead of inventing a midpoint click); `_req` surfaces the
-  bridge's HTTP error detail (502/404 bodies) instead of a bare "transport error";
-  `show_reasoning.py` speaks the live action vocabulary (hotkey/double_click/
-  hold_and_tap, `keys` field) and the batched step-record shape; battery summary is
-  foldered (`runs/battery_<ts>/results.json`) and the resolution A/B probe writes
-  its results to `runs/`.
-- Second-review fixes (2026-07-21, all 12 WRONG items; suite now 53 tests).
-  Evidence: `summary.json` action lists read the batched step shape; the evidence
-  PNG and model-input JPEG derive from ONE buffer read and the system prompt
-  travels in each run's `meta.json`; battery scoring is fail-closed over ALL tasks
-  (`total_tasks`/`graded`/`complete`). Feedback/robustness: exec-error steps count
-  against `STUCK_LIMIT` (the abort was dead code) and their error `<tool_output>`
-  reaches the model; `wait_until_stable` is seq-aware (a wedged capture reports
-  "dead", not "stable"); `combo()` fails closed on any unknown key; unsupported /
-  no-op actions report `NOT executed`; `type()`'s HTTP timeout scales with text
-  length; screen size is measured from the actual frame after bring-up (projection
-  AND the `set_screen` push); the freshness floor starts AFTER the HID fire;
-  `CURSOR`/`PLAN` reset per run; `repeat_count` clamped; `HOLO_HISTORY_IMAGES=0`
-  refused; `finish_reason='length'` logged. Firmware: `ph_usb_send_clear` no
-  longer injects a phantom wheel scroll (upstream PiKVM bug) — Pico reflash and
-  the Pi 5 `pikvm_proto.py` deploy CONFIRMED done before the 2026-07-21 23:51
-  battery (operator, 2026-07-22).
-- **First honest baseline: COMPLETE** (2026-07-21 23:51 battery, graded to the end).
-  Honest score **4/4 (1 void)** — recorded 5/5 pre-void-grade; paint_line was
-  infeasible (no paint app on the GNOME target) and force-graded "pass" under the
-  p/f-only vocabulary, now fixed with the void grade (`tools/battery.py`).
-  calc_multiply: clean 6-step pass vs 0/20 the previous morning (OS switch + fix
-  rounds landed together — uncontrolled). Run config: GNOME target, native 720p,
-  `HOLO_HISTORY_IMAGES=3`. Evidence: `runs/battery_20260721_235153/`; full review
-  in `docs/SESSION_2026-07-22_first_complete_battery.md`.
-- **Roadmap Phase 0, firmware hardening (Slice B, 2026-07-22/23, code landed AND
-  DEPLOYED, overnight soak gate POSTPONED by operator):** HW watchdog
-  (`watchdog_enable(1000, true)` in `main.c`,
-  gated pet, `watchdog_enable_caused_reboot()` read before re-arming — verified
-  it and the mode-change reboot use scratch[4], `ph_outputs.c`'s mode persistence
-  uses scratch[0], no collision) surfaced as new PONG bit
-  `PH_PROTO_PONG_WATCHDOG_REBOOTED` (0x20, the only free bit in resp[1]). Host
-  `pikvm_proto.PicoHidLink._roundtrip` retries: NACK (well-framed rejection) retries
-  ANY command; an ambiguous (no/garbled) response retries only idempotent commands
-  {PING, CLEAR_HID, KBD_KEY, MOUSE_ABS, MOUSE_BUTTON}, never MOUSE_WHEEL (relative
-  delta); 150ms pre-retry pause doubles as the firmware's 100ms UART resync
-  trigger; `retries` count in every response + the wire log. Mouse ABS
-  retain+resend (see Open Problems' long-idle mouse-death entry) mirrors kbd's
-  existing pattern; `PH_PROTO_PONG2_USB_SUSPENDED` (resp[4], previously always-zero
-  padding) exposes `tud_suspended()` for visibility. `tools/soak.py` (new): the
-  Phase-0 gate harness — probe every 10s, corner-move + camera-liveness check every
-  5min, JSONL to `runs/soak_<ts>/`, operator-driven fault injection. Firmware
-  compiles clean (`-Wall -Wextra`, both `cmake` and the real `make` deploy path).
-  Tests 71 → 79 green (`tests/test_pikvm_proto_retry.py`, fake serial).
-  **DEPLOYED 2026-07-23**: Pico BOOTSEL-flashed (operator), Pi 5
-  `pikvm_proto.py`/`hid_bridge.py` updated (backed up first) + `hid-bridge.service`
-  restarted; `/health` decodes the new fields correctly
-  (`watchdog_rebooted=0 usb_suspended=0` on the fresh flash, as expected —
-  a power-on reset, not a watchdog reset); `agent_loop_holo.boot()`'s
-  camera-verified HID gate PASSED ("hid ok (gnome: kbd diff 49.1, mouse diff
-  49.1)"). The overnight soak itself (`tools/soak.py --hours 8`) is POSTPONED,
-  operator decision — the target needs to sit occupied/semi-attended that long
-  for fault injection, and the bug it guards (long-idle mouse death) is a minor
-  inconvenience, not urgent. Not abandoned, just not run yet. Evidence:
-  `docs/SESSION_2026-07-22_slice_b_firmware_hardening.md` ("Deploy" +
-  "Soak: POSTPONED" sections; no `runs/` evidence — the deploy checks were
-  one-shot health/gate calls, not a recorded run).
-- **Roadmap Phase 1, the model seam (Slice C, 2026-07-22, pure refactor, no rig
-  time):** `kvm_agent/models/base.py` (`StepDecision`, `ModelSession` Protocol —
-  `decide`/`commit`/`tool_name`/`reset`, deliberately not three propose/ground/
-  verify methods yet); `HoloSession` in `kvm_agent/models/holo.py` owns history,
-  `<observation>`/`<tool_output>` construction, image trim, and the
-  action-kind→native-tool-name map (`ACTION_TO_TOOL_NAME`, out of the loop, where
-  it was an inline dict). `agent_loop_holo.run()` gained `session=` (default a
-  fresh `HoloSession`) so a second `ModelSession` can drive it untouched — proven
-  by a test that hands `run()` a non-Holo stub and asserts `call_holo_full` is
-  never called. Proved a pure refactor via a golden-transcript fixture (a scripted
-  6-step/7-tool-call scenario run against the pre-refactor code, history
-  byte-identical post-refactor). Tests 71 → 78 green. Evidence:
-  `docs/SESSION_2026-07-22_model_seam_slice_c.md` (no `runs/` evidence — offline
-  only, no hardware touched).
-- **Roadmap Phase 2, slice D-a — the postcondition oracle (2026-07-23, offline only,
-  no rig time):** the first automated verification anywhere in this project.
-  `kvm_agent/models/base.py` gains `Verdict` + a `Verifier` Protocol
-  (`check(data_url, w, h, question, claim="")`) — deliberately a SEPARATE Protocol from
-  `ModelSession`, not the `verify()` method that file's docstring used to promise, because
-  statelessness is the whole property (a verify() on the object that owns conversation
-  history would end up judging its actor's story instead of the pixels) and Phase 5
-  relocates a separately-injected object by swapping one constructor argument.
-  `kvm_agent/models/holo.py` gains `HoloVerifier` + `call_holo_verify`: same model id on
-  the same llama-swap endpoint, but temperature 0.0, thinking off, and **its own message
-  list** — NOT routed through `build_messages`/`call_holo_full`, whose hardcoded
-  `SYSTEM_PROMPT`/`RESPONSE_SCHEMA` (`tool_calls: minItems 1`) would force the oracle to
-  emit a desktop action. The actor path is byte-untouched, so the golden-transcript test
-  still passes unchanged. `satisfied` is `bool | None`: None (model error, timeout,
-  unparseable) is a third outcome, never a False and never a True — finding #8's
-  fail-closed rule applied to the oracle itself.
-  **Measured offline against the graded archive** (`tools/verify_replay.py`, new):
-  **29/29 on human-graded cases — 14/14 positives (false-refusal rate 0.0, the number
-  gating slice D-c) and 15/15 negatives (0 false confirmations)**, plus 64/65 on ungraded
-  failed runs; 0 unanswered; median 4.2s and ~1.4k prompt tokens per check (~1/3 of an
-  actor step). **Claim-resistance 80/80, 0 false confirmations**
-  (`runs/verify_replay_20260723_002007/`, `--cases adversarial`): every unfinished-screen
-  frame re-run with a confident FALSE "task complete" claim attached, because otherwise
-  the eval is confounded (every positive carried a claim, every negative carried none) and
-  the case that gates D-c — unfinished screen + confident claim — goes untested. The
-  oracle does not fold to a confident lie.
-  Two findings: three apparent misses were the LABEL being wrong (an observation task's
-  postcondition already holds at `step_00` — now excluded with the reason recorded), and
-  the one real miss (`small_target_tray`) confirmed *the target exists* rather than *the
-  action's effect* on an action-phrased task ("click the WiFi icon") **with no claim
-  attached** — the same case answered correctly once a claim was present ("no icon that
-  has been clicked or activated"). So the failure mode is specifically action-phrased
-  postcondition + claimless check, which is exactly how a SUBGOAL check runs (no `answer`
-  text at a subgoal boundary). D-b's new tasks must be phrased as END STATES, and D-d must
-  *reject or rewrite* action-phrased subgoal postconditions at harvest — native's prompt
-  asks for verb-first goal titles, so action phrasing is the default output, not an edge
-  case. A test also caught a real contract violation: `call_holo_verify` built its client
-  outside its own try/except, so a client-construction failure propagated instead of
-  becoming `satisfied=None` (fixed; `_target_config` stays outside — a bad target is a
-  caller bug, not a model-side failure).
-  **Honest limit**: no archived run has a false `finished` claim, so the negatives measure
-  unfinished-screen recognition, NOT a true false-confirmation rate — that needs D-b.
-  Tests 86 → 116 green. Evidence: `runs/verify_replay_20260723_000637/results.json`
-  (and the pre-fix run `runs/verify_replay_20260722_235815/`),
-  `docs/SESSION_2026-07-23_phase2_slice_d_a_verifier.md`.
-- **Roadmap Phase 2, slice D-b — shadow wiring + harder tasks + metrics (2026-07-23,
-  RIG-CONFIRMED):** `agent_loop_holo.run()` gains
-  `verifier=`/`verify_mode=` (`"off"`|`"shadow"`|`"gate"`). `"off"` (the default) is
-  provably byte-identical to pre-D-b `run()` — all six exit points now share one
-  `_result()` closure, and in `"off"` mode the return dict has exactly the original two
-  keys, never a third; the four pre-existing exact-dict-equality tests needed zero
-  changes. `"shadow"` verifies the model's own `finished` claim against the same `after`
-  frame the batch loop already captured (no extra capture), encoded via the new
-  `kvm_agent.hardware.env.png_to_model_input_jpeg` (single home, also now used by
-  `tools/verify_replay.py`) — same client-side encoding the actor's own input takes, so a
-  live verdict is comparable to D-a's offline numbers. Records the verdict
-  (`RunRecorder`'s new `verifications`/`verified_finish`, `run()`'s own
-  `verified_finish` return key) but changes NOTHING about control flow. `"gate"`
-  (slice D-c) is rejected loudly (`NotImplementedError`), never silently treated as
-  shadow. A raising verifier is absorbed into `satisfied=None`, same P0-2 reasoning as
-  the `session.decide()` guard. `tools/battery.py` gains `[verify_mode]` on its CLI and
-  `auto_grade`/`auto_evidence` columns alongside (never replacing) the human grade,
-  fail-closed the same way `grade_task` is. Four new end-state-phrased battery tasks
-  (`file_create_rename`, `dark_mode_confirm`, `clock_to_file`, `copy_paste_notes`,
-  ~8-15 steps each) give the battery headroom above its 5/5 ceiling — every one phrased
-  as an end state per D-a's `small_target_tray` lesson. New `tools/battery_metrics.py`
-  computes every roadmap §5 metric except grounding rate: completion rate,
-  steps-to-completion, false-"finished" rate, verifier agreement/false-refusal/
-  false-confirmation, guard-refusal rate, actor-vs-verify latency (holo3.1's
-  `--parallel 1` means these serialize, not overlap), honest-refusal-vs-budget-
-  exhaustion. Cross-validated: its guard-refusal count matches the TOCTOU
-  rig-confirmation session's hand count exactly (4/64 steps once the one pre-guard
-  battery is excluded); a real archived frame pushed through the live encode path
-  returned the same verdict D-a's replay already scored for it. Found and fixed a real
-  gap in `--all` mode: several pre-2026-07-21 `battery_<ts>/` dirs predate `results.json`
-  and were silently contributing zero rows under a misleadingly "analyzed" label — now
-  explicitly skipped and reported. Tests 131 → 157 green.
-  **Rig session run 2026-07-23** (`runs/battery_20260723_093442/`,
-  `runs/battery_metrics_20260723_100508/report.json`): extended 10-task battery,
-  `verify_mode="shadow"` — 10/10 human-graded pass, false-"finished" 0/9.
-  **False-refusal 0/9 on live frames: D-c's hard gate clears, D-c is a legitimate go.**
-  Verifier-vs-human agreement is 100% (9/9) only over the 9 runs the verifier actually
-  judged; the 10th (`copy_paste_notes`) never claimed `finished`, so produced no verdict,
-  yet was human-graded pass — a real auto/human divergence (9/10 counted honestly) that
-  D-c's planned fail-closed auto-grading would surface. False-confirmation stays
-  unmeasured (zero true-fail cases to test against), which is why D-c's own design keeps
-  every auto/human disagreement plus a sampled fraction of agreements human-checked.
-  Guard-refusal rate 8/76 steps (10.5%). `update_plan`: 0/76 occurrences (0/19 in the
-  pre-existing archive) — **settles D-d's mechanism (explicit planner call, not
-  native-schema harvest) regardless of its gate.** **D-d's own gate — "headroom, not
-  another clean sweep," at least one caught confident-wrong-progress case — is NOT met**:
-  graded-level this battery is another 10/10 sweep. `copy_paste_notes` (`max_steps
-  reached` at 15, human-graded pass) shows the model completed the actual terminal action
-  with no budget left to screenshot-and-declare — real evidence for subgoal-level
-  checkpointing, but *under-confident correct* progress, the mirror of the
-  *confident-wrong* case D-d's gate requires. This evidence unblocked the now-implemented
-  D-c. D-d still needs a controlled case that actually exercises its target failure
-  mode. Evidence:
-  `docs/SESSION_2026-07-23_phase2_slice_d_b_rig_results.md`.
-- **Roadmap Phase 2, slice D-c — terminal gate + automated grading (2026-07-23,
-  CODE-COMPLETE; ACCEPTED ON DECOMPOSED INTEGRATION EVIDENCE):**
-  `verify_mode="gate"` accepts only
-  `satisfied=True`; False and None refuse the model's `finished` claim, thread the
-  oracle evidence back through `<tool_output>`, and continue. Three refusals terminate
-  failed with `answer refused by verifier x3`. `tools/battery.py` now defaults to gate
-  mode and verifier-primary grading; missing/unanswered verdicts fail, human grading is
-  retained behind `--human`, disagreements plus 10% of agreements are spot-checked,
-  and `--no-reboot` is a genuinely no-prompt state-carryover mode. Metrics use only the
-  human ground-truth sample for false-confirmation/refusal and preserve incomplete
-  batteries' full denominator. 165 tests pass. Evidence:
-  `runs/d_c_offline_20260723_104436/pytest.txt`,
-  `docs/SESSION_2026-07-23_phase2_slice_d_c_gates.md`.
-  The old follow-up requirement for another extended physical battery is retired by
-  the 2026-07-23 testing-method correction. D-b already exercised the real verifier on
-  live frames (0/9 false refusals); D-c's fail-closed accept/refuse/continue control
-  flow is covered offline; Slice A exercises the real session/request/parser seam; and
-  Slice B exercises the real capture→actor→HID→capture→finished path. Slice B
-  intentionally leaves `verify_mode="off"` so the calibration's truth is deterministic
-  captured pixels, not another model grader. This is honest decomposed evidence, not a
-  claim that one run composed every mechanism simultaneously. A future escaped gate
-  defect gets a minimal controlled regression case; it does not resurrect the broad
-  battery as a release gate.
-- **GNOME evaluation-session reset (2026-07-23, ACCEPTED ON COMPONENT EVIDENCE):**
-  the warm-reboot path is unsuitable on this laptop because
-  it can leave the network adapter offline, while a full shutdown/boot is manual and
-  still preserves files. Battery tasks now carry an allowlisted reset manifest: simple
-  filenames directly under a dedicated eval account's `$HOME`, plus named GNOME-setting
-  profiles implemented in code (task JSON cannot inject shell). `--reset-strategy`
-  selects `manual-power-cycle` (still default), active-session `cleanup`, or `none`.
-  Cleanup is typed visibly through physical HID, terminates only a fixed allowlist of
-  battery apps, and exits its terminal only on success; failure leaves
-  `KVM_RESET_FAILED`. A stateless camera-verifier check of the clean desktop is recorded
-  in `results.json.reset_events` before every task and gates the ordinary HID check.
-  The first `cleanup-logout --auto-login` attempt failed twice before task 1
-  (`runs/battery_20260723_123637/`, `runs/battery_20260723_124319/`) and that strategy
-  is REMOVED rather than patched. 169 offline tests pass. Evidence:
-  `runs/active_session_reset_20260723_125102/pytest_final.txt`,
-  `docs/SESSION_2026-07-23_gnome_session_reset.md`.
-  **First active-cleanup physical smoke failed closed before task 1**:
-  `runs/battery_20260723_125911/results.json` recorded the verifier seeing
-  `KVM_RESET_FAILED`. Root cause was our final hard requirement that the terminal
-  process be named `gnome-terminal-server`; the target uses another implementation.
-  Fixed by an allowlist of current terminal process names plus `exit` fallback; camera
-  verification remains the authority.
-  **Second active-cleanup smoke reached and passed tasks 1-5, then failed closed before
-  task 6** because Pinta's unsaved document survived SIGTERM
-  (`runs/battery_20260723_130246/results.json`,
-  `runs/battery_paint_line_20260723_132752/`). The command did include `pinta` and
-  `Pinta.exe`; graceful termination was the first wrong reset primitive. A follow-up
-  physical reset still failed before task 1
-  (`runs/battery_20260723_134309/results.json`). Direct target inspection then showed
-  the actual process is snap-hosted:
-  `dotnet ... /snap/pinta/98/lib/pinta/Pinta.dll`
-  (`runs/pinta_reset_diagnosis_20260723_134524/process_probe.png`). The executable-name
-  regex could not cross the slash after the `pinta` snap path segment. Fixed again:
-  code-owned disposable apps now use shell-self-safe command-line patterns that cover
-  snap paths and receive SIGKILL. The full physical battery then recorded **10/10
-  reset events satisfied**, including the decisive reset after Pinta
-  (`runs/battery_20260723_135007/results.json`). Battery score was 9/10:
-  `copy_paste_notes` reached its step limit while editing the save filename
-  (`runs/battery_copy_paste_notes_20260723_142126/`).
-  That run exposed a distinct isolation bug: per-incoming-task cleanup allowed
-  `report.txt`, `time.txt`, and dark mode from earlier tasks to reach later tasks.
-  Reset now applies the ordered union of all task-declared files/settings before every
-  task and records that effective manifest in `run_config`. 171 offline tests pass
-  (`runs/pinta_reset_diagnosis_20260723_134524/isolation_full_pytest.txt`).
-  A follow-up run physically passed its first five union-reset events before being
-  intentionally stopped (`runs/battery_20260723_142910/results.json`): repeating an
-  hour-long, unreliable ten-task benchmark to validate one reset component is a test
-  design failure, not a release gate. The validated reset evidence is sufficient;
-  no further full-battery rerun is required for this change.
-- **Testing-method correction (2026-07-23):** the project will validate model/harness
-  integration with four controlled real-model frame contracts and one deterministic
-  physical calibration flow. Relevant changes use offline gates plus only the smallest
-  controlled seam they affect. The stopped run at
-  `runs/battery_20260723_142910/results.json` is incomplete: five tasks were attempted
-  and five reset events passed; it has no comparable aggregate score. Approved design:
-  `docs/PLAN_2026-07-23_model_harness_integration_testing.md`.
-- **Controlled live-model contract smoke (2026-07-23, LIVE-VALIDATED 4/4):**
-  `tools/model_contract_smoke.py` generates four fixed frames and passes them through
-  fresh production `HoloSession` calls without camera/HID. Target click, focused-field
-  typing, visible completion, and visible incompletion all satisfied their broad
-  contracts on one request each with no retry. Exact request-image hashes, actual wire
-  output, parsed actions, and pointer projections cross-check cleanly. The complete
-  offline suite is 177/177. Evidence:
-  `runs/model_contract_smoke_20260723_161257/summary.json`,
-  `runs/model_contract_smoke_20260723_161257/inspection.txt`,
-  `runs/model_contract_slice_a_20260723_161037/full_pytest.txt`, and
-  `docs/SESSION_2026-07-23_model_contract_smoke.md`.
-- **Controlled physical model/harness calibration (2026-07-23, LIVE-VALIDATED):**
-  `tools/physical_calibration_smoke.py` serves one repository-owned static page,
-  opens it visibly through the real HID channel, and delegates all acting to the
-  production `boot()` / `run()` / `shutdown()` path. Seed 7319 completed in five
-  model steps and 77.2 seconds with no retry: click START, re-observe nonce
-  `KVM-0289`, focus, type, submit, re-observe green success, then `finished`.
-  The page has no completion callback; its two HTTP requests were only the document
-  and favicon. Broad color regions provide a deterministic camera oracle, and the
-  terminal claim passes only when its recorded pre-decision frame already contains
-  the success state. All five decision frames were inspected by eye. The complete
-  offline suite is 182/182. Evidence:
-  `runs/physical_calibration_smoke_20260723_165441/`,
-  `runs/slice_b_final_20260723_170734/full_pytest.txt`, and
-  `docs/SESSION_2026-07-23_physical_calibration_smoke.md`.
-- **Decide-act TOCTOU staleness — RIG-CONFIRMED 2026-07-22** (two apples-to-apples
-  GNOME battery reruns, `runs/battery_20260722_173742/` 5/5 and
-  `runs/battery_20260722_222137/` 5/5 (1 void)): the pre-fire target-tile guard
-  (landed as part of the roadmap-alignment session, `docs/SESSION_2026-07-22_
-  roadmap_alignment.md`) fired 4 times across ~64 steps in the two runs
-  (`runs/battery_editor_save_file_20260722_222710/step_04.json`: region tile
-  diff 70.5 at top-right, refused a stale hamburger-menu click, re-observed,
-  task still passed; 2 similar refusals in `runs/battery_paint_line_20260722_
-  223124/`; 1 in `runs/battery_text_editor_type_20260722_173847/`) — every
-  refusal isolated (never 3-in-a-row, `GUARD_REFUSE_LIMIT` never hit), no task
-  failure attributable to the guard. paint_line voided again
-  (`runs/battery_paint_line_20260722_223124/`, operator: "confusing app ui
-  relying on nonstandard icons without labels") — a genuine Pinta-UI-legibility
-  issue, NOT a guard misfire (its two guard refusals were both legitimate
-  mid-animation catches, confirmed by eye). §7 item 0's roadmap gate closes.
-  Evidence: `docs/SESSION_2026-07-22_toctou_guard_rig_confirmation.md`.
+| Path | Current responsibility |
+|---|---|
+| `agent_loop_holo.py` | Production capture → decide → guard → HID → settle → terminal-verify loop and REPL helpers. |
+| `kvm_agent/models/base.py` | Model-neutral `ModelSession`, `StepDecision`, `Verifier`, and `Verdict` contracts. |
+| `kvm_agent/models/holo.py` | Holo prompt/schema, request construction, response parsing, coordinate projection, conversation history, request logging, and stateless visual verifier. |
+| `kvm_agent/hardware/env.py` | Fresh frame buffering, camera lifecycle, image encoding, settle/freshness checks, and environment bring-up. |
+| `kvm_agent/hardware/appliance.py` | Host HTTP client for the HID appliance; fails loudly and retains every bridge response for the owning run. |
+| `kvm_agent/hardware/target.py` | Camera-verified HID gate and allowlisted GNOME evaluation-session cleanup. |
+| `kvm_agent/instrumentation/run_log.py` | Self-contained per-run evidence writer. |
+| `kvm_agent/llm/serving.py` | Read-only serving/matrix inspection and shell-aware launch-command parsing. |
+| `appliance/pi5/` | Pi 5 HTTP-to-UART bridge, binary Pico protocol, and systemd unit. |
+| `appliance/pico_fw/` | Current RP2350 USB-HID firmware and runs-local build. |
+| `tools/model_contract_smoke.py` | Four fixed-frame live model/request/parser contracts. |
+| `tools/physical_calibration_smoke.py` | One deterministic physical capture→model→HID→capture calibration. |
+| `tools/battery.py` | Explicit real-task runner with reset isolation and terminal verification; diagnostic, not a release benchmark. |
+| `tools/run_tests.py` | Canonical cache-free deterministic test runner; retains output under `runs/`. |
 
-- **The serving layer has a contract (2026-07-23, offline + live probe, no rig):** the
-  model server lives OUTSIDE this repo (llama-swap + `modelctl`,
-  `~/services/llama-swap/config.yaml`) and nothing here had ever inspected it. It is
-  deliberately NOT adopted — it serves 16 models for unrelated purposes — but it now has
-  a seam. `kvm_agent/llm/serving.py`: `parse_serving_cmd` (pure) + `serving_snapshot`
-  (reachable / configured / resident / params / co_resident), fail-soft by contract (a
-  probe that raises is a new way to kill a run). `boot(serving_check=True)` records and
-  **warns** (it does not raise — unlike the HID gate, every serving fault announces
-  itself at the first model call); `run()` re-snapshots PER RUN and writes it to
-  `meta.json` under `serving`, so a mid-battery eviction is visible after the fact.
-  `tools/serving_probe.py` is the fail-closed preflight — `verify_hid`'s analogue one
-  layer up (the config says what the server WOULD launch; `/running` says what it IS
-  running) — hard-failing only on unreachable / not-configured / **resident vision model
-  with no mmproj** (which answers fluently from text alone, so it reads as "the model got
-  bad at grounding": the most expensive misdiagnosis available here, AGENTS.md §2).
-  Measured live: cold load 12.7s vs warm 0.1s; ctx 64000, `--image-min-tokens 1024`,
-  cache k/v q8_0/q4_0, quant Q4_K_M, `--parallel 1` (no request concurrency, so a
-  Phase-2 verify serializes behind the actor call). Tests 116 → 131, and the suite is
-  proven endpoint-independent (`HOLO_LOCAL_URL=http://127.0.0.1:1/v1` → 131 passed, same
-  runtime). Evidence: `runs/serving_probe_20260723_075311/probe.json`,
-  `docs/SESSION_2026-07-23_serving_contract.md`.
-  **The eviction hole this found is CLOSED (2026-07-23, operator-applied):** holo3.1 was
-  absent from llama-swap's `matrix:` — the one step `modelctl` deliberately leaves to a
-  human, never done after `modelctl pull` — so any other consumer of the box evicted it
-  mid-run at a ~13-17s reload that lands as LATENCY, never an error (never actually
-  observed in a real run: every >median+12s step in the archive is step 0, a cold load).
-  Three lines added (`vars: holo`, `evict_costs: holo: 1`, `sets: holo_stack: holo & f7`),
-  per `docs/PLAN_2026-07-23_serving_matrix_enrollment.md`. **The edit alone did nothing** —
-  llama-swap runs without `--watch-config`, so the two-day-old process still held the old
-  config and a behavioural re-test showed the eviction unchanged; reading the file said
-  "fixed", only the test said otherwise. After a unit reload, both models stay resident in
-  both directions (`['fast-7b', 'holo3.1']`). This also satisfies Phase 5's co-residency
-  prerequisite, since holo3.1 runs `--split-mode none` (B70 alone) and so fits the
-  existing `X & f7` pattern. Evidence: `runs/serving_probe_20260723_084700/probe.json`.
-  **Parser hardening 2026-07-23:** the original tokenizer globally deleted
-  backslashes and whitespace-split the launch string, corrupting quoted paths,
-  escaped spaces, and literal backslashes. It now normalizes only shell line
-  continuations and uses `shlex.split`; malformed shell syntax returns no claims
-  instead of raising or guessing, and `describe()` reports `mmproj=unknown` for that
-  state. The verbatim Holo command plus quoted/escaped/CRLF fixtures pass offline.
-  A live warm probe parsed the current Holo launch as Q4_K_M, ctx 64000, parallel 1,
-  image-min-tokens 1024, cache q8_0/q4_0, mmproj present, with fast-7b co-resident.
-  Evidence: `runs/serving_probe_20260723_201921/probe.json`,
-  `runs/serving_parser_final_20260723_202026/focused_pytest.txt`, and
-  `docs/SESSION_2026-07-23_serving_command_tokenization.md`.
+Retired implementations live in `_archive/` and are never imported by live code.
 
-## 4. Open problems
+## What is proven
 
-- ~~holo3.1 absent from llama-swap's `matrix:`, evictable mid-run~~ — **CLOSED
-  2026-07-23** (see Solved §3's serving entry).
+- The deterministic offline suite covers the loop, model seam, parser/history,
+  verifier failure behavior, reset isolation, metrics, capture freshness, HID protocol,
+  serving inspection, evidence layout, and documentation layout: **192/192 pass**
+  (`runs/offline_tests_20260723_215947/pytest.txt`).
+- The live-model contract smoke passed all four fixed-frame cases.
+- The physical calibration completed one bounded five-step capture→model→HID→capture
+  flow with a deterministic visual oracle.
+- D-a/D-b/D-c are implemented: a stateless postcondition verifier, live shadow
+  measurement, and terminal claim gating.
+- In the ten-task D-b shadow run, human grading was 10/10 and live verifier
+  false-refusal was 0/9. The tenth task physically completed at its step limit without
+  claiming completion.
+- The camera-verified HID gate passed after the current watchdog, retry, and suspend
+  firmware changes were deployed.
+- Run-local model/tool/HID evidence and cache-free test/build paths are implemented.
+  The updated bridge/service is deployed; its health and runs-local daemon log are
+  recorded in `runs/hid_bridge_deploy_20260723_215502/`.
 
-- **Review code follow-ups (2026-07-23):** **CLOSED.** Incomplete-battery
-  denominators were fixed with D-c (`total_tasks`/`graded`/`complete` remain
-  visible), and `parse_serving_cmd` now uses shell-aware tokenization without
-  globally deleting backslashes. The review's separate workspace-hygiene finding
-  remains open below. Original findings:
-  `docs/REPORT_2026-07-23_codebase_review.md`.
+These are integration and boundary claims, not a statistical general-capability claim.
 
-- **D-c is available, not universal.** Terminal claims can be gated, and the legacy
-  battery explicitly defaults to that mode, but direct `agent_loop_holo.run()` calls
-  still default to `verify_mode="off"` and require an injected verifier for
-  `"shadow"`/`"gate"`. Verification is terminal-only: there is no independently
-  checked subgoal unit. The controlled physical calibration also intentionally ran
-  with verification off so captured page pixels, not a second model call, remained
-  its completion oracle. Therefore no single physical run composes actor, HID, and
-  the live gate; D-c is accepted on the decomposed evidence recorded in Solved §3,
-  not claimed as an all-in-one validation.
+## Important limits
 
-- **The project has integration evidence, not a general capability benchmark.** The
-  four fixed-frame contracts and one calibration page establish that the real
-  request/parser/action path is wired correctly. They do not establish reliability
-  across arbitrary applications, long tasks, OSes, or UI dynamics. The last broad
-  ten-task shadow run was useful diagnosis, not a statistical sample or a release
-  gate. Future capability claims need a task chosen for that exact claim, not a
-  resurrection of the hour-long battery.
+- Actor and verifier use the same model.
+- Terminal verification is opt-in on direct `run()` calls and checks only `finished`.
+- No live negative run has measured verifier false-confirmation or demonstrated a
+  wrong terminal claim being refused and then recovered physically.
+- The long-idle HID soak is postponed. Functional delivery is validated; multi-hour
+  silent-wedge confidence is not.
+- Warm reboot is unsuitable on this laptop because networking can remain offline.
+  The battery uses allowlisted active-session cleanup or an explicit manual power cycle.
+- Timed drag and multi-monitor absolute pointing are not implemented.
+- Real application reliability is intentionally unscored until a selected task needs a
+  concrete capability claim.
 
-- **Evidence locality and workspace-law debt.** `RunRecorder` keeps frames, raw
-  assistant messages, parsed actions, usage, and summaries per run, but ordinary
-  production requests still append their full request history to the shared
-  `runs/logs/holo_requests.jsonl`; tool-result payloads are recoverable there rather
-  than self-contained in each run directory. The deployed Pi bridge likewise
-  defaults its persistent wire log to `/home/aaron/hid_bridge_commands.jsonl` on the
-  appliance. Ignored `.pytest_cache/`, Python `__pycache__/`, `.claude/`, and Pico
-  build dot-directories also exist locally. Git is clean, but the filesystem is not
-  literally compliant with AGENTS.md §1's no-hidden-project-state / one-folder-per-run
-  rule. Fix this as one bounded hygiene/evidence-locality slice; do not mix it into
-  actor behavior.
+## D-d: bounded evidence search, then build
 
-- **The controlled tests have a real maintenance footprint.** Slice A's tool + tests
-  are 637 lines; Slice B's driver + page + tests are 882 lines (1,519 total).
-  They are bounded and reuse the production loop, but they are not “free” or tiny in
-  absolute terms. Freeze them at four frame contracts and one physical flow. Add a
-  case only for an escaped integration defect, and archive the harness rather than
-  grow it into another evaluation framework if that boundary stops being useful.
+D-d adds an explicit planner call, one active subgoal, verifier-gated subgoal
+transitions, per-subgoal budgets/counters, and active-subgoal instruction scoping inside
+the existing loop. Native `update_plan` harvesting is rejected: it appeared 0/76 times
+in the D-b run and 0 times across the earlier recorded battery runs.
 
-- **Tool-result signal is semantically misleading**: changed/unchanged binary
-  confirmed real-but-irrelevant pixels (taskbar focus visuals) as action success
-  at decision-critical steps (2026-07-21). **Partial fix landed 2026-07-22** with
-  the guard: tool_output now reports localized-vs-widespread + changed-tile count
-  ("41/144 tiles, strongest top-left") — magnitude and spread, still not a
-  correctness oracle (that stays Phase 2 of the roadmap).
-- **Post-reboot half-dead HID recurs** (I2 class, physical): gate exists
-  (`target.verify_hid` + replug loop in battery); automate with the power backend.
-- **Long-idle mouse death needs a manual Pico replug** (operator, 2026-07-22
-  post-rerun). Firmware diagnosis (same day): the suspend paths are asymmetric —
-  kbd (`ph_usb.c:222-230`) requests remote wakeup and KEEPS the report pending
-  for re-send after resume, but the mouse macro (`ph_usb.c:235`) does
-  `tud_remote_wakeup(); _MOUSE_CLEAR; return;` — the event is DROPPED while the
-  UART still PONGs OK (delivered-to-wire ≠ delivered-to-host, the exact lie the
-  camera principle exists for). Remote wakeup IS advertised in the config
-  descriptor (`ph_usb.c:360`), but if the target OS never enabled it on the
-  device, `tud_remote_wakeup()` is a silent no-op and only a replug (re-enumerate)
-  revives the mouse. Inherited upstream PiKVM behavior. **Fix (a) LANDED AND
-  DEPLOYED 2026-07-22/23** (Slice B, `docs/SESSION_2026-07-22_slice_b_firmware_
-  hardening.md`): the mouse ABS report path now retains+retries like the kbd
-  path (`_mouse_abs_try_send`, `ph_usb.c`) instead of dropping on suspend; REL
-  mode is untouched (not in this project's live deployment). **Fix (b) LANDED
-  AND DEPLOYED as visibility-only**: `tud_suspended()` exposed as a new PONG2
-  byte (`PH_PROTO_PONG2_USB_SUSPENDED`, resp[4] — previously always-zero
-  padding), decoded host-side and confirmed live in `/health`; active
-  refuse-into-a-suspended-bus behavior was NOT added (bigger behavior change,
-  unproven need). **Fix (c) (bridge-side keep-alive) DEFERRED** — speculative,
-  build only if the bug recurs after (a)+(b). Both deployed fixes passed the
-  camera-verified HID gate post-deploy (2026-07-23), but the actual long-idle
-  window they target is UNTESTED — the `tools/soak.py` overnight gate that would
-  exercise it is POSTPONED (operator decision: the inconvenience it guards
-  against, a manual replug, doesn't currently justify tying up the rig for
-  8+ hours). Watch for recurrence on ordinary runs in the meantime; if it
-  recurs, that's evidence fix (c) is needed even without a soak.
-- Windows-era items, moot while the target is GNOME (re-open on a Windows target):
-  ~70s OS dead window post-reboot (psr.exe zip outstanding), windows_calc class
-  (WinUI3 date-picker + stuck-popup), Store auto-update pause expiry.
-- Deferred: power-control backend; bridge-side suspend keep-alive (mouse-death
-  fix candidate (c) above, pending soak evidence it's actually needed).
-- Cleared from Deferred (the list had gone stale; corrected 2026-07-23):
-  - ~~superseded adoption (structured-output rearchitecture + resolution sync)~~ —
-    **both landed 2026-07-21, hours after this line was written that morning**
-    (08:04). Structured output is the live contract: `RESPONSE_SCHEMA` +
-    `response_format=json_schema` (strict) since `9a98d96` 09:30, the
-    native-verbatim rearchitecture; `parse_response` normalizes that shape and
-    nothing else. Resolution sync is the `set_screen` push at env bring-up,
-    `9d01363` 12:59, hardened in `ded07a0` 18:00 (screen size measured from the
-    actual frame, projection + bridge push). Both are recorded as done in §3
-    (native-verbatim LOOP entry; review batch-1 and second-review fixes) — only
-    this line disagreed.
-  - ~~automated fail-closed vision grading~~ — **implemented with D-c**:
-    `verify_mode="gate"` refuses False/None terminal claims and verifier-primary
-    grading exists in the legacy task runner. Confidence in the live model/harness
-    boundary now comes from the controlled integration plan, not another broad run
-    (`docs/PLAN_2026-07-23_model_harness_integration_testing.md`).
+Development is no longer blocked on waiting indefinitely for the actor to fail. The
+baseline search is capped at three single-task runs, one pass per task, stopping after
+the first qualifying case:
 
-## 5. Retired
+```bash
+python tools/battery.py tools/battery_tasks_d_d_trigger.json \
+  --task-id rename_commit_chain --reset-strategy cleanup
+python tools/battery.py tools/battery_tasks_d_d_trigger.json \
+  --task-id clipboard_exact_chain --reset-strategy cleanup
+python tools/battery.py tools/battery_tasks_d_d_trigger.json \
+  --task-id calculator_transfer_chain --reset-strategy cleanup
+```
 
-2026-07-20 sweep: EvoCUA/UI-TARS/B580-planner stack, orchestration, battery-v1,
-hindsight, Ollama verifier, WiFi Pico, CircuitPython firmware, rig/preflight.
-2026-07-20 physical move: **libvirt VM stack (`vm.py`, win11-agent),
-WindowsAgentArena (`waa/`), the EvoCUA pyautogui exec-shim, `wol.py`,
-`shakedown_ab.py`, `appliance/pico/` + `send.py` + `stage2_verify.py`** — all in
-`_archive/`. Nothing live imports from `_archive/`.
+Each task has a 12-step ceiling and contains several commit boundaries:
 
-## 6. House rules
+| Task | Why it is high-yield |
+|---|---|
+| Rename/save/reopen chain | Save-dialog completion, rename commit, old-name removal, and reopen state can each look locally complete before the filesystem postcondition is true. |
+| Exact clipboard chain | Selection, copy, document switch, paste, and save can visibly advance while an earlier clipboard/selection assumption is wrong. |
+| Calculator transfer chain | A correct transient calculation must survive app switching, exact transcription, save, and reopen; later progress can conceal an earlier read/save error. |
 
-`AGENTS.md` is law for every agent: all artifacts in `runs/`, nothing in hidden
-dirs, the model is the last suspect, no ghost generations, sessions end
-commit-or-revert with this file updated.
+A qualifying confident-wrong transition requires all four:
+
+1. the actor explicitly says or behaves as though an intermediate checkpoint is done;
+2. that decision frame visibly contradicts the checkpoint postcondition;
+3. the actor advances to a later part of the task instead of correcting it; and
+4. terminal gating has not already handled the error.
+
+If none of the three tasks produces that pattern, D-d still proceeds as an experimental
+A/B. The existing under-confident completion-at-budget case and the architectural lack
+of a checkpoint/recovery unit are sufficient operator-approved motivation; a model that
+does not fail on demand is not a reason to spend hours blocking development. Acceptance
+then emphasizes non-regression, transparent subgoal evidence, and a removable fallback
+to gate-only scoping rather than claiming a measured completion-rate uplift.
+
+## Current next actions
+
+1. Optionally run the three D-d trigger tasks one at a time under the cap above.
+2. Implement D-d inside `agent_loop_holo.py`; do not create another loop generation.
+
+## Documentation and evidence
+
+- `AGENTS.md` — binding working agreement and Blame Ledger.
+- `PROJECT_STATE.md` — current system truth and code map.
+- `docs/ROADMAP.md` — direction, gates, and sequencing.
+- `docs/ROADMAP.md` — current D-d design and integration-test contract.
+- `docs/native/` — recovered native Holo prompt/runtime inputs used by current code.
+- `_archive/docs_history/` — approved/completed plans, findings, reports, and session
+  narratives; historical only.
+- `runs/` — permanent executable evidence. Test output belongs here.

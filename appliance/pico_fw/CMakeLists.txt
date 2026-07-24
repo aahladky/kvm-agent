@@ -6,8 +6,12 @@ set(CMAKE_C_STANDARD 17)
 # with RP2350 device support natively (src/rp2_common/tinyusb), so no separate .tinyusb
 # checkout / PICO_TINYUSB_PATH is needed (that was only required on the pre-2.0 SDK the
 # upstream Makefile pins, which predates RP2350 support entirely).
-set(PICO_SDK_PATH ${CMAKE_CURRENT_LIST_DIR}/.pico-sdk)
-set(PS2_PATH ${CMAKE_CURRENT_LIST_DIR}/.ps2x2pico/src)
+if(NOT DEFINED PICO_SDK_PATH)
+    set(PICO_SDK_PATH ${CMAKE_CURRENT_LIST_DIR}/deps/pico-sdk)
+endif()
+if(NOT DEFINED PS2_PATH)
+    set(PS2_PATH ${CMAKE_CURRENT_LIST_DIR}/deps/ps2x2pico/src)
+endif()
 set(PICO_BOARD pico2_w)
 
 # For TinyUSB

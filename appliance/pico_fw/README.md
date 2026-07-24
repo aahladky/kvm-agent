@@ -51,10 +51,14 @@ passthrough.rules` and [[pico_passthrough_mouse_dead]] memory).
 ## Build
 
 ```
-make            # clones pico-sdk 2.2.0 + ps2x2pico on first run, builds hid.uf2
+make
 ```
 
 Needs `gcc-arm-none-eabi`, `cmake`, `build-essential` on the host.
+Dependencies are cloned once into the visible `deps/` directory. Every build creates
+`runs/pico_fw_build_<timestamp>/` at the repository root and puts both the CMake output
+and `hid.uf2` there; firmware builds never create dot-directories or loose artifacts in
+the source tree.
 
 ## Flash
 
@@ -64,7 +68,7 @@ UF2 bootloader mode by **holding BOOTSEL while power-cycling/replugging USB**,
 then:
 
 ```
-cp hid.uf2 /run/media/$USER/RP2350/     # mountpoint name may vary
+cp runs/pico_fw_build_<timestamp>/hid.uf2 /run/media/$USER/RP2350/
 ```
 
 It auto-reboots into the new firmware once the copy completes.

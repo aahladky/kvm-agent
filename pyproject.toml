@@ -26,5 +26,11 @@ test = [
 [tool.setuptools.packages.find]
 include = ["kvm_agent*"]
 
+[tool.pytest.ini_options]
+# Project law forbids hidden cache/state directories. The canonical test runner also
+# starts Python with -B so __pycache__ is not regenerated.
+addopts = ["-p", "no:cacheprovider"]
+norecursedirs = ["runs", "scratch", "_archive", "deps"]
+
 # NOTE: the live entry point agent_loop_holo.py is a repo-root script, not part of the
 # package — `pip install .` delivers the library only. Known packaging gap (2026-07-20).

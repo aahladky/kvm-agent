@@ -19,8 +19,5 @@ __pycache__/
 # agent session storage (nothing project-related lives here - see AGENTS.md)
 .claude/
 
-# pico_fw build artifacts (regenerable via `make` in appliance/pico_fw/)
-appliance/pico_fw/.build/
-appliance/pico_fw/.pico-sdk/
-appliance/pico_fw/.ps2x2pico/
-appliance/pico_fw/hid.uf2
+# pico_fw source dependencies (build output always goes to runs/)
+appliance/pico_fw/deps/

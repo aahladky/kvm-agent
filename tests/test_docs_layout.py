@@ -26,17 +26,9 @@ DOC_RE = re.compile(r"^(PLAN|SESSION|FINDINGS|REPORT)_(\d{4}-\d{2}-\d{2})(_[A-Za
 MUTABLE_DOCS = {"ROADMAP.md"}
 ROOT_MD_ALLOWED = {"AGENTS.md", "PROJECT_STATE.md", "CLAUDE.md", "README.md"}
 
-# FROZEN 2026-07-22: pre-law docs that don't match the grammar. Do NOT add here.
-LEGACY_DOCS = {
-    "DEMOS.md",
-    "FINDINGS_holo_bringup.md",
-    "FINDINGS_integration.md",
-    "FORMAT_NOTES_holo.md",
-    "PACKAGING_STATUS_2026-06-21.md",
-    "README_evocua_mcp.md",
-    "README_openwebui.md",
-    "UITARS_INTEGRATION.md",
-}
+# Pre-law names were moved intact to _archive/docs_history/ on 2026-07-23.
+# This set stays empty: active docs obey the current grammar.
+LEGACY_DOCS = set()
 
 # Tool-named entrypoints that must stay pointers if present (only create one for
 # a tool actually in use).
@@ -46,6 +38,12 @@ POINTER_MAX_LINES = 12
 
 # The law landed 2026-07-22; the evidence-cite rule applies to docs dated after.
 LAW_DATE = "2026-07-22"
+
+FORBIDDEN_STATE_DIRS = {
+    ".claude", ".pytest_cache", "__pycache__",
+    # Retired Pico dependency/build locations.
+    ".build", ".pico-sdk", ".ps2x2pico",
+}
 
 
 def _docs_md():
@@ -69,6 +67,22 @@ def test_no_stray_markdown_at_repo_root():
     assert not stray, \
         f"stray markdown at repo root: {sorted(stray)} -- dated docs go in docs/, " \
         f"rules in AGENTS.md (AGENTS.md §6)"
+
+
+def test_no_forbidden_hidden_or_bytecode_state():
+    offenders = []
+    for base, dirs, _files in os.walk(ROOT):
+        rel_base = os.path.relpath(base, ROOT)
+        dirs[:] = [
+            d for d in dirs
+            if d not in {".git", "runs", "scratch", "_archive", "deps"}
+        ]
+        for name in dirs:
+            if name in FORBIDDEN_STATE_DIRS:
+                offenders.append(os.path.normpath(os.path.join(rel_base, name)))
+    assert not offenders, (
+        "forbidden project cache/session directories: "
+        f"{sorted(offenders)} -- use tools/run_tests.py and runs/ build directories")
 
 
 def test_new_evidence_docs_cite_runs():
@@ -100,13 +114,9 @@ def test_tool_pointer_files_stay_pointers():
 
 
 def test_frozen_lists_stay_frozen():
-    """The grandfather lists only shrink (a legacy doc renamed/retired is fine);
-    a NEW name appearing in them would be routing around the law."""
+    """A new grandfather entry would route around the active-doc grammar."""
+    assert not LEGACY_DOCS
     present = set(_docs_md())
-    ghosts = LEGACY_DOCS - present
-    assert not ghosts or all(g in LEGACY_DOCS for g in ghosts)  # shrinking is fine
-    # every legacy entry that exists must predate the law in git terms -- proxy
-    # check: it must NOT match the grammar (else it doesn't need grandfathering)
     for name in LEGACY_DOCS & present:
         assert not DOC_RE.match(name), \
             f"{name} matches the grammar -- remove it from LEGACY_DOCS"

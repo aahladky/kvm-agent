@@ -3,7 +3,7 @@
 soak.py — Phase-0 gate: an unattended soak of the HID appliance + capture pipeline
 (docs/ROADMAP.md Phase 0: "an overnight idle-plus-periodic-action soak with zero
 silent wedges; every injected fault surfaces loudly"; the plan's Slice B,
-docs/PLAN_2026-07-22_roadmap_alignment_slices.md Part 3).
+_archive/docs_history/PLAN_2026-07-22_roadmap_alignment_slices.md Part 3).
 
 Two check cadences, run until --hours elapses or Ctrl-C:
   - every --probe-interval (default 10s): /hid/probe -- kbd/mouse online,

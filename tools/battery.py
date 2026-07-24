@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 battery.py — human-graded task battery for the physical target
-(docs/PLAN_2026-07-20_physical_target_move.md §5).
+(_archive/docs_history/PLAN_2026-07-20_physical_target_move.md §5).
 
 Per task: operator reboots the laptop (target.reboot) -> the Holo loop runs with full
 RunRecorder instrumentation -> the postcondition verifier grades pass/fail. Human
@@ -155,6 +155,8 @@ def parse_args(argv=None):
     ap.add_argument("--reset-strategy", choices=RESET_STRATEGIES,
                     default="manual-power-cycle",
                     help="between-task reset (default: manual-power-cycle)")
+    ap.add_argument("--task-id",
+                    help="run exactly one task from the task file (bounded diagnosis)")
     args = ap.parse_args(argv)
     if args.no_reboot:
         if args.reset_strategy != "manual-power-cycle":
@@ -212,6 +214,10 @@ def main():
     # unsafe, and it avoids re-paying object construction 5-6 times per battery.
     verifier = HoloVerifier() if verify_mode != "off" else None
     tasks = load_tasks(tasks_path)
+    if args.task_id:
+        tasks = [task for task in tasks if task["id"] == args.task_id]
+        if not tasks:
+            raise SystemExit(f"task id {args.task_id!r} not found in {tasks_path}")
     battery_reset = build_battery_reset_manifest(tasks)
     if args.reset_strategy == "cleanup":
         run_config["reset_manifest"] = battery_reset
@@ -241,6 +247,10 @@ def main():
         return make_payload(ts, tasks_path, psr_active, tasks, results, run_config,
                             reset_events)
 
+    def drain_hid_events():
+        r4 = getattr(agent_loop_holo.ENV, "r4", None)
+        return r4.drain_events() if hasattr(r4, "drain_events") else []
+
     # verify=False: the battery runs its OWN HID gate per task, post-reboot, with an
     # interactive replug loop (below) -- a boot-time gate raise here would kill the
     # whole battery non-interactively instead.
@@ -248,6 +258,9 @@ def main():
     # gate and then carry state. Normal mode retains the post-reboot interactive replug
     # loop because a reboot can bring up a half-dead composite device.
     boot(verify=args.reset_strategy == "none")
+    boot_hid_events = drain_hid_events()
+    if boot_hid_events:
+        reset_events.append({"kind": "boot", "hid_events": boot_hid_events})
     results = []
     try:
         for i, task in enumerate(tasks):
@@ -257,6 +270,7 @@ def main():
             if args.reset_strategy == "manual-power-cycle":
                 target.reboot()
             elif args.reset_strategy == "cleanup":
+                drain_hid_events()
                 command = target.reset_gnome_session(
                     agent_loop_holo.ENV.r4,
                     cleanup_files=battery_reset["cleanup_files"],
@@ -267,10 +281,19 @@ def main():
                 reset_url = jpeg_bytes_to_data_url(
                     png_to_model_input_jpeg(png, CFG.holo_model_input_res))
                 reset_verifier = verifier or HoloVerifier()
+                if hasattr(reset_verifier, "request_log_path"):
+                    reset_verifier.request_log_path = os.path.join(
+                        results_dir, "model_requests.jsonl")
                 reset_verdict = reset_verifier.check(
                     reset_url, agent_loop_holo.ENV.screen_width,
                     agent_loop_holo.ENV.screen_height, RESET_QUESTION)
-                event = {"task_id": task["id"], **reset_verdict.to_dict()}
+                event = {
+                    "kind": "session_cleanup",
+                    "task_id": task["id"],
+                    "command": command,
+                    "hid_events": drain_hid_events(),
+                    **reset_verdict.to_dict(),
+                }
                 reset_events.append(event)
                 write_results(results_path, payload())
                 print(f"[battery] reset verify: satisfied={reset_verdict.satisfied} "
@@ -285,10 +308,17 @@ def main():
             # operator fixes it by replugging the Pico's USB at the laptop.
             if args.reset_strategy != "none":
                 while True:
+                    drain_hid_events()
                     hid_ok, detail = target.verify_hid(agent_loop_holo.ENV.r4,
                                                      agent_loop_holo.ENV.cam,
                                                      screen=CFG.screen_size)
                     print(f"[battery] hid gate: {detail}")
+                    reset_events.append({
+                        "kind": "hid_gate", "task_id": task["id"],
+                        "ok": hid_ok, "detail": detail,
+                        "hid_events": drain_hid_events(),
+                    })
+                    write_results(results_path, payload())
                     if hid_ok:
                         break
                     input("[battery] HID not delivering -- replug the Pico's USB at the "

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "rename_commit_chain",
+    "instruction": "Open Text Editor, type exactly 'checkpoint alpha', and save it as alpha.txt. Then use Files to rename alpha.txt to beta.txt. Reopen beta.txt, append exactly ' verified', and leave the reopened document visible with the final content exactly 'checkpoint alpha verified'. Only beta.txt, not alpha.txt, should exist when finished.",
+    "max_steps": 12,
+    "reset": {
+      "cleanup_files": ["alpha.txt", "beta.txt"]
+    }
+  },
+  {
+    "id": "clipboard_exact_chain",
+    "instruction": "Open Text Editor and type exactly 'source: amber-731'. Select and copy only the token amber-731. Create a second document, type exactly 'copied: ', paste the token after it, and save that second document as clipboard.txt. Leave clipboard.txt visible with its entire content exactly 'copied: amber-731'.",
+    "max_steps": 12,
+    "reset": {
+      "cleanup_files": ["clipboard.txt"]
+    }
+  },
+  {
+    "id": "calculator_transfer_chain",
+    "instruction": "Open Calculator and compute 37 times 14. Then open Text Editor and save a file named calc-check.txt whose entire content is exactly '37 x 14 = 518'. Finally reopen calc-check.txt from Files and leave the reopened document visible with that exact line.",
+    "max_steps": 12,
+    "reset": {
+      "cleanup_files": ["calc-check.txt"]
+    }
+  }
+]

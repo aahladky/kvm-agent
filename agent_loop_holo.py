@@ -48,7 +48,7 @@ the step budget.
 Typical:
     from agent_loop_holo import *
     boot()                                  # open camera + appliance HID
-    cap()                                   # grab a fresh frame -> scratch/_dbg/live.png
+    cap()                                   # grab a fresh frame -> runs/capture_<ts>/
     ground("click the Save button")         # calls Holo, proposes a step, does NOT execute
     mark()                                  # eyeball the crosshair before firing
     do()                                    # execute the proposed step's action(s)
@@ -70,13 +70,10 @@ from kvm_agent.instrumentation import RunRecorder
 from kvm_agent.llm.serving import describe as describe_serving, serving_snapshot
 from kvm_agent.models.base import StepDecision, Verdict
 from kvm_agent.models.holo import (
-    SYSTEM_PROMPT, HoloSession, call_holo, call_holo_full, jpeg_bytes_to_data_url,
+    SYSTEM_PROMPT, HoloSession, call_holo_full, jpeg_bytes_to_data_url,
 )
 
 MAX_HISTORY_IMAGES = CFG.holo_history_images   # default 3 = native max_images (see config)
-
-DBG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scratch", "_dbg")
-os.makedirs(DBG, exist_ok=True)
 
 CONFIRM_FIRST = 5   # gate the first N steps of run() with a keypress preview
 STUCK_LIMIT = 3     # k consecutive dropped/error steps -> abort (make-failure-loud guard)
@@ -101,8 +98,9 @@ GUARD_REFUSE_LIMIT = 3  # consecutive guard refusals -> abort: the target region
                         # unstable across whole decision cycles (spinner/animation).
                         # Not a model failure -- never counted against STUCK_LIMIT.
 
-# Postcondition verification (roadmap Phase 2 slices D-b/D-c, docs/PLAN_2026-07-22_phase2_
-# subgoal_verification.md): the model's own `finished`/answer claim, checked against the
+# Postcondition verification (roadmap Phase 2 slices D-b/D-c; approved design archived
+# at _archive/docs_history/PLAN_2026-07-22_phase2_subgoal_verification.md): the model's
+# own `finished`/answer claim, checked against the
 # pixels by a kvm_agent.models.base.Verifier -- a stateless oracle, never the actor's own
 # session. "gate" refuses an unsatisfied OR unanswered claim and lets the actor
 # re-observe; k refusals terminate as a distinct failed outcome.
@@ -110,7 +108,7 @@ VERIFY_MODES = ("off", "shadow", "gate")
 VERIFY_REFUSE_LIMIT = 3
 
 ENV = None
-LAST = {"png": None, "step": None, "history": None}
+LAST = {"png": None, "step": None, "history": None, "run_dir": None}
 # Current cursor position in REAL screen pixels, tracked across every pointer action we
 # fire. Needed to execute native's drag_to_desktop, which drags FROM the current cursor
 # position rather than a model-specified start. None until the first pointer action.
@@ -200,12 +198,14 @@ def _capture_step_frames():
 
 
 def cap(name="live"):
-    """Grab a fresh frame, save PNG to scratch/_dbg/<name>.png, return the path."""
+    """Grab a fresh frame into a self-contained runs/capture_* artifact."""
     png = _frame_png()
     LAST["png"] = png
-    p = os.path.join(DBG, f"{name}.png")
-    with open(p, "wb") as f:
-        f.write(png)
+    recorder = RunRecorder("capture", f"manual capture: {name}")
+    recorder.log_step(0, png, {}, {"actions": []}, {}, 0.0, executed=False)
+    recorder.finish(True, note="manual capture only")
+    LAST["run_dir"] = recorder.dir
+    p = os.path.join(recorder.dir, "step_00.png")
     w, h = Image.open(BytesIO(png)).size
     print(f"[cap] {w}x{h} -> {p}")
     return p
@@ -214,16 +214,36 @@ def cap(name="live"):
 def ground(instruction, target="local"):
     """ONE Holo call against the CURRENT frame. Proposes a step (a LIST of actions);
     does NOT execute -- review it (mark() to eyeball the crosshair) then call do()."""
-    png = _frame_png()
+    png, data_url = _capture_step_frames()
     LAST["png"] = png
     # Projection targets REAL screen pixels, not the model-input image: Holo outputs
     # [0,1000] normalized coords, so the image size only matters as the projection basis --
     # and that basis must be the screen the HID moves on.
     w, h = ENV.screen_width, ENV.screen_height
+    recorder = RunRecorder(
+        "ground", instruction, target=target,
+        meta={"screen_size": (w, h), "model_input_res": CFG.holo_model_input_res,
+              "history_images": MAX_HISTORY_IMAGES, "system_prompt": SYSTEM_PROMPT})
+    session = HoloSession(target=target, max_history_images=MAX_HISTORY_IMAGES,
+                          call_fn=call_holo_full,
+                          request_log_path=recorder.request_log_path)
     t0 = time.time()
-    step = call_holo(instruction, _model_input_data_url(), w, h, target=target)
+    try:
+        decision = session.decide(data_url, w, h, instruction)
+    except Exception as e:
+        recorder.log_step(
+            0, png, {}, {"actions": [], "error": f"model call failed: {e}"},
+            {}, time.time() - t0, executed=False)
+        recorder.finish(False, note=f"model call failed: {e}")
+        LAST["run_dir"] = recorder.dir
+        raise
+    step = decision.step
     dt = time.time() - t0
     LAST["step"] = step
+    LAST["run_dir"] = recorder.dir
+    recorder.log_step(0, png, decision.message, step, decision.usage, dt,
+                      executed=False)
+    recorder.finish(True, note="proposal only; no action executed")
     print(f"[ground {dt:.1f}s] {instruction!r} -> {step}")
     return step
 
@@ -243,7 +263,11 @@ def mark(name="mark"):
     x, y = (int(v) for v in action["coordinate"])
     cv2.drawMarker(arr, (x, y), (0, 0, 255), cv2.MARKER_CROSS, 40, 3)
     cv2.circle(arr, (x, y), 22, (0, 0, 255), 2)
-    p = os.path.join(DBG, f"{name}.png")
+    run_dir = LAST.get("run_dir")
+    if not run_dir:
+        print("[mark] no recorded cap()/ground()/run() artifact to annotate")
+        return None
+    p = os.path.join(run_dir, f"{name}.png")
     cv2.imwrite(p, arr)
     print(f"[mark] {x},{y} -> {p}")
     return p
@@ -272,6 +296,8 @@ def _execute(action, settle_s=1.5):
     predating the effect.
     """
     kind = action.get("action")
+    if hasattr(ENV.r4, "drain_events"):
+        ENV.r4.drain_events()
 
     if kind in ("left_click", "double_click"):
         x, y = (int(v) for v in action["coordinate"])
@@ -291,7 +317,8 @@ def _execute(action, settle_s=1.5):
         if CURSOR["pos"] is None:
             print("[execute] drag_to with no tracked cursor position -- no-op")
             return {"stalled": None, "settle": None,
-                    "noop": "drag_to had no tracked cursor position -- not performed"}
+                    "noop": "drag_to had no tracked cursor position -- not performed",
+                    "hid_events": []}
         x1, y1 = CURSOR["pos"]
         x2, y2 = (int(v) for v in action["coordinate"])
         # Re-assert the start before button-down (2026-07-21 review P1-8): the
@@ -332,7 +359,8 @@ def _execute(action, settle_s=1.5):
                   f"firmware (vertical wheel only) -- no-op")
             return {"stalled": None, "settle": None,
                     "noop": f"scroll direction={direction!r} is not supported by the "
-                            f"current firmware (vertical wheel only) -- not performed"}
+                            f"current firmware (vertical wheel only) -- not performed",
+                    "hid_events": []}
         # Native places the cursor at (x, y) FIRST, then turns the wheel there -- the
         # wheel turns wherever the cursor sits, and an untargeted scroll can no-op
         # forever (flaw #10, scroll_to_about 2026-07-18).
@@ -349,13 +377,14 @@ def _execute(action, settle_s=1.5):
         PLAN["goals"] = action.get("goals", [])
         running = [g.get("title") for g in PLAN["goals"] if g.get("status") == "running"]
         print(f"[execute] plan updated ({len(PLAN['goals'])} goals, running: {running})")
-        return  # no screen effect -> no settle wait
+        return {"stalled": None, "settle": None, "noop": None, "hid_events": []}
     elif kind == "finished":
         pass    # nothing to execute; run() handles this as loop-terminal
     else:
         print(f"[execute] unknown action kind {kind!r} -- no-op")
         return {"stalled": None, "settle": None,
-                "noop": f"unknown action kind {kind!r} -- not performed"}
+                "noop": f"unknown action kind {kind!r} -- not performed",
+                "hid_events": []}
 
     # Freshness floor: the capture pipeline must advance PAST the fire before settling.
     # A stall here means the post-action frame may PREDATE the action (finding #6's
@@ -373,7 +402,9 @@ def _execute(action, settle_s=1.5):
     # Smart settle (2026-07-18): proceed the moment the UI stops changing, up to settle_s.
     # seq_fn: a wedged capture must not read as a settled UI (second review #1).
     settle = wait_until_stable(ENV.cam.read, settle_s, seq_fn=lambda: ENV.cam.seq)
-    return {"stalled": stalled, "settle": settle, "noop": None}
+    hid_events = ENV.r4.drain_events() if hasattr(ENV.r4, "drain_events") else []
+    return {"stalled": stalled, "settle": settle, "noop": None,
+            "hid_events": hid_events}
 
 
 def _region_name(row, col):
@@ -461,8 +492,9 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
     exhausting the step budget). answer_text is the `answer` tool's content; "" on every
     non-finished return (stuck limit / no-progress abort / max_steps).
 
-    verify_mode / verifier (roadmap Phase 2 slice D-b, docs/PLAN_2026-07-22_phase2_
-    subgoal_verification.md): postcondition verification of the model's OWN `finished`
+    verify_mode / verifier (roadmap Phase 2 slice D-b; approved design archived at
+    _archive/docs_history/PLAN_2026-07-22_phase2_subgoal_verification.md): postcondition
+    verification of the model's OWN `finished`
     claim, by a kvm_agent.models.base.Verifier -- separate from and blind to `session`'s
     history (the whole point: it judges the pixels, not the actor's story about them).
       "off" (default): IDENTICAL to pre-D-b behavior -- verifier is never constructed or
@@ -553,6 +585,14 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                                   # the client half of the model-input contract; the
                                   # other half lives in a config outside this repo.
                                   "serving": serving}) if record else None
+    LAST["run_dir"] = getattr(recorder, "dir", None) if recorder else None
+    if recorder:
+        request_log_path = getattr(recorder, "request_log_path", None)
+        if request_log_path and hasattr(session, "request_log_path"):
+            session.request_log_path = request_log_path
+        if (request_log_path and verifier is not None
+                and hasattr(verifier, "request_log_path")):
+            verifier.request_log_path = request_log_path
     for step_i in range(max_steps):
         png, data_url = _capture_step_frames()
         LAST["png"] = png
@@ -607,6 +647,7 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
         screen_touched = False   # has any action of THIS batch touched the screen yet?
         verify_verdict = None    # this step's verdict, if its batch ends in `finished`
         verify_refused = False
+        step_hid_events = []
         for action in actions:
             kind = action.get("action")
             tool_name = session.tool_name(kind)
@@ -642,8 +683,12 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
                 # battery run at step 1 before this existed).
                 print(f"[run] step {step_i}: exec error ({e}) -- batch halted")
                 results.append((tool_name, f"Error: {e}. Remaining calls in this step were not executed."))
+                if hasattr(ENV.r4, "drain_events"):
+                    step_hid_events.extend(ENV.r4.drain_events())
                 exec_error = True
                 break
+            if exec_info:
+                step_hid_events.extend(exec_info.pop("hid_events", []))
             if kind == "update_plan":
                 results.append((tool_name, "Plan updated."))
                 continue
@@ -732,7 +777,8 @@ def run(instruction, max_steps=10, target="local", confirm_first=None, record=Tr
             recorder.log_step(step_i, png, message, step, usage, dt,
                               executed=not (exec_error or guard_refused),
                               verification=(verify_verdict.to_dict()
-                                           if verify_verdict else None))
+                                           if verify_verdict else None),
+                              tool_results=results, hid_events=step_hid_events)
 
         if step.get("note"):
             print(f"[run] note: {step['note']!r}")

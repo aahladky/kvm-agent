@@ -29,8 +29,10 @@ appliance.py (ApplianceClient) needs no changes:
                                         for why this exists.
 Every response is JSON: {"ok":bool, "ack":str, "ms":float, "cmd":str}.
 
-COMMAND LOGGING (2026-07-19): every request is appended as one JSON line to
---log (default /home/aaron/hid_bridge_commands.jsonl) -- request params, the
+COMMAND LOGGING: every daemon invocation creates
+``<runs-dir>/hid_bridge_<timestamp>/commands.jsonl`` unless ``--log`` names an
+explicit file. The default runs directory is ``/home/aaron/runs`` on the appliance.
+Each request is appended as one JSON line -- request params, the
 Pico's actual wire-level response (code/online-bits/round-trip ms, decoded via
 pikvm_proto.decode_code -- the closest thing to a genuine "did the target
 receive this" signal without installing anything on the target), and total
@@ -42,10 +44,11 @@ wire_info is None only for commands with no corresponding Pico roundtrip
 
 Run:
   python3 hid_bridge.py                 # 0.0.0.0:8080, /dev/ttyAMA0, 1920x1080
-  python3 hid_bridge.py --port 8080 --serial /dev/ttyAMA0 --screen-w 1920 --screen-h 1080 --log /home/aaron/hid_bridge_commands.jsonl
+  python3 hid_bridge.py --port 8080 --serial /dev/ttyAMA0 --screen-w 1920 --screen-h 1080
 """
 import argparse
 import json
+import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -188,6 +191,7 @@ class CommandLogger:
 
     def __init__(self, path):
         self.path = path
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         self.lock = threading.Lock()
 
     def write(self, record):
@@ -271,18 +275,24 @@ def main():
     # know what the target is actually rendering at.
     ap.add_argument("--screen-w", type=int, default=1920)
     ap.add_argument("--screen-h", type=int, default=1080)
-    ap.add_argument("--log", default="/home/aaron/hid_bridge_commands.jsonl",
-                     help="JSONL command log path (2026-07-19) -- every request + the "
-                          "Pico's actual wire-level response, appended and flushed per line")
+    ap.add_argument("--runs-dir", default="/home/aaron/runs",
+                    help="artifact root used when --log is omitted")
+    ap.add_argument("--log",
+                    help="explicit JSONL command log path; default is a fresh "
+                         "<runs-dir>/hid_bridge_<timestamp>/commands.jsonl")
     args = ap.parse_args()
 
     global CMD_LOG
-    CMD_LOG = CommandLogger(args.log)
+    log_path = args.log
+    if not log_path:
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        log_path = os.path.join(args.runs_dir, f"hid_bridge_{ts}", "commands.jsonl")
+    CMD_LOG = CommandLogger(log_path)
     SCREEN_W, SCREEN_H = args.screen_w, args.screen_h
     LINK = PicoHidLink(args.serial, args.baud, args.timeout)
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"hid_bridge (pikvm protocol) on http://{args.host}:{args.port}  "
-          f"serial={args.serial}@{args.baud}  screen={SCREEN_W}x{SCREEN_H}  log={args.log}")
+          f"serial={args.serial}@{args.baud}  screen={SCREEN_W}x{SCREEN_H}  log={log_path}")
     srv.serve_forever()
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 hid_smoke.py — first-contact test for a new physical target
-(docs/PLAN_2026-07-20_physical_target_move.md §6 step 2).
+(_archive/docs_history/PLAN_2026-07-20_physical_target_move.md §6 step 2).
 
   1. probes the appliance (BOTH HID collections must report online — the composite
      device can come up half-dead: I2, REPORT_2026-07-19_problems.md)

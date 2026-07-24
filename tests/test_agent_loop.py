@@ -388,6 +388,21 @@ def test_r2_7_prompt_recorded_in_run_folder():
         "meta.json carries the full system prompt"
 
 
+def test_recorded_step_keeps_exact_tool_output_payload():
+    def finish_now(*a, **k):
+        return ({"actions": [{"action": "finished", "text": "done"}], "note": None},
+                {"content": "{}"}, {})
+    saved = _patch_run(finish_now)
+    try:
+        al.run("x", max_steps=1, confirm_first=0, tag="t_tool_output")
+    finally:
+        _restore_run(saved)
+    kwargs = FakeRecorder.instances[-1].steps[0][1]
+    assert kwargs["tool_results"][0][0] == "answer"
+    assert "Executed." in kwargs["tool_results"][0][1]
+    assert kwargs["hid_events"] == []
+
+
 # --- second review #2: exec errors must count against STUCK_LIMIT and reach the model ---
 def test_r2_2_exec_errors_count_and_reach_the_model():
     """The exec-error stuck-abort was dead code (stuck reset on every parsed step),
@@ -737,7 +752,7 @@ def test_guard_survives_leading_update_plan():
 
 
 # --- roadmap Phase 2 slice D-b: shadow verification wiring ---
-# docs/PLAN_2026-07-22_phase2_subgoal_verification.md. verify_mode="off" (the default)
+# _archive/docs_history/PLAN_2026-07-22_phase2_subgoal_verification.md. verify_mode="off" (the default)
 # must be provably identical to pre-D-b run(): same control flow, same EXACT return
 # dict, verifier never constructed or touched. "shadow" must record a verdict without
 # changing anything about how the run proceeds or concludes.

@@ -272,19 +272,15 @@ def _request_artifact(spec: dict, data_url: str, timeout_s: float) -> dict:
 def _live_decide(case_dir: Path, data_url: str, instruction: str,
                  timeout_s: float) -> StepDecision:
     """One fresh production session, with its actual wire log kept beside the case."""
-    previous_path = holo.REQUEST_LOG.path
-    holo.REQUEST_LOG.path = str(case_dir / "wire.jsonl")
-    try:
-        call_fn = partial(holo.call_holo_full, timeout_s=timeout_s)
-        session = holo.HoloSession(
-            target="local",
-            max_history_images=CFG.holo_history_images,
-            call_fn=call_fn,
-        )
-        session.reset()
-        return session.decide(data_url, WIDTH, HEIGHT, instruction)
-    finally:
-        holo.REQUEST_LOG.path = previous_path
+    call_fn = partial(holo.call_holo_full, timeout_s=timeout_s)
+    session = holo.HoloSession(
+        target="local",
+        max_history_images=CFG.holo_history_images,
+        call_fn=call_fn,
+        request_log_path=str(case_dir / "wire.jsonl"),
+    )
+    session.reset()
+    return session.decide(data_url, WIDTH, HEIGHT, instruction)
 
 
 def _serving_failures(snapshot: dict) -> list[str]:

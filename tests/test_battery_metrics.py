@@ -2,7 +2,7 @@
 test_battery_metrics.py — OFFLINE tests for tools/battery_metrics.py's aggregation
 logic (roadmap Phase 2 slice D-b). A synthetic runs/ tree, no real battery needed.
 
-Numbers here are cross-checked in docs/SESSION_2026-07-23_phase2_slice_d_b_*.md
+Numbers here are cross-checked in _archive/docs_history/SESSION_2026-07-23_phase2_slice_d_b_*.md
 against the ACTUAL archive (runs/battery_20260722_222137/ etc.) -- this file only
 protects the pure aggregation math against regression.
 

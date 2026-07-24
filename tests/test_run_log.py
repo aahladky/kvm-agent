@@ -56,6 +56,26 @@ def test_summary_actions_legacy_and_empty():
         "zero-step run summarizes cleanly"
 
 
+def test_step_keeps_tool_results_hid_responses_and_run_owned_request_path():
+    with tempfile.TemporaryDirectory() as td:
+        rec = _recorder(td)
+        assert rec.request_log_path == os.path.join(rec.dir, "model_requests.jsonl")
+        rec.log_step(
+            0, b"png", {"content": "{}"},
+            {"actions": [{"action": "left_click"}]}, {}, 0.1,
+            tool_results=[("click_desktop", "Executed. Screen changed.")],
+            hid_events=[{
+                "path": "/hid/click", "ok": True,
+                "response": {"ack": "C", "wire": {"kbd_online": True}},
+            }])
+        with open(os.path.join(rec.dir, "step_00.json")) as f:
+            step = json.load(f)
+    assert step["tool_results"] == [
+        {"tool": "click_desktop", "text": "Executed. Screen changed."}
+    ]
+    assert step["hid_events"][0]["response"]["wire"]["kbd_online"] is True
+
+
 # --- roadmap Phase 2 slice D-b: verification threading ---
 def test_summary_verifications_default_to_none_when_absent():
     """The overwhelming majority of steps carry no verification at all (D-b only

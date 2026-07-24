@@ -5,7 +5,9 @@ touching anything. ★★★
 
 - Current state, architecture, repo layout: PROJECT_STATE.md
 - Direction: docs/ROADMAP.md
-- Dated evidence: docs/PLAN_* SESSION_* FINDINGS_* REPORT_* (newest first)
+- Native prompt assets: docs/native/
+- Approved plans and historical narratives: _archive/docs_history/
+- Executable evidence: runs/
 
 This file is deliberately a pointer (AGENTS.md §6): content lives in AGENTS.md
 and PROJECT_STATE.md; tool-named files stay a few lines, enforced by

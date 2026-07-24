@@ -1,6 +1,6 @@
 """
 test_verifier.py — OFFLINE tests for the postcondition oracle (roadmap Phase 2,
-docs/PLAN_2026-07-22_phase2_subgoal_verification.md slice D-a):
+_archive/docs_history/PLAN_2026-07-22_phase2_subgoal_verification.md slice D-a):
 kvm_agent.models.base.{Verdict, Verifier} and kvm_agent.models.holo.{parse_verdict,
 verify_message, HoloVerifier}.
 
@@ -35,11 +35,6 @@ class _NullLog:
 
     def write(self, record):
         self.records.append(record)
-
-    @staticmethod
-    def _redact(messages):
-        return messages
-
 
 def _msg(payload):
     """An assistant message the way model_dump() delivers it: content is a JSON STRING."""

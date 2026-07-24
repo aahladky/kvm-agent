@@ -96,11 +96,16 @@ Format contract (structured output, response_format=json_schema):
 """
 from __future__ import annotations
 
+import base64
+import copy
+import hashlib
 import json
 import logging
 import os
 import threading
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from kvm_agent.config import CFG
@@ -114,38 +119,79 @@ NATIVE_PROMPT_PATH = REPO_ROOT / "docs" / "native" / "local-desktop-2026-06-12.j
 
 
 class _RequestLog:
-    """Append-only JSONL log of every actual request/response to the model (ported from
-    the superseded branch 2026-07-19; before it, NOTHING captured the outgoing request, so
-    whether the system prompt/schema were correctly constructed for a given step could not
-    be verified after the fact). image_url data URIs are redacted to a byte count -- the
-    actual pixels are separately available via RunRecorder's saved step_NN.png."""
+    """Append-only JSONL log of every actual model request/response.
+
+    Recorded agent runs bind this logger to ``<run>/model_requests.jsonl`` so the exact
+    request, model-input image bytes, response, parser result, and matching evidence PNG
+    stay together.
+    Unbound one-shot calls get a fresh ``runs/model_request_<timestamp>/`` directory
+    instead of leaking into a shared catch-all log. Image data URIs become references
+    to content-addressed files beside the log.
+    """
 
     def __init__(self, path=None):
-        self.path = path or os.path.join(CFG.logs_dir, "holo_requests.jsonl")
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        self.path = path
+        self._bound_path: ContextVar[str | None] = ContextVar(
+            f"holo_request_log_{id(self)}", default=None)
         self.lock = threading.Lock()
 
+    @contextmanager
+    def bind(self, path: str | None):
+        """Route writes in this context to one run-owned JSONL file."""
+        token = self._bound_path.set(path)
+        try:
+            yield
+        finally:
+            self._bound_path.reset(token)
+
+    def _path_for_write(self) -> str:
+        path = self._bound_path.get() or self.path
+        if path:
+            return path
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        run_dir = os.path.join(
+            CFG.runs_dir,
+            f"model_request_{time.time_ns() % 1_000_000_000:09d}_{ts}")
+        os.makedirs(run_dir, exist_ok=False)
+        return os.path.join(run_dir, "model_requests.jsonl")
+
     @staticmethod
-    def _redact(messages):
-        out = []
-        for m in messages:
-            content = m.get("content")
-            if isinstance(content, list):
-                content = [
-                    ({**c, "image_url": {"url": f"<redacted, {len(c['image_url']['url'])} chars>"}}
-                     if c.get("type") == "image_url" else c)
-                    for c in content
-                ]
-                out.append({**m, "content": content})
-            else:
-                out.append(m)
+    def _archive_images(messages, directory: str):
+        """Copy messages and replace data URLs with content-addressed run-local files."""
+        out = copy.deepcopy(messages)
+        for message in out:
+            content = message.get("content")
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                image = part.get("image_url") if isinstance(part, dict) else None
+                url = image.get("url") if isinstance(image, dict) else None
+                if not isinstance(url, str) or not url.startswith("data:image/"):
+                    continue
+                header, encoded = url.split(",", 1)
+                raw = base64.b64decode(encoded)
+                digest = hashlib.sha256(raw).hexdigest()
+                ext = "png" if "image/png" in header else "jpg"
+                name = f"model_input_{digest}.{ext}"
+                image_path = os.path.join(directory, name)
+                if not os.path.exists(image_path):
+                    with open(image_path, "wb") as f:
+                        f.write(raw)
+                image["url"] = (
+                    f"<saved {name}; sha256={digest}; encoded_chars={len(url)}>")
         return out
 
     def write(self, record):
+        path = self._path_for_write()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        record = dict(record)
+        if isinstance(record.get("messages"), list):
+            record["messages"] = self._archive_images(
+                record["messages"], os.path.dirname(path))
         record["ts"] = time.time()
         line = json.dumps(record)
         with self.lock:
-            with open(self.path, "a") as f:
+            with open(path, "a") as f:
                 f.write(line + "\n")
                 f.flush()
 
@@ -395,7 +441,7 @@ dropped_actions = DroppedActionCounter()
 
 
 def project_point(raw_x: float, raw_y: float, image_w: int, image_h: int) -> list[float]:
-    """[0,1000]-normalized -> screen pixels. See docs/FORMAT_NOTES_holo.md for the
+    """[0,1000]-normalized -> screen pixels. See _archive/docs_history/FORMAT_NOTES_holo.md for the
     empirical verification (0-17.5px error at every corner/edge of a 1920x1080 calibration
     image). image_w/h here is the PROJECTION BASIS (the real screen the HID moves on),
     not the model-input image -- the model input is a uniform downscale of the same
@@ -409,7 +455,7 @@ def _scalar(v):
     Observed on the hosted reference API (never locally, across 80 local reps in the
     bring-up's ground_probe.py): x/y sometimes come back as a [min, max] range list
     instead of a scalar, despite the schema declaring "type": "integer". Take the
-    midpoint rather than crash or silently drop -- see docs/FORMAT_NOTES_holo.md
+    midpoint rather than crash or silently drop -- see _archive/docs_history/FORMAT_NOTES_holo.md
     "hosted vs local" section. Local (llama.cpp/B70) has never shown this.
 
     Shape-guarded (2026-07-21 review P1-10): anything OTHER than a scalar, a
@@ -625,7 +671,7 @@ def call_holo_full(instruction: str, image_data_url: str, image_w: int, image_h:
             },
         )
     except Exception as e:
-        REQUEST_LOG.write({"target": target, "model": model, "messages": REQUEST_LOG._redact(messages),
+        REQUEST_LOG.write({"target": target, "model": model, "messages": messages,
                            "response_format": RESPONSE_SCHEMA, "temperature": temperature,
                            "enable_thinking": enable_thinking, "timeout_s": timeout_s,
                            "error": str(e),
@@ -639,7 +685,7 @@ def call_holo_full(instruction: str, image_data_url: str, image_w: int, image_h:
                        "JSON likely truncated; will surface as a dropped step")
     step = parse_response(message, image_w, image_h)
     usage = resp.usage.model_dump() if resp.usage else {}
-    REQUEST_LOG.write({"target": target, "model": model, "messages": REQUEST_LOG._redact(messages),
+    REQUEST_LOG.write({"target": target, "model": model, "messages": messages,
                        "response_format": RESPONSE_SCHEMA, "temperature": temperature,
                        "enable_thinking": enable_thinking, "timeout_s": timeout_s,
                        "response_message": message,
@@ -778,7 +824,7 @@ def call_holo_verify(image_data_url: str, question: str, claim: str = "",
     base_url, model, api_key = _target_config(target)
     messages = verify_message(image_data_url, question, claim)
     log = {"kind": "verify", "target": target, "model": model,
-           "messages": REQUEST_LOG._redact(messages), "question": question, "claim": claim,
+           "messages": messages, "question": question, "claim": claim,
            "response_format": VERIFY_SCHEMA, "temperature": temperature}
     t0 = time.time()
     try:
@@ -843,16 +889,19 @@ class HoloVerifier:
     for a scripted oracle without touching the endpoint.
     """
 
-    def __init__(self, target: str = "local", call_fn=None):
+    def __init__(self, target: str = "local", call_fn=None,
+                 request_log_path: str | None = None):
         self.target = target
         self._call_fn = call_fn or call_holo_verify
+        self.request_log_path = request_log_path
 
     def check(self, data_url: str, w: int, h: int, question: str,
               claim: str = "") -> Verdict:
         # w/h are in the Protocol for parity with decide() and are genuinely unused here:
         # a verdict has no coordinates, so there is no projection basis to honour. Taking
         # them anyway keeps every model-facing call in this harness one shape.
-        return self._call_fn(data_url, question, claim=claim, target=self.target)
+        with REQUEST_LOG.bind(self.request_log_path):
+            return self._call_fn(data_url, question, claim=claim, target=self.target)
 
 
 # Our normalized action kind -> native's tool_name vocabulary. Was inline in
@@ -883,19 +932,21 @@ class HoloSession:
     """
 
     def __init__(self, target: str = "local", max_history_images: int = 3,
-                 call_fn=None):
+                 call_fn=None, request_log_path: str | None = None):
         self.target = target
         self.max_history_images = max_history_images
         self._call_fn = call_fn or call_holo_full
+        self.request_log_path = request_log_path
         self.history: list[dict] = []
 
     def reset(self) -> None:
         self.history = []
 
     def decide(self, data_url: str, w: int, h: int, instruction: str) -> StepDecision:
-        step, message, usage = self._call_fn(
-            instruction, data_url, w, h, target=self.target, history=self.history,
-            max_history_images=self.max_history_images)
+        with REQUEST_LOG.bind(self.request_log_path):
+            step, message, usage = self._call_fn(
+                instruction, data_url, w, h, target=self.target, history=self.history,
+                max_history_images=self.max_history_images)
         return StepDecision(step=step, message=message, usage=usage,
                             data_url=data_url, instruction=instruction)
 

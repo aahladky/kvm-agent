@@ -1,7 +1,7 @@
 """
 test_pikvm_proto_retry.py — OFFLINE tests for pikvm_proto.PicoHidLink's host-side
 retry logic (roadmap Phase 0 firmware hardening, docs/ROADMAP.md; the plan's Slice B,
-docs/PLAN_2026-07-22_roadmap_alignment_slices.md Part 3): a NACK (well-framed error
+_archive/docs_history/PLAN_2026-07-22_roadmap_alignment_slices.md Part 3): a NACK (well-framed error
 code) is safe to retry for ANY command; an AMBIGUOUS failure (no/garbled response)
 only retries IDEMPOTENT commands, never CMD_MOUSE_WHEEL (relative delta -- a spurious
 retry could double-scroll). Fake serial, no hardware.

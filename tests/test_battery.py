@@ -180,6 +180,8 @@ def test_d_c_cli_defaults_to_gate_and_validates_unattended_contract():
     assert args.spot_check_pct == 0
     args = battery.parse_args(["tasks.json", "--reset-strategy", "cleanup"])
     assert args.reset_strategy == "cleanup" and args.spot_check_pct == 10
+    args = battery.parse_args(["tasks.json", "--task-id", "rename_commit_chain"])
+    assert args.task_id == "rename_commit_chain"
     try:
         battery.parse_args(["tasks.json", "off"])
     except SystemExit:
