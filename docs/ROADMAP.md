@@ -213,10 +213,13 @@ Track (you already log most of this): *[correction 2026-07-22: "most" = steps, c
 4. **The second-card question** — is it an AI card or a media card? **ANSWERED 2026-07-23** (and the card itself corrected — see §3: it's a B580, not an A770): effectively an AI card. Its actual media workload is a transcode roughly once a month, not a real claim on it, and uptime/24-7 availability isn't a near-term concern for this project. Free for Phase 5's grounder/verifier role whenever measurement calls for it; no layout decision is forced by contention.
 5. **Phase 2 — subgoal unit + independent verification.** **D-a, D-b, and D-c are
    implemented 2026-07-23** (`docs/PLAN_2026-07-22_phase2_subgoal_verification.md`).
-   D-c's control flow is offline-validated; its next evidence is the controlled
-   model/harness integration work below. **D-d remains deferred** until targeted,
-   trustworthy evidence demonstrates the confident-wrong progression failure it is
-   meant to solve.
+   D-c is accepted on decomposed evidence: D-b exercised the real verifier on live
+   frames, D-c's gate control flow is offline-tested, and the controlled integration
+   slices below exercise the real model seam and physical actor loop. No single run
+   composes all three, and none is claimed to; the old extended-battery follow-up is
+   retired rather than rebuilt as another unreliable gate. **D-d remains deferred**
+   until targeted, trustworthy evidence demonstrates the confident-wrong progression
+   failure it is meant to solve.
 6. **Model/harness integration calibration.** **DONE 2026-07-23 — SLICE A
    LIVE-VALIDATED 4/4; SLICE B LIVE-VALIDATED in one five-step, 77.2-second run.**
    Four fixed frames cover the real production model seam. One deterministic static

@@ -308,7 +308,7 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   mode. Evidence:
   `docs/SESSION_2026-07-23_phase2_slice_d_b_rig_results.md`.
 - **Roadmap Phase 2, slice D-c — terminal gate + automated grading (2026-07-23,
-  CODE-COMPLETE/OFFLINE-VALIDATED; CONTROLLED INTEGRATION SMOKE PENDING):**
+  CODE-COMPLETE; ACCEPTED ON DECOMPOSED INTEGRATION EVIDENCE):**
   `verify_mode="gate"` accepts only
   `satisfied=True`; False and None refuse the model's `finished` claim, thread the
   oracle evidence back through `<tool_output>`, and continue. Three refusals terminate
@@ -320,6 +320,16 @@ Data (untracked, gitignored, physically outside the repo since 2026-07-20):
   batteries' full denominator. 165 tests pass. Evidence:
   `runs/d_c_offline_20260723_104436/pytest.txt`,
   `docs/SESSION_2026-07-23_phase2_slice_d_c_gates.md`.
+  The old follow-up requirement for another extended physical battery is retired by
+  the 2026-07-23 testing-method correction. D-b already exercised the real verifier on
+  live frames (0/9 false refusals); D-c's fail-closed accept/refuse/continue control
+  flow is covered offline; Slice A exercises the real session/request/parser seam; and
+  Slice B exercises the real capture→actor→HID→capture→finished path. Slice B
+  intentionally leaves `verify_mode="off"` so the calibration's truth is deterministic
+  captured pixels, not another model grader. This is honest decomposed evidence, not a
+  claim that one run composed every mechanism simultaneously. A future escaped gate
+  defect gets a minimal controlled regression case; it does not resurrect the broad
+  battery as a release gate.
 - **GNOME evaluation-session reset (2026-07-23, ACCEPTED ON COMPONENT EVIDENCE):**
   the warm-reboot path is unsuitable on this laptop because
   it can leave the network adapter offline, while a full shutdown/boot is manual and
